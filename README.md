@@ -1,23 +1,31 @@
-# ILLUMYX App - Version 1.0
+# ⚡ Project Neon Guardian
 
-Welcome to the official ILLUMYX App ✨  
-Created by **Aaron Paszek** (ILLUMYX).
+> Keeping your iPhone safe with glowing shields and style.
 
-## 🔧 How to Run
-### Windows
-1. Double-click `RunMe.bat`
-2. App launches automatically
+---
 
-### Mac/Linux
-1. Run `chmod +x RunMe.sh`
-2. Then `./RunMe.sh`
+![Banner](./badges/banner.png)
 
-## 📦 Build Instructions
-If you want to rebuild:
-```
-pip install pyinstaller
-pyinstaller --onefile main.py
-```
+---
 
-## 💡 Notes
-This is Version 1 — stylish, simple, and ready to ship 🚀
+## 🚨 Current Status
+![Activity](./badges/current.svg)  
+![Build Status](./badges/build-current.png)  
+![Deploy Spinner](./badges/spinner.svg)
+
+---
+
+## 📊 Activity Timeline
+![Activity Chart](./badges/activity-timeline.svg)
+
+---
+
+## 🛡 Build/Test History
+![Pass](./badges/build-pass.png) 
+![Fail](./badges/build-fail.png) 
+![Warning](./badges/build-warning.png)
+
+---
+
+<!-- 🎉 Easter Egg -->
+<!-- ![Secret Badge](./badges/konami-secret.svg) -->
