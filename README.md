@@ -1,31 +1,26 @@
-# ⚡ Project Neon Guardian
+# YourApp v1 ⚡
 
-> Keeping your iPhone safe with glowing shields and style.
+## Versions
+- **YourApp-UI** → Clickable app with GUI (Tkinter)
+- **YourApp-CLI** → Lightweight command-line version
 
----
+## Build Instructions
+1. Install requirements:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Run build script:
+   - Windows: `build.bat`
+   - macOS/Linux: `bash build.sh`
 
-![Banner](./badges/banner.png)
+## Pricing
+- Pricing is stored in **encrypted format** (`pricing.json`).  
+- Update via:  
+  ```bash
+  python encrypt_pricing.py
+  ```
 
----
-
-## 🚨 Current Status
-![Activity](./badges/current.svg)  
-![Build Status](./badges/build-current.png)  
-![Deploy Spinner](./badges/spinner.svg)
-
----
-
-## 📊 Activity Timeline
-![Activity Chart](./badges/activity-timeline.svg)
-
----
-
-## 🛡 Build/Test History
-![Pass](./badges/build-pass.png) 
-![Fail](./badges/build-fail.png) 
-![Warning](./badges/build-warning.png)
-
----
-
-<!-- 🎉 Easter Egg -->
-<!-- ![Secret Badge](./badges/konami-secret.svg) -->
+## Next Steps
+- Test locally
+- Package installers
+- Deploy to stores (Play Store, App Store, etc.)
