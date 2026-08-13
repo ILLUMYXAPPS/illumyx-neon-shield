@@ -1,26 +1,32 @@
-# YourApp v1 ⚡
+# ILLUMYX NEON SHIELD v2 🛡️⚡
 
-## Versions
-- **YourApp-UI** → Clickable app with GUI (Tkinter)
-- **YourApp-CLI** → Lightweight command-line version
+A lightweight local device-status dashboard written in Python.
 
-## Build Instructions
-1. Install requirements:
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. Run build script:
-   - Windows: `build.bat`
-   - macOS/Linux: `bash build.sh`
+## Current v2 features
 
-## Pricing
-- Pricing is stored in **encrypted format** (`pricing.json`).  
-- Update via:  
-  ```bash
-  python encrypt_pricing.py
-  ```
+- Redesigned ILLUMYX Neon Shield desktop interface
+- Local device and operating-system information
+- Python runtime information
+- Available disk-space status
+- Local hostname display
+- On-demand refresh with timestamp
 
-## Next Steps
-- Test locally
-- Package installers
-- Deploy to stores (Play Store, App Store, etc.)
+## Privacy
+
+The dashboard operates locally. The current version does not collect credentials or send the displayed device information to a remote service.
+
+## Run
+
+Python 3 with Tkinter is required.
+
+```bash
+python app_ui.py
+```
+
+## Roadmap
+
+Future versions can add more local device-health checks, operating-system maintenance reminders, exportable reports, and clearer recommendations.
+
+## Project status
+
+**v2 starter dashboard**: functional local status interface, ready for testing and incremental improvements.
