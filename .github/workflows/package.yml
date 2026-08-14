@@ -1,0 +1,60 @@
+name: Neon Shield Desktop Builds
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "app_ui.py"
+      - "security_checks.py"
+      - "NeonShield.spec"
+      - "requirements-build.txt"
+      - ".github/workflows/package.yml"
+  push:
+    branches: [main, "agent/**"]
+    paths:
+      - "app_ui.py"
+      - "security_checks.py"
+      - "NeonShield.spec"
+      - "requirements-build.txt"
+      - ".github/workflows/package.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: ILLUMYX-Neon-Shield-Windows
+          - os: macos-latest
+            artifact: ILLUMYX-Neon-Shield-macOS
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip -r requirements-build.txt
+
+      - name: Compile source
+        run: python -m compileall -q app_ui.py security_checks.py
+
+      - name: Build desktop executable
+        run: pyinstaller --clean --noconfirm NeonShield.spec
+
+      - name: Upload packaged app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/**
+          if-no-files-found: error
