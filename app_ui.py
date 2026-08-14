@@ -2,7 +2,7 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import ttk
 
-from security_checks import run_local_checks
+from security_checks import CheckResult, run_local_checks
 
 APP_NAME = "ILLUMYX NEON SHIELD v2"
 BG = "#080b16"
@@ -12,7 +12,6 @@ TEXT = "#f4f7ff"
 MUTED = "#9aa7c2"
 NEON = "#33f5c5"
 WARN = "#ffcc66"
-DANGER = "#ff6b7a"
 
 
 class NeonShield(tk.Tk):
@@ -29,20 +28,10 @@ class NeonShield(tk.Tk):
         header = tk.Frame(self, bg=BG)
         header.pack(fill="x", padx=28, pady=(24, 12))
 
-        tk.Label(
-            header,
-            text="🛡  ILLUMYX NEON SHIELD",
-            bg=BG,
-            fg=NEON,
-            font=("Arial", 25, "bold"),
-        ).pack(anchor="w")
-        tk.Label(
-            header,
-            text="v2 • Local Security Posture Dashboard",
-            bg=BG,
-            fg=TEXT,
-            font=("Arial", 13, "bold"),
-        ).pack(anchor="w", pady=(4, 0))
+        tk.Label(header, text="🛡  ILLUMYX NEON SHIELD", bg=BG, fg=NEON,
+                 font=("Arial", 25, "bold")).pack(anchor="w")
+        tk.Label(header, text="v2 • Local Security Posture Dashboard", bg=BG, fg=TEXT,
+                 font=("Arial", 13, "bold")).pack(anchor="w", pady=(4, 0))
         tk.Label(
             header,
             text=(
@@ -58,7 +47,6 @@ class NeonShield(tk.Tk):
 
         summary = tk.Frame(self, bg=BG)
         summary.pack(fill="x", padx=28, pady=(4, 10))
-
         self.summary_status = self._summary_card(summary, "OVERALL", "CHECKING", NEON)
         self.summary_ok = self._summary_card(summary, "OK", "0", NEON)
         self.summary_review = self._summary_card(summary, "REVIEW", "0", WARN)
@@ -68,22 +56,14 @@ class NeonShield(tk.Tk):
         table_frame.pack(fill="both", expand=True, padx=28, pady=8)
 
         style = ttk.Style(self)
-        style.theme_use("clam")
-        style.configure(
-            "Treeview",
-            background=PANEL,
-            fieldbackground=PANEL,
-            foreground=TEXT,
-            rowheight=36,
-            borderwidth=0,
-        )
-        style.configure(
-            "Treeview.Heading",
-            background=PANEL_ALT,
-            foreground=TEXT,
-            relief="flat",
-            font=("Arial", 10, "bold"),
-        )
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure("Treeview", background=PANEL, fieldbackground=PANEL,
+                        foreground=TEXT, rowheight=36, borderwidth=0)
+        style.configure("Treeview.Heading", background=PANEL_ALT, foreground=TEXT,
+                        relief="flat", font=("Arial", 10, "bold"))
         style.map("Treeview", background=[("selected", "#22304f")])
 
         self.table = ttk.Treeview(
@@ -103,7 +83,6 @@ class NeonShield(tk.Tk):
 
         footer = tk.Frame(self, bg=BG)
         footer.pack(fill="x", padx=28, pady=(8, 22))
-
         tk.Button(
             footer,
             text="↻  Refresh checks",
@@ -116,10 +95,8 @@ class NeonShield(tk.Tk):
             pady=9,
             font=("Arial", 10, "bold"),
         ).pack(side="left")
-
         self.timestamp = tk.Label(footer, text="", bg=BG, fg=MUTED, font=("Arial", 9))
         self.timestamp.pack(side="left", padx=14)
-
         tk.Label(
             footer,
             text="Local checks only • No credential collection • No remote scanning",
@@ -131,8 +108,10 @@ class NeonShield(tk.Tk):
     def _summary_card(self, parent, label, value, accent):
         card = tk.Frame(parent, bg=PANEL, padx=16, pady=12)
         card.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        tk.Label(card, text=label, bg=PANEL, fg=MUTED, font=("Arial", 9, "bold")).pack(anchor="w")
-        value_label = tk.Label(card, text=value, bg=PANEL, fg=accent, font=("Arial", 15, "bold"))
+        tk.Label(card, text=label, bg=PANEL, fg=MUTED,
+                 font=("Arial", 9, "bold")).pack(anchor="w")
+        value_label = tk.Label(card, text=value, bg=PANEL, fg=accent,
+                               font=("Arial", 15, "bold"))
         value_label.pack(anchor="w", pady=(3, 0))
         return value_label
 
@@ -140,33 +119,43 @@ class NeonShield(tk.Tk):
         for row in self.table.get_children():
             self.table.delete(row)
 
-        results = run_local_checks()
-        counts = {"ok": 0, "warn": 0, "info": 0}
+        try:
+            results = run_local_checks()
+        except Exception as exc:
+            results = [
+                CheckResult(
+                    "Neon Shield",
+                    "Check engine unavailable",
+                    "info",
+                    f"Refresh failed safely: {type(exc).__name__}.",
+                )
+            ]
 
+        counts = {"ok": 0, "warn": 0, "info": 0}
         for item in results:
-            counts[item.state] = counts.get(item.state, 0) + 1
-            state_label = {
-                "ok": "OK",
-                "warn": "REVIEW",
-                "info": "INFO",
-            }.get(item.state, item.state.upper())
+            state = item.state if item.state in counts else "info"
+            counts[state] += 1
+            state_label = {"ok": "OK", "warn": "REVIEW", "info": "INFO"}[state]
             self.table.insert(
                 "",
                 "end",
                 values=(item.name, item.result, state_label, item.detail),
             )
 
-        if counts.get("warn", 0):
+        if counts["warn"]:
             overall = "ACTION RECOMMENDED"
             overall_colour = WARN
+        elif not results:
+            overall = "NO CHECK RESULTS"
+            overall_colour = MUTED
         else:
             overall = "CHECKS COMPLETE"
             overall_colour = NEON
 
         self.summary_status.config(text=overall, fg=overall_colour)
-        self.summary_ok.config(text=str(counts.get("ok", 0)))
-        self.summary_review.config(text=str(counts.get("warn", 0)))
-        self.summary_info.config(text=str(counts.get("info", 0)))
+        self.summary_ok.config(text=str(counts["ok"]))
+        self.summary_review.config(text=str(counts["warn"]))
+        self.summary_info.config(text=str(counts["info"]))
         self.timestamp.config(text=f"Last refresh: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 
