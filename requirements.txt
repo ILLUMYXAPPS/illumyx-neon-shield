@@ -1,3 +1,2 @@
-tkinter
-cryptography
-pyinstaller
+# Neon Shield desktop runtime uses only the Python standard library.
+# Tkinter is supplied by the Python/OS installation and is not a pip package.
