@@ -52,7 +52,7 @@ jobs:
 
       - name: Package macOS build
         if: runner.os == 'macOS'
-        run: ditto -c -k --sequesterRsrc --keepParent dist/ILLUMYX-Neon-Shield.app ILLUMYX-Neon-Shield-macOS.zip
+        run: ditto -c -k --sequesterRsrc --keepParent dist/ILLUMYX-Neon-Shield ILLUMYX-Neon-Shield-macOS.zip
 
       - name: Upload packaged build
         uses: actions/upload-artifact@v4
