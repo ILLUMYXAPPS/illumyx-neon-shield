@@ -1,0 +1,69 @@
+name: Generate Android Upload Key
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  KEY_ALIAS: neonshield-upload
+
+jobs:
+  generate:
+    name: Generate upload keystore
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate strong random passwords
+        id: secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          STORE_PASSWORD=$(openssl rand -base64 32 | tr -d '\n' | tr '/+' '_-')
+          KEY_PASSWORD=$(openssl rand -base64 32 | tr -d '\n' | tr '/+' '_-')
+          echo "::add-mask::$STORE_PASSWORD"
+          echo "::add-mask::$KEY_PASSWORD"
+          echo "STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Generate Android upload keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair \
+            -v \
+            -keystore neon-shield-upload.jks \
+            -storetype JKS \
+            -storepass "$STORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            -keyalg RSA \
+            -keysize 4096 \
+            -validity 10000 \
+            -dname "CN=ILLUMYX Neon Shield, O=ILLUMYX, C=AU"
+
+      - name: Prepare credentials file
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYSTORE_BASE64=$(base64 -w 0 neon-shield-upload.jks)
+          cat > android-signing-credentials.txt <<EOF
+          ANDROID_KEYSTORE_PASSWORD=$STORE_PASSWORD
+          ANDROID_KEY_ALIAS=$KEY_ALIAS
+          ANDROID_KEY_PASSWORD=$KEY_PASSWORD
+          ANDROID_KEYSTORE_BASE64=$KEYSTORE_BASE64
+          EOF
+          chmod 600 android-signing-credentials.txt neon-shield-upload.jks
+
+      - name: Upload signing bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Neon-Shield-Android-Upload-Key-KEEP-PRIVATE
+          path: |
+            neon-shield-upload.jks
+            android-signing-credentials.txt
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Safety note
+        run: echo "Download the artifact immediately, store it securely, add the four values to GitHub Actions Secrets, then delete your local credentials text copy after the secrets are saved."
