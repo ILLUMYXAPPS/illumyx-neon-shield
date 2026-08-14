@@ -1,0 +1,151 @@
+name: Neon Shield Signed Mobile Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_name:
+        description: Mobile version name
+        required: true
+        default: 1.0.0-beta.1
+      build_number:
+        description: Mobile build number
+        required: true
+        default: '1'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Signed Android AAB
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android project
+        working-directory: mobile
+        run: flutter create --platforms=android --org com.illumyx --project-name illumyx_neon_shield .
+      - name: Restore Android signing key
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > mobile/android/app/neon-shield-upload.jks
+          cat > mobile/android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=neon-shield-upload.jks
+          EOF
+      - name: Configure Android release signing
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('mobile/android/app/build.gradle.kts')
+          s = p.read_text()
+          marker = 'android {'
+          signing = '''
+          import java.util.Properties
+          import java.io.FileInputStream
+
+          val keystoreProperties = Properties().apply {
+              load(FileInputStream(rootProject.file("key.properties")))
+          }
+
+          '''
+          if not s.startswith('import java.util.Properties'):
+              s = signing + s
+          s = s.replace(
+              marker,
+              marker + '''\n    signingConfigs {\n        create("release") {\n            keyAlias = keystoreProperties["keyAlias"] as String\n            keyPassword = keystoreProperties["keyPassword"] as String\n            storeFile = file(keystoreProperties["storeFile"] as String)\n            storePassword = keystoreProperties["storePassword"] as String\n        }\n    }''',
+              1,
+          )
+          s = s.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
+          p.write_text(s)
+      - name: Get dependencies
+        working-directory: mobile
+        run: flutter pub get
+      - name: Test
+        working-directory: mobile
+        run: flutter test
+      - name: Build signed Android App Bundle
+        working-directory: mobile
+        run: flutter build appbundle --release --build-name='${{ inputs.build_name }}' --build-number='${{ inputs.build_number }}'
+      - name: Upload Android AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: ILLUMYX-Neon-Shield-Android-signed
+          path: mobile/build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+  ios:
+    name: Signed iOS IPA
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate iOS project
+        working-directory: mobile
+        run: flutter create --platforms=ios --org com.illumyx --project-name illumyx_neon_shield .
+      - name: Install Apple signing certificate
+        env:
+          IOS_DISTRIBUTION_CERT_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT_BASE64 }}
+          IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+        run: |
+          test -n "$IOS_DISTRIBUTION_CERT_BASE64"
+          CERT_PATH="$RUNNER_TEMP/distribution.p12"
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          echo "$IOS_DISTRIBUTION_CERT_BASE64" | base64 --decode > "$CERT_PATH"
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$IOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/NeonShield.mobileprovision"
+      - name: Get dependencies
+        working-directory: mobile
+        run: flutter pub get
+      - name: Test
+        working-directory: mobile
+        run: flutter test
+      - name: Create App Store export options
+        working-directory: mobile
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cat > ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>stripSwiftSymbols</key><true/>
+            <key>uploadSymbols</key><true/>
+          </dict></plist>
+          EOF
+      - name: Build signed iOS IPA
+        working-directory: mobile
+        run: flutter build ipa --release --build-name='${{ inputs.build_name }}' --build-number='${{ inputs.build_number }}' --export-options-plist=ExportOptions.plist
+      - name: Upload iOS IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ILLUMYX-Neon-Shield-iOS-signed
+          path: mobile/build/ios/ipa/*.ipa
+          if-no-files-found: error
