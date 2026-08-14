@@ -1,0 +1,87 @@
+name: Release Neon Shield v2.0-beta
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/release-beta.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            asset: ILLUMYX-Neon-Shield-Windows.zip
+          - os: macos-latest
+            label: macOS
+            asset: ILLUMYX-Neon-Shield-macOS.zip
+
+    steps:
+      - name: Check out shipping commit
+        uses: actions/checkout@v4
+        with:
+          ref: cc7cc0334c45d32fc769bcc305659349fef525db
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip -r requirements-build.txt
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build desktop app
+        run: pyinstaller --clean NeonShield.spec
+
+      - name: Package Windows build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/ILLUMYX-Neon-Shield.exe -DestinationPath ILLUMYX-Neon-Shield-Windows.zip
+
+      - name: Package macOS build
+        if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent dist/ILLUMYX-Neon-Shield.app ILLUMYX-Neon-Shield-macOS.zip
+
+      - name: Upload packaged build
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.label }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    name: Publish v2.0-beta
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download packaged builds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Create beta release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.0-beta \
+            ILLUMYX-Neon-Shield-Windows.zip \
+            ILLUMYX-Neon-Shield-macOS.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --target cc7cc0334c45d32fc769bcc305659349fef525db \
+            --title "ILLUMYX Neon Shield v2.0-beta" \
+            --prerelease \
+            --notes $'ILLUMYX Neon Shield v2.0-beta\n\nFirst public beta of the redesigned local-first desktop security posture dashboard.\n\nHighlights:\n- Cyber-neon ILLUMYX desktop interface\n- Local firewall and device posture reporting\n- Windows Defender status reporting on Windows\n- Guided recommendations and local text-report export\n- Defensive, read-only checks with safe failure handling\n- Automated cross-platform tests\n- Packaged Windows and macOS builds\n\nPrivacy: Neon Shield performs local checks only. It does not collect credentials, scan remote devices, or transmit displayed device information to a remote service.\n\nBeta note: platform-specific desktop behaviour should still be tested on representative user machines before a stable release.'
