@@ -1,0 +1,72 @@
+name: Neon Shield Mobile Builds
+
+on:
+  push:
+    branches: ["agent/neon-shield-mobile-v1"]
+    paths: ["mobile/**", ".github/workflows/mobile-build.yml"]
+  pull_request:
+    paths: ["mobile/**", ".github/workflows/mobile-build.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android beta APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android platform project
+        working-directory: mobile
+        run: flutter create --platforms=android --org com.illumyx --project-name illumyx_neon_shield .
+      - name: Get dependencies
+        working-directory: mobile
+        run: flutter pub get
+      - name: Analyze
+        working-directory: mobile
+        run: flutter analyze
+      - name: Build Android APK
+        working-directory: mobile
+        run: flutter build apk --release
+      - name: Upload Android beta
+        uses: actions/upload-artifact@v4
+        with:
+          name: ILLUMYX-Neon-Shield-Android-beta
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS unsigned beta
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate iOS platform project
+        working-directory: mobile
+        run: flutter create --platforms=ios --org com.illumyx --project-name illumyx_neon_shield .
+      - name: Get dependencies
+        working-directory: mobile
+        run: flutter pub get
+      - name: Analyze
+        working-directory: mobile
+        run: flutter analyze
+      - name: Build unsigned iOS app
+        working-directory: mobile
+        run: flutter build ios --release --no-codesign
+      - name: Package unsigned iOS app
+        working-directory: mobile
+        run: ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app ILLUMYX-Neon-Shield-iOS-unsigned.zip
+      - name: Upload iOS beta
+        uses: actions/upload-artifact@v4
+        with:
+          name: ILLUMYX-Neon-Shield-iOS-unsigned-beta
+          path: mobile/ILLUMYX-Neon-Shield-iOS-unsigned.zip
+          if-no-files-found: error
