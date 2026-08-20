@@ -3,9 +3,9 @@ name: Neon Shield Mobile Builds
 on:
   push:
     branches: ["main", "agent/neon-shield-mobile-v1"]
-    paths: ["mobile/**", ".github/workflows/mobile-build.yml"]
+    paths: ["mobile/**", ".github/workflows/mobile-build.yml", ".github/workflows/mobile-signed-release.yml"]
   pull_request:
-    paths: ["mobile/**", ".github/workflows/mobile-build.yml"]
+    paths: ["mobile/**", ".github/workflows/mobile-build.yml", ".github/workflows/mobile-signed-release.yml"]
   workflow_dispatch:
 
 permissions:
