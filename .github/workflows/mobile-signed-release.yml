@@ -28,7 +28,7 @@ jobs:
       - name: Generate Android project
         working-directory: mobile
         run: flutter create --platforms=android --org com.illumyx --project-name illumyx_neon_shield .
-      - name: Restore Android signing key
+      - name: Validate Android signing inputs
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -37,6 +37,17 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+      - name: Restore Android signing key
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > mobile/android/app/neon-shield-upload.jks
           cat > mobile/android/key.properties <<EOF
           storePassword=$ANDROID_KEYSTORE_PASSWORD
@@ -62,11 +73,12 @@ jobs:
           '''
           if not s.startswith('import java.util.Properties'):
               s = signing + s
-          s = s.replace(
-              marker,
-              marker + '''\n    signingConfigs {\n        create("release") {\n            keyAlias = keystoreProperties["keyAlias"] as String\n            keyPassword = keystoreProperties["keyPassword"] as String\n            storeFile = file(keystoreProperties["storeFile"] as String)\n            storePassword = keystoreProperties["storePassword"] as String\n        }\n    }''',
-              1,
-          )
+          if 'create("release")' not in s:
+              s = s.replace(
+                  marker,
+                  marker + '''\n    signingConfigs {\n        create("release") {\n            keyAlias = keystoreProperties["keyAlias"] as String\n            keyPassword = keystoreProperties["keyPassword"] as String\n            storeFile = file(keystoreProperties["storeFile"] as String)\n            storePassword = keystoreProperties["storePassword"] as String\n        }\n    }''',
+                  1,
+              )
           s = s.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
           p.write_text(s)
       - name: Get dependencies
@@ -78,12 +90,19 @@ jobs:
       - name: Build signed Android App Bundle
         working-directory: mobile
         run: flutter build appbundle --release --build-name='${{ inputs.build_name }}' --build-number='${{ inputs.build_number }}'
+      - name: Verify Android artifact
+        shell: bash
+        run: test -s mobile/build/app/outputs/bundle/release/app-release.aab
       - name: Upload Android AAB
         uses: actions/upload-artifact@v4
         with:
           name: ILLUMYX-Neon-Shield-Android-signed
           path: mobile/build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+      - name: Remove Android signing material
+        if: always()
+        shell: bash
+        run: rm -f mobile/android/key.properties mobile/android/app/neon-shield-upload.jks
 
   ios:
     name: Signed iOS IPA
@@ -97,6 +116,20 @@ jobs:
       - name: Generate iOS project
         working-directory: mobile
         run: flutter create --platforms=ios --org com.illumyx --project-name illumyx_neon_shield .
+      - name: Validate Apple signing inputs
+        shell: bash
+        env:
+          IOS_DISTRIBUTION_CERT_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT_BASE64 }}
+          IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          test -n "$IOS_DISTRIBUTION_CERT_BASE64"
+          test -n "$IOS_CERT_PASSWORD"
+          test -n "$IOS_PROVISIONING_PROFILE_BASE64"
+          test -n "$IOS_KEYCHAIN_PASSWORD"
+          test -n "$APPLE_TEAM_ID"
       - name: Install Apple signing certificate
         env:
           IOS_DISTRIBUTION_CERT_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT_BASE64 }}
@@ -104,7 +137,7 @@ jobs:
           IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
         run: |
-          test -n "$IOS_DISTRIBUTION_CERT_BASE64"
+          set -euo pipefail
           CERT_PATH="$RUNNER_TEMP/distribution.p12"
           PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
@@ -143,9 +176,19 @@ jobs:
       - name: Build signed iOS IPA
         working-directory: mobile
         run: flutter build ipa --release --build-name='${{ inputs.build_name }}' --build-number='${{ inputs.build_number }}' --export-options-plist=ExportOptions.plist
+      - name: Verify iOS artifact
+        shell: bash
+        run: test -s mobile/build/ios/ipa/*.ipa
       - name: Upload iOS IPA
         uses: actions/upload-artifact@v4
         with:
           name: ILLUMYX-Neon-Shield-iOS-signed
           path: mobile/build/ios/ipa/*.ipa
           if-no-files-found: error
+      - name: Remove Apple signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f mobile/ExportOptions.plist
+          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/NeonShield.mobileprovision"
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
