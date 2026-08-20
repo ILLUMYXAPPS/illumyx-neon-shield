@@ -1,8 +1,7 @@
 """Local-first access-control primitives for Neon Shield.
 
-This module intentionally does not provide remote ownership changes. Ownership
-state can only be initialized explicitly and security-sensitive mutations
-require the existing owner identity to be presented for every operation.
+Ownership state can only be initialized explicitly and security-sensitive
+mutations require the existing owner identity for every operation.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ class AuditEvent:
 
 @dataclass
 class AccessControl:
-    """Small deterministic policy engine suitable for local integration tests."""
+    """Deterministic local policy engine for security-sensitive state."""
 
     owner_token_hash: str | None = None
     trusted_device_ids: set[str] = field(default_factory=set)
@@ -41,6 +40,8 @@ class AccessControl:
     def hash_owner_token(token: str, salt: bytes) -> str:
         if not token:
             raise ValueError("owner token must not be empty")
+        if not salt:
+            raise ValueError("salt must not be empty")
         return sha256(salt + token.encode("utf-8")).hexdigest()
 
     def initialize_owner(self, token: str, salt: bytes) -> None:
@@ -54,7 +55,10 @@ class AccessControl:
     def verify_owner(self, token: str, salt: bytes) -> bool:
         if self.owner_token_hash is None:
             return False
-        candidate = self.hash_owner_token(token, salt)
+        try:
+            candidate = self.hash_owner_token(token, salt)
+        except ValueError:
+            return False
         return hmac.compare_digest(candidate, self.owner_token_hash)
 
     def add_trusted_device(self, actor_token: str, salt: bytes, device_id: str) -> None:
