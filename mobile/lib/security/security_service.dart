@@ -2,6 +2,8 @@ import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'access_blocklist.dart';
+
 class SecuritySnapshot {
   const SecuritySnapshot({
     required this.ownerInitialized,
@@ -75,7 +77,26 @@ class SecurityService {
     }
   }
 
-  bool isTrustedDevice(String deviceId) => _trustedDevices.contains(deviceId.trim());
+  bool isTrustedDevice(String deviceId) =>
+      _trustedDevices.contains(deviceId.trim());
+
+  /// Returns true only when the persisted security state is loaded, ownership
+  /// is initialized, the device is trusted, and the supplied phone identity
+  /// is not on the privacy-preserving denylist.
+  ///
+  /// This is the final client-side access decision available to the current
+  /// beta. A real authentication/backend service must repeat the same policy
+  /// before issuing a session or token because a modified client can bypass
+  /// client-side checks.
+  bool canAuthorize({
+    required String deviceId,
+    required String phoneNumber,
+  }) {
+    if (!_loaded || !_ownerInitialized) return false;
+    if (!isTrustedDevice(deviceId)) return false;
+    if (AccessBlocklist.isBlockedPhone(phoneNumber)) return false;
+    return true;
+  }
 
   String generateBootstrapIdentifier() {
     final random = Random.secure();
