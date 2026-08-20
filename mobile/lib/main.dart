@@ -44,7 +44,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
   String device = 'Checking device…';
   String network = 'Checking network…';
   String platformStatus = 'Checking platform…';
-  String securityStatus = 'Security policy ready';
+  String securityStatus = 'Loading security state…';
 
   @override
   void initState() {
@@ -55,6 +55,17 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
   Future<void> refresh() async {
     if (!mounted) return;
     setState(() => loading = true);
+
+    try {
+      await security.load();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        securityStatus = 'Security state unavailable';
+        loading = false;
+      });
+      return;
+    }
 
     final info = DeviceInfoPlugin();
     final wifi = NetworkInfo();
