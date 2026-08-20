@@ -1,6 +1,6 @@
 import unittest
 
-from access_control import AccessControl, generate_owner_secret
+from .access_control import AccessControl, generate_owner_secret
 
 
 class AccessControlTests(unittest.TestCase):
