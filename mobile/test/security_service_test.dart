@@ -68,4 +68,68 @@ void main() {
     expect(service.snapshot().trustedDeviceCount, 0);
     expect(service.isTrustedDevice('device-a'), isFalse);
   });
+
+  test('denies authorization until persisted security state is loaded', () {
+    final service = SecurityService();
+
+    expect(
+      service.canAuthorize(
+        deviceId: 'device-a',
+        phoneNumber: '0400000000',
+      ),
+      isFalse,
+    );
+  });
+
+  test('allows an initialized trusted device with an unblocked identity', () async {
+    final service = SecurityService();
+    await service.load();
+    await service.initializeOwner();
+    await service.addTrustedDevice('device-a');
+
+    expect(
+      service.canAuthorize(
+        deviceId: 'device-a',
+        phoneNumber: '0400000000',
+      ),
+      isTrue,
+    );
+  });
+
+  test('denies a blocked phone identity even on a trusted device', () async {
+    final service = SecurityService();
+    await service.load();
+    await service.initializeOwner();
+    await service.addTrustedDevice('device-a');
+
+    expect(
+      service.canAuthorize(
+        deviceId: 'device-a',
+        phoneNumber: '0422122753',
+      ),
+      isFalse,
+    );
+    expect(
+      service.canAuthorize(
+        deviceId: 'device-a',
+        phoneNumber: '+61 427 488 809',
+      ),
+      isFalse,
+    );
+  });
+
+  test('denies an untrusted device even with an unblocked identity', () async {
+    final service = SecurityService();
+    await service.load();
+    await service.initializeOwner();
+    await service.addTrustedDevice('device-a');
+
+    expect(
+      service.canAuthorize(
+        deviceId: 'unknown-device',
+        phoneNumber: '0400000000',
+      ),
+      isFalse,
+    );
+  });
 }
