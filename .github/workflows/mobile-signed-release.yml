@@ -28,6 +28,12 @@ jobs:
       - name: Generate Android project
         working-directory: mobile
         run: flutter create --platforms=android --org com.illumyx --project-name illumyx_neon_shield .
+      - name: Validate Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f mobile/android/app/build.gradle.kts
+          grep -q 'com.illumyx.illumyx_neon_shield' mobile/android/app/build.gradle.kts
       - name: Validate Android signing inputs
         shell: bash
         env:
@@ -36,6 +42,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           test -n "$ANDROID_KEYSTORE_BASE64"
           test -n "$ANDROID_KEYSTORE_PASSWORD"
           test -n "$ANDROID_KEY_ALIAS"
@@ -48,7 +55,9 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > mobile/android/app/neon-shield-upload.jks
+          test -s mobile/android/app/neon-shield-upload.jks
           cat > mobile/android/key.properties <<EOF
           storePassword=$ANDROID_KEYSTORE_PASSWORD
           keyPassword=$ANDROID_KEY_PASSWORD
@@ -61,26 +70,24 @@ jobs:
           from pathlib import Path
           p = Path('mobile/android/app/build.gradle.kts')
           s = p.read_text()
-          marker = 'android {'
-          signing = '''
-          import java.util.Properties
-          import java.io.FileInputStream
-
-          val keystoreProperties = Properties().apply {
-              load(FileInputStream(rootProject.file("key.properties")))
-          }
-
-          '''
-          if not s.startswith('import java.util.Properties'):
-              s = signing + s
           if 'create("release")' not in s:
-              s = s.replace(
-                  marker,
-                  marker + '''\n    signingConfigs {\n        create("release") {\n            keyAlias = keystoreProperties["keyAlias"] as String\n            keyPassword = keystoreProperties["keyPassword"] as String\n            storeFile = file(keystoreProperties["storeFile"] as String)\n            storePassword = keystoreProperties["storePassword"] as String\n        }\n    }''',
-                  1,
-              )
-          s = s.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
+              marker = 'android {'
+              if marker not in s:
+                  raise SystemExit('Android Gradle template changed: missing android block')
+              signing = '''import java.util.Properties\nimport java.io.FileInputStream\n\nval keystoreProperties = Properties().apply {\n    load(FileInputStream(rootProject.file("key.properties")))\n}\n\n'''
+              s = signing + s
+              s = s.replace(marker, marker + '''\n    signingConfigs {\n        create("release") {\n            keyAlias = keystoreProperties["keyAlias"] as String\n            keyPassword = keystoreProperties["keyPassword"] as String\n            storeFile = file(keystoreProperties["storeFile"] as String)\n            storePassword = keystoreProperties["storePassword"] as String\n        }\n    }''', 1)
+          if 'signingConfig = signingConfigs.getByName("debug")' not in s:
+              raise SystemExit('Android Gradle template changed: missing debug signing configuration')
+          s = s.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")', 1)
           p.write_text(s)
+      - name: Verify Android signing configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'create("release")' mobile/android/app/build.gradle.kts
+          grep -q 'signingConfig = signingConfigs.getByName("release")' mobile/android/app/build.gradle.kts
+          test -f mobile/android/key.properties
       - name: Get dependencies
         working-directory: mobile
         run: flutter pub get
@@ -92,7 +99,9 @@ jobs:
         run: flutter build appbundle --release --build-name='${{ inputs.build_name }}' --build-number='${{ inputs.build_number }}'
       - name: Verify Android artifact
         shell: bash
-        run: test -s mobile/build/app/outputs/bundle/release/app-release.aab
+        run: |
+          set -euo pipefail
+          test -s mobile/build/app/outputs/bundle/release/app-release.aab
       - name: Upload Android AAB
         uses: actions/upload-artifact@v4
         with:
@@ -116,6 +125,12 @@ jobs:
       - name: Generate iOS project
         working-directory: mobile
         run: flutter create --platforms=ios --org com.illumyx --project-name illumyx_neon_shield .
+      - name: Validate iOS project identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f mobile/ios/Runner.xcodeproj/project.pbxproj
+          grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.illumyx.illumyx_neon_shield' mobile/ios/Runner.xcodeproj/project.pbxproj
       - name: Validate Apple signing inputs
         shell: bash
         env:
@@ -125,6 +140,7 @@ jobs:
           IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          set -euo pipefail
           test -n "$IOS_DISTRIBUTION_CERT_BASE64"
           test -n "$IOS_CERT_PASSWORD"
           test -n "$IOS_PROVISIONING_PROFILE_BASE64"
@@ -143,6 +159,8 @@ jobs:
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
           echo "$IOS_DISTRIBUTION_CERT_BASE64" | base64 --decode > "$CERT_PATH"
           echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          test -s "$CERT_PATH"
+          test -s "$PROFILE_PATH"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -162,6 +180,7 @@ jobs:
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          set -euo pipefail
           cat > ExportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -173,12 +192,18 @@ jobs:
             <key>uploadSymbols</key><true/>
           </dict></plist>
           EOF
+          plutil -lint ExportOptions.plist
       - name: Build signed iOS IPA
         working-directory: mobile
         run: flutter build ipa --release --build-name='${{ inputs.build_name }}' --build-number='${{ inputs.build_number }}' --export-options-plist=ExportOptions.plist
       - name: Verify iOS artifact
         shell: bash
-        run: test -s mobile/build/ios/ipa/*.ipa
+        run: |
+          set -euo pipefail
+          IPA_COUNT=$(find mobile/build/ios/ipa -maxdepth 1 -type f -name '*.ipa' | wc -l | tr -d ' ')
+          test "$IPA_COUNT" -eq 1
+          IPA_PATH=$(find mobile/build/ios/ipa -maxdepth 1 -type f -name '*.ipa' -print -quit)
+          test -s "$IPA_PATH"
       - name: Upload iOS IPA
         uses: actions/upload-artifact@v4
         with:
