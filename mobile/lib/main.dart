@@ -4,6 +4,8 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
+import '../../security/security_service.dart';
+
 void main() => runApp(const NeonShieldApp());
 
 class NeonShieldApp extends StatelessWidget {
@@ -36,10 +38,13 @@ class ShieldDashboard extends StatefulWidget {
 }
 
 class _ShieldDashboardState extends State<ShieldDashboard> {
+  final SecurityService security = SecurityService();
+
   bool loading = true;
   String device = 'Checking device…';
   String network = 'Checking network…';
   String platformStatus = 'Checking platform…';
+  String securityStatus = 'Security policy ready';
 
   @override
   void initState() {
@@ -85,10 +90,14 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
     }
 
     if (!mounted) return;
+    final snapshot = security.snapshot();
     setState(() {
       device = nextDevice;
       network = nextNetwork;
       platformStatus = nextPlatformStatus;
+      securityStatus = snapshot.ownerInitialized
+          ? 'Owner initialized • ${snapshot.trustedDeviceCount} trusted device(s)'
+          : 'Owner setup required';
       loading = false;
     });
   }
@@ -119,13 +128,15 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
           children: [
             _hero(),
             const SizedBox(height: 18),
+            _card(Icons.lock_rounded, 'SECURITY', securityStatus,
+                'Access-control policy is owned by the application security service.'),
             _card(Icons.phone_iphone_rounded, 'DEVICE', device, 'Local device identification only.'),
             _card(Icons.shield_outlined, 'PLATFORM', platformStatus, 'Security capabilities follow iOS and Android permission boundaries.'),
             _card(Icons.wifi_rounded, 'NETWORK', network, 'Network information is shown only when the operating system permits access.'),
             _card(Icons.lock_outline_rounded, 'PRIVACY', 'Local-first', 'Neon Shield does not need your passwords or remote-device access.'),
             const SizedBox(height: 12),
             const Text(
-              'Mobile beta foundation. More platform-native posture checks will be added only where Apple and Android expose supported APIs.',
+              'Mobile beta foundation. Platform-native posture checks will be added only where Apple and Android expose supported APIs.',
               style: TextStyle(color: Color(0xFF9BA7C7), height: 1.45),
             ),
           ],
@@ -185,14 +196,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF9BA7C7),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  Text(title, style: const TextStyle(fontSize: 12, color: Color(0xFF9BA7C7), fontWeight: FontWeight.bold)),
                   const SizedBox(height: 5),
                   Text(value, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 5),
