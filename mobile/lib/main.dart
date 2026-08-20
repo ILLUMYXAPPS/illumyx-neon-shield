@@ -48,36 +48,49 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
   }
 
   Future<void> refresh() async {
+    if (!mounted) return;
     setState(() => loading = true);
+
     final info = DeviceInfoPlugin();
     final wifi = NetworkInfo();
+
+    var nextDevice = 'Device details unavailable';
+    var nextNetwork = 'Network details unavailable';
+    var nextPlatformStatus = 'Platform details unavailable';
 
     try {
       if (Platform.isAndroid) {
         final d = await info.androidInfo;
-        device = '${d.manufacturer} ${d.model}';
-        platformStatus = 'Android ${d.version.release}';
+        nextDevice = '${d.manufacturer} ${d.model}';
+        nextPlatformStatus = 'Android ${d.version.release}';
       } else if (Platform.isIOS) {
         final d = await info.iosInfo;
-        device = d.name;
-        platformStatus = '${d.systemName} ${d.systemVersion}';
+        nextDevice = d.name;
+        nextPlatformStatus = '${d.systemName} ${d.systemVersion}';
       } else {
-        device = Platform.operatingSystem;
-        platformStatus = 'Unsupported mobile platform';
+        nextDevice = Platform.operatingSystem;
+        nextPlatformStatus = 'Unsupported mobile platform';
       }
     } catch (_) {
-      device = 'Device details unavailable';
-      platformStatus = 'Platform details unavailable';
+      // Keep safe fallback values.
     }
 
     try {
       final name = await wifi.getWifiName();
-      network = name == null || name.isEmpty ? 'Wi-Fi name unavailable' : 'Wi-Fi: $name';
+      nextNetwork = name == null || name.isEmpty
+          ? 'Wi-Fi name unavailable'
+          : 'Wi-Fi: $name';
     } catch (_) {
-      network = 'Network details unavailable';
+      // Keep safe fallback value.
     }
 
-    if (mounted) setState(() => loading = false);
+    if (!mounted) return;
+    setState(() {
+      device = nextDevice;
+      network = nextNetwork;
+      platformStatus = nextPlatformStatus;
+      loading = false;
+    });
   }
 
   @override
@@ -92,7 +105,12 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             Text('Mobile v1.0-beta', style: TextStyle(fontSize: 12, color: Color(0xFF21E6FF))),
           ],
         ),
-        actions: [IconButton(onPressed: loading ? null : refresh, icon: const Icon(Icons.refresh_rounded))],
+        actions: [
+          IconButton(
+            onPressed: loading ? null : refresh,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: refresh,
@@ -120,36 +138,69 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
         padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(24),
-          gradient: const LinearGradient(colors: [Color(0xFF11172A), Color(0xFF24143A)]),
-          border: Border.all(color: const Color(0xFF21E6FF).withValues(alpha: .45)),
-        ),
-        child: Row(children: [
-          const Icon(Icons.shield_rounded, size: 58, color: Color(0xFF21E6FF)),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(loading ? 'Checking…' : 'Mobile Shield Ready', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 6),
-              const Text('Secure. Smart. Neon.', style: TextStyle(color: Color(0xFFFF38D1), fontWeight: FontWeight.w600)),
-            ]),
+          gradient: const LinearGradient(
+            colors: [Color(0xFF11172A), Color(0xFF24143A)],
           ),
-        ]),
+          border: Border.all(
+            color: const Color(0xFF21E6FF).withValues(alpha: .45),
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.shield_rounded, size: 58, color: Color(0xFF21E6FF)),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    loading ? 'Checking…' : 'Mobile Shield Ready',
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Secure. Smart. Neon.',
+                    style: TextStyle(color: Color(0xFFFF38D1), fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       );
 
   Widget _card(IconData icon, String title, String value, String detail) => Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(color: const Color(0xFF11172A), borderRadius: BorderRadius.circular(18)),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, color: const Color(0xFF8B5CFF)),
-          const SizedBox(width: 14),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(fontSize: 12, color: Color(0xFF9BA7C7), fontWeight: FontWeight.bold)),
-            const SizedBox(height: 5),
-            Text(value, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 5),
-            Text(detail, style: const TextStyle(color: Color(0xFF9BA7C7), height: 1.35)),
-          ])),
-        ]),
+        decoration: BoxDecoration(
+          color: const Color(0xFF11172A),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: const Color(0xFF8B5CFF)),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF9BA7C7),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(value, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 5),
+                  Text(detail, style: const TextStyle(color: Color(0xFF9BA7C7), height: 1.35)),
+                ],
+              ),
+            ),
+          ],
+        ),
       );
 }
