@@ -33,18 +33,15 @@ void main() {
     await service.load();
     await service.initializeOwner();
 
-    expect(
-      () => service.initializeOwner(),
-      throwsA(isA<StateError>()),
-    );
+    await expectLater(service.initializeOwner(), throwsA(isA<StateError>()));
   });
 
   test('requires owner initialization before adding a device', () async {
     final service = SecurityService();
     await service.load();
 
-    expect(
-      () => service.addTrustedDevice('device-a'),
+    await expectLater(
+      service.addTrustedDevice('device-a'),
       throwsA(isA<StateError>()),
     );
   });
@@ -54,8 +51,8 @@ void main() {
     await service.load();
     await service.initializeOwner();
 
-    expect(
-      () => service.addTrustedDevice('   '),
+    await expectLater(
+      service.addTrustedDevice('   '),
       throwsA(isA<ArgumentError>()),
     );
   });
