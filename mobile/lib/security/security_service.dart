@@ -82,7 +82,8 @@ class SecurityService {
 
   /// Returns true only when the persisted security state is loaded, ownership
   /// is initialized, the device is trusted, and the supplied phone identity
-  /// is not on the privacy-preserving denylist.
+  /// is a non-empty normalized value that is not on the privacy-preserving
+  /// denylist.
   ///
   /// This is the final client-side access decision available to the current
   /// beta. A real authentication/backend service must repeat the same policy
@@ -94,7 +95,9 @@ class SecurityService {
   }) {
     if (!_loaded || !_ownerInitialized) return false;
     if (!isTrustedDevice(deviceId)) return false;
-    if (AccessBlocklist.isBlockedPhone(phoneNumber)) return false;
+    final normalizedPhone = AccessBlocklist.normalizePhone(phoneNumber);
+    if (normalizedPhone.isEmpty) return false;
+    if (AccessBlocklist.isBlockedPhone(normalizedPhone)) return false;
     return true;
   }
 

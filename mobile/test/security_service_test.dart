@@ -96,6 +96,28 @@ void main() {
     );
   });
 
+  test('denies an empty phone identity even on a trusted device', () async {
+    final service = SecurityService();
+    await service.load();
+    await service.initializeOwner();
+    await service.addTrustedDevice('device-a');
+
+    expect(
+      service.canAuthorize(
+        deviceId: 'device-a',
+        phoneNumber: '   ',
+      ),
+      isFalse,
+    );
+    expect(
+      service.canAuthorize(
+        deviceId: 'device-a',
+        phoneNumber: '---',
+      ),
+      isFalse,
+    );
+  });
+
   test('denies a blocked phone identity even on a trusted device', () async {
     final service = SecurityService();
     await service.load();
