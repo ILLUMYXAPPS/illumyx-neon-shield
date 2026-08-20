@@ -4,7 +4,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
-import '../../security/security_service.dart';
+import 'security/security_service.dart';
 
 void main() => runApp(const NeonShieldApp());
 
