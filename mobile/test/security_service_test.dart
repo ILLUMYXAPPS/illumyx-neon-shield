@@ -56,4 +56,16 @@ void main() {
       throwsA(isA<ArgumentError>()),
     );
   });
+
+  test('normalizes trusted device identifiers when removing', () async {
+    final service = SecurityService();
+    await service.load();
+    await service.initializeOwner();
+    await service.addTrustedDevice('device-a');
+
+    await service.removeTrustedDevice('  device-a  ');
+
+    expect(service.snapshot().trustedDeviceCount, 0);
+    expect(service.isTrustedDevice('device-a'), isFalse);
+  });
 }

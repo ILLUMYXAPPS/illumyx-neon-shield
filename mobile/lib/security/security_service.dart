@@ -69,7 +69,8 @@ class SecurityService {
     if (!_ownerInitialized) {
       throw StateError('Owner initialization is required');
     }
-    if (_trustedDevices.remove(deviceId)) {
+    final normalizedId = deviceId.trim();
+    if (_trustedDevices.remove(normalizedId)) {
       await _persistTrustedDevices();
     }
   }
