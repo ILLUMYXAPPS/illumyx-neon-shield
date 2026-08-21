@@ -1,11 +1,13 @@
 import tkinter as tk
 from datetime import datetime
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from security_checks import CheckResult, run_local_checks
+from copyright_scanner import fingerprint_reference, render_transcript, scan_targets
 
 APP_NAME = "ILLUMYX NEON SHIELD v2"
-APP_VERSION = "v2.0-beta"
+APP_VERSION = "v2.1-beta"
 BG = "#050814"
 SIDEBAR = "#091127"
 PANEL = "#0d1733"
@@ -28,6 +30,7 @@ class NeonShield(tk.Tk):
         self.minsize(980, 680)
         self.configure(bg=BG)
         self.last_results = []
+        self.last_copyright_matches = []
         self._build()
         self.refresh()
 
@@ -50,6 +53,7 @@ class NeonShield(tk.Tk):
 
         self._nav_item(sidebar, "▣  Dashboard", active=True)
         self._nav_item(sidebar, "⌁  Local checks")
+        self._nav_item(sidebar, "◉  Copyright scanner")
         self._nav_item(sidebar, "⇩  Reports")
         self._nav_item(sidebar, "ⓘ  About")
 
@@ -70,7 +74,7 @@ class NeonShield(tk.Tk):
         tk.Label(left_header, text="SYSTEM STATUS", bg=BG, fg=TEXT,
                  font=("Arial", 22, "bold")).pack(anchor="w")
         tk.Label(left_header,
-                 text="Verified local posture checks for this device",
+                 text="Verified local posture checks and copyright evidence scanning",
                  bg=BG, fg=MUTED, font=("Arial", 10)).pack(anchor="w", pady=(4, 0))
         self.timestamp = tk.Label(header, text="", bg=BG, fg=MUTED, font=("Arial", 9))
         self.timestamp.pack(side="right", anchor="n", pady=4)
@@ -144,6 +148,15 @@ class NeonShield(tk.Tk):
             wraplength=880,
         )
         self.recommendation.pack(anchor="w", pady=(5, 0))
+
+        copyright_frame = tk.Frame(main, bg=PANEL_ALT, padx=14, pady=12)
+        copyright_frame.pack(fill="x", padx=26, pady=(0, 10))
+        tk.Label(copyright_frame, text="◉ COPYRIGHT EVIDENCE SCANNER", bg=PANEL_ALT,
+                 fg=CYAN, font=("Arial", 9, "bold")).pack(side="left")
+        tk.Label(copyright_frame,
+                 text="Fingerprint your masters, scan a target folder, and export a match transcript.",
+                 bg=PANEL_ALT, fg=MUTED, font=("Arial", 9)).pack(side="left", padx=(12, 0))
+        self._button(copyright_frame, "⌕  Scan files", self.run_copyright_scan, VIOLET, TEXT).pack(side="right")
 
         footer = tk.Frame(main, bg=BG)
         footer.pack(fill="x", padx=26, pady=(0, 22))
@@ -254,9 +267,68 @@ class NeonShield(tk.Tk):
         names = ", ".join(item.name for item in review_items)
         return f"Review recommended for: {names}. Select a REVIEW row to see the suggested next step."
 
+    def run_copyright_scan(self):
+        reference_dir = filedialog.askdirectory(title="Select your ILLUMYX master/reference folder")
+        if not reference_dir:
+            return
+        target_dir = filedialog.askdirectory(title="Select the folder to scan for matching files")
+        if not target_dir:
+            return
+
+        self.hero_status.config(text="SCANNING COPYRIGHT FILES", fg=CYAN)
+        self.hero_detail.config(text="Fingerprinting reference files and comparing the target tree locally...")
+        self.update_idletasks()
+
+        try:
+            references = fingerprint_reference(Path(reference_dir))
+            matches = scan_targets(references, Path(target_dir))
+            self.last_copyright_matches = list(matches)
+            transcript = render_transcript(matches, len(references), Path(target_dir))
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, f"Copyright scan failed safely: {type(exc).__name__}: {exc}")
+            return
+
+        self.hero_status.config(
+            text="MATCHES FOUND" if matches else "NO MATCHES FOUND",
+            fg=WARN if matches else NEON,
+        )
+        self.hero_detail.config(
+            text=f"Fingerprint registry: {len(references)} files | Candidate matches: {len(matches)}"
+        )
+        self.recommendation.config(
+            text=(
+                "Candidate matches detected. Export the transcript and verify each item before making a copyright claim."
+                if matches else
+                "No candidate matches were detected with the current local fingerprint rules."
+            )
+        )
+
+        if matches:
+            summary = "\n\n".join(
+                f"#{i + 1}  {m.match_type}  {m.confidence:.1f}%\nSource: {m.source}\nCandidate: {m.candidate}\n{m.detail}"
+                for i, m in enumerate(matches[:20])
+            )
+            messagebox.showwarning(APP_NAME, f"{len(matches)} candidate match(es) found.\n\n{summary}")
+        else:
+            messagebox.showinfo(APP_NAME, "No candidate matches were detected.")
+
+        path = filedialog.asksaveasfilename(
+            title="Save copyright match transcript",
+            defaultextension=".txt",
+            initialfile=f"illumyx-copyright-match-transcript-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt",
+            filetypes=[("Text transcript", "*.txt"), ("All files", "*.*")],
+        )
+        if path:
+            try:
+                with open(path, "w", encoding="utf-8") as report:
+                    report.write(transcript)
+                messagebox.showinfo(APP_NAME, "Copyright match transcript exported successfully.")
+            except OSError as exc:
+                messagebox.showerror(APP_NAME, f"The transcript could not be saved: {exc}")
+
     def export_report(self):
-        if not self.last_results:
-            messagebox.showinfo(APP_NAME, "There are no check results to export yet.")
+        if not self.last_results and not self.last_copyright_matches:
+            messagebox.showinfo(APP_NAME, "There are no check results or copyright matches to export yet.")
             return
 
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -273,7 +345,7 @@ class NeonShield(tk.Tk):
             APP_NAME,
             f"Version: {APP_VERSION}",
             f"Generated: {datetime.now().isoformat(timespec='seconds')}",
-            "Scope: local, read-only device posture checks",
+            "Scope: local, read-only device posture checks and local copyright evidence scanning",
             "",
         ]
         for item in self.last_results:
@@ -284,6 +356,25 @@ class NeonShield(tk.Tk):
                 f"Recommendation: {self._recommendation_for(item)}",
                 "",
             ])
+
+        if self.last_copyright_matches:
+            lines.extend([
+                "COPYRIGHT MATCHES",
+                "Candidate matches require verification before any copyright claim.",
+                "",
+            ])
+            for index, match in enumerate(self.last_copyright_matches, 1):
+                lines.extend([
+                    f"MATCH #{index} | {match.match_type} | CONFIDENCE {match.confidence:.1f}%",
+                    f"Source: {match.source}",
+                    f"Candidate: {match.candidate}",
+                    f"Source SHA-256: {match.source_sha256}",
+                    f"Candidate SHA-256: {match.candidate_sha256}",
+                    f"Detail: {match.detail}",
+                    f"Detected: {match.detected_at}",
+                    "Status: CANDIDATE MATCH - VERIFY BEFORE MAKING ANY COPYRIGHT CLAIM",
+                    "",
+                ])
 
         try:
             with open(path, "w", encoding="utf-8") as report:
