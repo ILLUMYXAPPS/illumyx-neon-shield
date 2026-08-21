@@ -3,7 +3,7 @@ import 'package:geolocator/geolocator.dart';
 /// Privacy-first foreground geo tracer.
 ///
 /// Location is collected only after the user grants the operating system's
-/// location permission. This service intentionally performs one-shot
+a/// location permission. This service intentionally performs one-shot
 /// foreground reads; continuous/background tracking requires a separate,
 /// explicit product decision and platform configuration.
 class GeoTrace {
@@ -46,7 +46,7 @@ class GeoTracer {
       latitude: position.latitude,
       longitude: position.longitude,
       accuracyMeters: position.accuracy,
-      capturedAt: position.timestamp ?? DateTime.now(),
+      capturedAt: position.timestamp,
     );
   }
 }
