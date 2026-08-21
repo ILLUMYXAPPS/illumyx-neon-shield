@@ -1,0 +1,27 @@
+{
+  "exact_match": {
+    "candidate_id": "fixture-exact-001",
+    "score": 0.98,
+    "evidence": {"audio": 0.99, "lyrics": 0.98, "artwork": 0.96, "metadata": 0.97}
+  },
+  "strong_partial_match": {
+    "candidate_id": "fixture-partial-001",
+    "score": 0.81,
+    "evidence": {"audio": 0.86, "lyrics": 0.79, "artwork": 0.72, "metadata": 0.83}
+  },
+  "lyrics_only": {
+    "candidate_id": "fixture-lyrics-001",
+    "score": 0.57,
+    "evidence": {"audio": 0.04, "lyrics": 0.91, "artwork": 0.08, "metadata": 0.61}
+  },
+  "metadata_only": {
+    "candidate_id": "fixture-metadata-001",
+    "score": 0.41,
+    "evidence": {"audio": 0.02, "lyrics": 0.03, "artwork": 0.05, "metadata": 0.94}
+  },
+  "false_positive": {
+    "candidate_id": "fixture-false-positive-001",
+    "score": 0.09,
+    "evidence": {"audio": 0.03, "lyrics": 0.07, "artwork": 0.06, "metadata": 0.18}
+  }
+}
