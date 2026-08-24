@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+from evidence_vault import EvidenceRecord, EvidenceVault
+
 
 @dataclass(frozen=True)
 class MatchEvidence:
@@ -77,3 +79,31 @@ def transcript_block(candidate: str, assessment: MatchAssessment) -> str:
         f"SIGNALS: {reasons}\n"
         "STATUS: CANDIDATE MATCH - VERIFY BEFORE MAKING ANY COPYRIGHT CLAIM\n"
     )
+
+
+def record_match(
+    vault: EvidenceVault,
+    *,
+    investigation_id: str,
+    source: str,
+    candidate: str,
+    match_type: str,
+    source_sha256: str,
+    candidate_sha256: str,
+    evidence: MatchEvidence,
+    detail: str,
+) -> EvidenceRecord:
+    """Convert a scored candidate into a reviewable evidence record."""
+    assessment = assess_match(evidence)
+    record = EvidenceRecord.create(
+        investigation_id=investigation_id,
+        source=source,
+        candidate=candidate,
+        match_type=match_type,
+        confidence=assessment.score,
+        source_sha256=source_sha256,
+        candidate_sha256=candidate_sha256,
+        detail=f"{detail} Signals: {', '.join(assessment.reasons) or 'none'}. Level: {assessment.level}.",
+    )
+    vault.append(record)
+    return record
