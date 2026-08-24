@@ -75,7 +75,7 @@ def iter_files(root: Path) -> Iterable[Path]:
     if root.is_file():
         yield root
         return
-    for path in root.rglob("*"):
+    for path in sorted(root.rglob("*"), key=lambda item: item.as_posix().casefold()):
         if path.is_file() and (path.suffix.lower() in SUPPORTED or not path.suffix):
             yield path
 
