@@ -1,11 +1,13 @@
 name: Neon Shield Mobile Checks
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
       - "agent/**"
       - "fix/**"
+      - "feat/**"
     paths:
       - "mobile/**"
       - ".github/workflows/mobile-checks.yml"
