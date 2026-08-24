@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
 
+import 'evidence_detail_view.dart';
+
 class InvestigationSummary {
   const InvestigationSummary({
     required this.id,
     required this.evidenceCount,
     required this.pendingReviewCount,
     required this.highestConfidence,
+    this.evidence = const [],
   });
 
   final String id;
   final int evidenceCount;
   final int pendingReviewCount;
   final double highestConfidence;
+  final List<EvidenceDetail> evidence;
 }
 
 class ResultsCentreView extends StatefulWidget {
@@ -25,6 +29,17 @@ class ResultsCentreView extends StatefulWidget {
 
 class _ResultsCentreViewState extends State<ResultsCentreView> {
   String query = '';
+
+  void _openInvestigation(InvestigationSummary investigation) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => InvestigationEvidenceView(
+          investigationId: investigation.id,
+          evidence: investigation.evidence,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +90,8 @@ class _ResultsCentreViewState extends State<ResultsCentreView> {
                             '${item.pendingReviewCount} pending review • '
                             'highest ${item.highestConfidence.toStringAsFixed(1)}%',
                           ),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                          onTap: () => _openInvestigation(item),
                         ),
                       );
                     },
@@ -82,6 +99,48 @@ class _ResultsCentreViewState extends State<ResultsCentreView> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class InvestigationEvidenceView extends StatelessWidget {
+  const InvestigationEvidenceView({
+    super.key,
+    required this.investigationId,
+    required this.evidence,
+  });
+
+  final String investigationId;
+  final List<EvidenceDetail> evidence;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(investigationId)),
+      body: evidence.isEmpty
+          ? const Center(child: Text('No evidence records available.'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(18),
+              itemCount: evidence.length,
+              itemBuilder: (context, index) {
+                final item = evidence[index];
+                return Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.receipt_long_outlined),
+                    title: Text(item.evidenceId),
+                    subtitle: Text(
+                      '${item.matchType} • ${item.confidence.toStringAsFixed(1)}% • ${item.reviewStatus}',
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => EvidenceDetailView(evidence: item),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }
