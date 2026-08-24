@@ -58,9 +58,13 @@ def assess_match(evidence: MatchEvidence) -> MatchAssessment:
 
 
 def rank_matches(items: Iterable[tuple[str, MatchEvidence]]) -> list[tuple[str, MatchAssessment]]:
-    """Assess and sort candidates from strongest to weakest."""
+    """Assess and sort candidates from strongest to weakest.
+
+    Candidate names provide a deterministic tie-breaker so equal-scoring
+    matches always appear in the same order in reports and evidence records.
+    """
     ranked = [(name, assess_match(evidence)) for name, evidence in items]
-    return sorted(ranked, key=lambda item: item[1].score, reverse=True)
+    return sorted(ranked, key=lambda item: (-item[1].score, item[0].casefold(), item[0]))
 
 
 def transcript_block(candidate: str, assessment: MatchAssessment) -> str:
