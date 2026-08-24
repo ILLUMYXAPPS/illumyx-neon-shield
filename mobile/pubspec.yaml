@@ -4,7 +4,7 @@ publish_to: none
 description: ILLUMYX Neon Shield mobile security posture dashboard.
 
 environment:
-  sdk: '>=3.4.0 <4.0.0'
+  sdk: '>=3.11.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -12,7 +12,7 @@ dependencies:
   crypto: ^3.0.6
   device_info_plus: ^11.3.0
   geolocator: ^14.0.3
-  network_info_plus: ^7.0.0
+  network_info_plus: ^8.2.1
   package_info_plus: ^10.0.0
   shared_preferences: ^2.5.3
 
