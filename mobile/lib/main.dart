@@ -4,6 +4,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
+import 'results_centre_view.dart';
 import 'security/security_service.dart';
 
 void main() => runApp(const NeonShieldApp());
@@ -87,18 +88,14 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
         nextDevice = Platform.operatingSystem;
         nextPlatformStatus = 'Unsupported mobile platform';
       }
-    } catch (_) {
-      // Keep safe fallback values.
-    }
+    } catch (_) {}
 
     try {
       final name = await wifi.getWifiName();
       nextNetwork = name == null || name.isEmpty
           ? 'Wi-Fi name unavailable'
           : 'Wi-Fi: $name';
-    } catch (_) {
-      // Keep safe fallback value.
-    }
+    } catch (_) {}
 
     if (!mounted) return;
     final snapshot = security.snapshot();
@@ -111,6 +108,14 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
           : 'Owner setup required';
       loading = false;
     });
+  }
+
+  void openResultsCentre() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const ResultsCentreView(),
+      ),
+    );
   }
 
   @override
@@ -127,6 +132,11 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Results Centre',
+            onPressed: openResultsCentre,
+            icon: const Icon(Icons.fact_check_outlined),
+          ),
+          IconButton(
             onPressed: loading ? null : refresh,
             icon: const Icon(Icons.refresh_rounded),
           ),
@@ -138,6 +148,8 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
           padding: const EdgeInsets.all(18),
           children: [
             _hero(),
+            const SizedBox(height: 18),
+            _resultsButton(),
             const SizedBox(height: 18),
             _card(Icons.lock_rounded, 'SECURITY', securityStatus,
                 'Access-control policy is owned by the application security service.'),
@@ -155,6 +167,12 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
       ),
     );
   }
+
+  Widget _resultsButton() => FilledButton.icon(
+        onPressed: openResultsCentre,
+        icon: const Icon(Icons.fact_check_outlined),
+        label: const Text('OPEN RESULTS CENTRE'),
+      );
 
   Widget _hero() => Container(
         padding: const EdgeInsets.all(22),
