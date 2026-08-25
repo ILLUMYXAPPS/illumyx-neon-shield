@@ -2,7 +2,7 @@ name: Neon Shield Tests
 
 on:
   push:
-    branches: [main, "agent/**"]
+    branches: [main, "agent/**", "fix/**"]
   pull_request:
 
 permissions:
@@ -28,7 +28,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Compile Python sources
-        run: python -m compileall -q app_ui.py security_checks.py tests
+        run: python -m compileall -q app_ui.py security_checks.py backend tests
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
