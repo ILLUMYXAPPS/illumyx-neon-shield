@@ -1,6 +1,7 @@
 name: Neon Shield Mobile Checks
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
