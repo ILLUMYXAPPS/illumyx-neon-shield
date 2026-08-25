@@ -1,4 +1,3 @@
-import platform
 import unittest
 from unittest.mock import patch
 
@@ -17,12 +16,12 @@ class PlatformCollectorTests(unittest.TestCase):
         incident = create_incident()
         with patch("platform_collectors.platform.system", return_value="Linux"):
             counts = collect_platform_telemetry(incident)
-        self.assertEqual(counts, {"posture": 0, "events": 0, "processes": 0})
+        self.assertEqual(counts, {"posture": 0, "events": 0, "processes": 0, "network": 0})
 
     def test_windows_event_xml_never_stores_command_line(self):
         incident = create_incident()
         xml = '<Event><System><EventID>4688</EventID><TimeCreated SystemTime="2026-08-26T10:00:00Z"/></System><EventData><Data Name="CommandLine">password=secret</Data></EventData></Event>'
-        with patch("platform_collectors.platform.system", return_value="Windows"), patch("platform_collectors._run", return_value=xml):
+        with patch("platform_collectors.platform.system", return_value="Windows"), patch("platform_collectors._run", return_value=xml), patch("platform_collectors.collect_windows_wfp_events", return_value=0):
             count = collect_windows_security_events(incident, max_events=1)
         self.assertEqual(count, 1)
         self.assertEqual(len(incident.events), 1)
