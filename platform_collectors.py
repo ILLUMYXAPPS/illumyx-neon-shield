@@ -73,9 +73,9 @@ def collect_windows_security_events(incident: Incident, *, max_events: int = 25)
         return 0
 
     count = 0
-    chunks = re.findall(r"<Event[\\s\\S]*?</Event>", raw)
+    chunks = re.findall(r"<Event[\s\S]*?</Event>", raw)
     for xml in chunks:
-        event_id = re.search(r"<EventID[^>]*>(\\d+)</EventID>", xml)
+        event_id = re.search(r"<EventID[^>]*>(\d+)</EventID>", xml)
         created = re.search(r"SystemTime=\"([^\"]+)\"", xml)
         if not event_id:
             continue
