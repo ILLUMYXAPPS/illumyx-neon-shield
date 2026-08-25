@@ -10,9 +10,9 @@
  * for Endpoint Security clients. See macos_endpoint_extension/README.md.
  */
 #include <EndpointSecurity/EndpointSecurity.h>
+#include <dispatch/dispatch.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 static void print_token(const es_string_token_t token) {
     if (token.data == NULL || token.length == 0) {
@@ -42,7 +42,7 @@ static void handle_event(es_client_t *client, const es_message_t *message) {
     printf("{\"event_type\":\"%s\",\"pid\":%d,\"parent_pid\":%d,\"executable\":\"",
            type,
            audit_token_to_pid(message->process->audit_token),
-           audit_token_to_pid(message->process->parent_audit_token));
+           message->process->ppid);
     print_token(message->process->executable->path);
     printf("\"}\n");
     fflush(stdout);
