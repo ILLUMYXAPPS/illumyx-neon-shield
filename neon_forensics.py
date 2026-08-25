@@ -91,7 +91,7 @@ SAFE_FIELDS = {
     "event_timestamp_utc", "event_type", "severity", "detection_rule_id",
     "detection_rule_version", "network_status", "connection_type", "vpn_detected",
     "proxy_detected", "dns_configuration_status", "destination_domain",
-    "destination_ip", "destination_port", "protocol", "connection_timestamp",
+    "destination_ip", "destination_port", "source_port", "protocol", "connection_timestamp",
     "connection_duration", "tls_version", "tls_certificate_metadata", "http_status",
     "request_method", "user_agent", "response_size", "login_attempt_id",
     "login_timestamp", "login_success", "authentication_method", "mfa_result",
@@ -153,18 +153,12 @@ def classify_field(field: str) -> CollectionClass:
         return CollectionClass.CONSENT_REQUIRED
     if field in SAFE_FIELDS:
         return CollectionClass.SAFE_TO_COLLECT
-    # Unknown fields are denied by default. This prevents accidental expansion
-    # of the telemetry surface when a collector adds a new field.
     return CollectionClass.DO_NOT_COLLECT
 
 
 def filter_payload(payload: Mapping[str, Any], *, consent_granted: bool = False,
                    user_submitted: bool = False) -> dict[str, Any]:
-    """Apply deny-by-default data policy to an observation payload.
-
-    Unknown fields are rejected. Consent fields are accepted only with explicit
-    consent, or when the item is explicitly marked as user-submitted.
-    """
+    """Apply deny-by-default data policy to an observation payload."""
     accepted: dict[str, Any] = {}
     for key, value in payload.items():
         classification = classify_field(key)
@@ -181,12 +175,7 @@ def sha256_bytes(content: bytes) -> str:
 
 def create_incident(*, device_id: str | None = None,
                     severity: IncidentSeverity = IncidentSeverity.INFO) -> Incident:
-    return Incident(
-        incident_id=new_id("NS"),
-        created_at_utc=utc_now(),
-        severity=severity,
-        device_id=device_id,
-    )
+    return Incident(incident_id=new_id("NS"), created_at_utc=utc_now(), severity=severity, device_id=device_id)
 
 
 def add_event(incident: Incident, *, event_type: str, platform: str,
@@ -194,17 +183,10 @@ def add_event(incident: Incident, *, event_type: str, platform: str,
               severity: IncidentSeverity = IncidentSeverity.INFO,
               confidence: float = 0.0, consent_granted: bool = False) -> NeonEvent:
     filtered = filter_payload(data or {}, consent_granted=consent_granted)
-    event = NeonEvent(
-        event_id=new_id("EVT"),
-        incident_id=incident.incident_id,
-        timestamp_utc=utc_now(),
-        event_type=event_type,
-        platform=platform,
-        severity=severity,
-        source=source,
-        confidence=max(0.0, min(1.0, confidence)),
-        data=filtered,
-    )
+    event = NeonEvent(event_id=new_id("EVT"), incident_id=incident.incident_id,
+                      timestamp_utc=utc_now(), event_type=event_type, platform=platform,
+                      severity=severity, source=source,
+                      confidence=max(0.0, min(1.0, confidence)), data=filtered)
     incident.events.append(event)
     incident.confidence = max(incident.confidence, event.confidence)
     if _severity_rank(event.severity) > _severity_rank(incident.severity):
@@ -220,54 +202,28 @@ def add_evidence(incident: Incident, content: bytes, *, source: str,
         raise PermissionError("DO_NOT_COLLECT evidence is rejected by Neon Shield policy")
     if classification is CollectionClass.CONSENT_REQUIRED and not consent_granted:
         raise PermissionError("Explicit consent is required for this evidence")
-    if classification is CollectionClass.USER_SUBMITTED:
-        user_submitted = True
-    else:
-        user_submitted = False
-    safe_metadata = filter_payload(metadata or {}, consent_granted=consent_granted,
-                                   user_submitted=user_submitted)
-    item = EvidenceItem(
-        evidence_id=new_id("EVD"),
-        incident_id=incident.incident_id,
-        source=source,
-        collected_at_utc=utc_now(),
-        content_type=content_type,
-        classification=classification,
-        sha256=sha256_bytes(content),
-        size_bytes=len(content),
-        metadata=safe_metadata,
-    )
+    user_submitted = classification is CollectionClass.USER_SUBMITTED
+    safe_metadata = filter_payload(metadata or {}, consent_granted=consent_granted, user_submitted=user_submitted)
+    item = EvidenceItem(evidence_id=new_id("EVD"), incident_id=incident.incident_id,
+                        source=source, collected_at_utc=utc_now(), content_type=content_type,
+                        classification=classification, sha256=sha256_bytes(content),
+                        size_bytes=len(content), metadata=safe_metadata)
     incident.evidence.append(item)
     return item
 
 
 def _severity_rank(value: IncidentSeverity) -> int:
-    return {
-        IncidentSeverity.INFO: 0,
-        IncidentSeverity.LOW: 1,
-        IncidentSeverity.MEDIUM: 2,
-        IncidentSeverity.HIGH: 3,
-        IncidentSeverity.CRITICAL: 4,
-    }[value]
+    return {IncidentSeverity.INFO: 0, IncidentSeverity.LOW: 1, IncidentSeverity.MEDIUM: 2,
+            IncidentSeverity.HIGH: 3, IncidentSeverity.CRITICAL: 4}[value]
 
 
 def evidence_manifest(incident: Incident) -> dict[str, Any]:
     """Create a deterministic manifest suitable for hashing/signing externally."""
-    entries = [
-        {
-            "evidence_id": item.evidence_id,
-            "sha256": item.sha256,
-            "size_bytes": item.size_bytes,
-            "collected_at_utc": item.collected_at_utc,
-        }
-        for item in sorted(incident.evidence, key=lambda x: x.evidence_id)
-    ]
-    manifest = {
-        "manifest_version": 1,
-        "incident_id": incident.incident_id,
-        "generated_at_utc": utc_now(),
-        "entries": entries,
-    }
+    entries = [{"evidence_id": item.evidence_id, "sha256": item.sha256,
+                "size_bytes": item.size_bytes, "collected_at_utc": item.collected_at_utc}
+               for item in sorted(incident.evidence, key=lambda x: x.evidence_id)]
+    manifest = {"manifest_version": 1, "incident_id": incident.incident_id,
+                "generated_at_utc": utc_now(), "entries": entries}
     canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
     manifest["manifest_sha256"] = sha256_bytes(canonical)
     return manifest
@@ -280,14 +236,8 @@ def export_incident(incident: Incident, directory: str | Path) -> Path:
     payload = asdict(incident)
     payload["severity"] = incident.severity.value
     payload["status"] = incident.status.value
-    payload["events"] = [
-        {**asdict(event), "severity": event.severity.value}
-        for event in incident.events
-    ]
-    payload["evidence"] = [
-        {**asdict(item), "classification": item.classification.value}
-        for item in incident.evidence
-    ]
+    payload["events"] = [{**asdict(event), "severity": event.severity.value} for event in incident.events]
+    payload["evidence"] = [{**asdict(item), "classification": item.classification.value} for item in incident.evidence]
     (root / "incident.json").write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     (root / "manifest.json").write_text(json.dumps(evidence_manifest(incident), indent=2, sort_keys=True), encoding="utf-8")
     return root
