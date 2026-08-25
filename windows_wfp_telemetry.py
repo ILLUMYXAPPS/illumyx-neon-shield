@@ -57,14 +57,13 @@ def collect_windows_wfp_events(
     if not raw:
         return 0
 
-    chunks = re.findall(r"<Event[\\s\\S]*?</Event>", raw)
+    chunks = re.findall(r"<Event[\s\S]*?</Event>", raw)
     count = 0
     for xml_text in chunks:
         eid = _event_id(xml_text)
         if eid not in {"5156", "5157"}:
             continue
         values = _event_values(xml_text)
-        # Deliberately select only network metadata. No payload or credentials.
         data = {
             "event_id": eid,
             "source_ip": values.get("SourceAddress", ""),
@@ -75,8 +74,6 @@ def collect_windows_wfp_events(
             "process_id": values.get("ProcessID", ""),
             "process_path": values.get("Application", ""),
         }
-        # The policy currently allows the selected fields; omitted fields are
-        # intentionally discarded before the event reaches Neon Forensics.
         severity = IncidentSeverity.MEDIUM if eid == "5157" else IncidentSeverity.INFO
         add_event(
             incident,
