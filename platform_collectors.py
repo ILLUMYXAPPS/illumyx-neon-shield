@@ -7,16 +7,13 @@ hack-back actions, credential extraction, or collection of private content.
 from __future__ import annotations
 
 import hashlib
-import json
 import platform
-import plistlib
 import re
-import socket
 import subprocess
 from pathlib import Path
-from typing import Any
 
-from neon_forensics import CollectionClass, Incident, IncidentSeverity, add_event
+from neon_forensics import Incident, IncidentSeverity, add_event
+from windows_wfp_telemetry import collect_windows_wfp_events
 
 
 def _run(command: list[str], timeout: int = 5) -> str:
@@ -63,10 +60,9 @@ def collect_windows_posture(incident: Incident) -> None:
 def collect_windows_security_events(incident: Incident, *, max_events: int = 25) -> int:
     """Read selected local Windows Security events when available.
 
-    We use wevtutil rather than installing or enabling auditing. Existing logs
-    are observed only. Event 4625 (failed logon) and 4688 (process creation)
-    are useful forensic anchors; command-line data is intentionally not parsed
-    or stored because it may contain secrets.
+    Existing logs are observed only. Event 4625 (failed logon) and 4688
+    (process creation) are useful forensic anchors. Command-line data is
+    intentionally not parsed or stored.
     """
     if platform.system().lower() != "windows":
         return 0
@@ -155,11 +151,12 @@ def collect_macos_processes(incident: Incident, *, max_processes: int = 50) -> i
 def collect_platform_telemetry(incident: Incident) -> dict[str, int]:
     """Run only collectors appropriate to the current host."""
     system = platform.system().lower()
-    counts = {"posture": 0, "events": 0, "processes": 0}
+    counts = {"posture": 0, "events": 0, "processes": 0, "network": 0}
     if system == "windows":
         collect_windows_posture(incident)
         counts["posture"] = 1
         counts["events"] = collect_windows_security_events(incident)
+        counts["network"] = collect_windows_wfp_events(incident)
     elif system == "darwin":
         collect_macos_posture(incident)
         counts["posture"] = 1
