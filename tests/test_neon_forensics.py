@@ -6,6 +6,8 @@ from pathlib import Path
 from neon_forensics import (
     CollectionClass,
     IncidentSeverity,
+    SAFE_FIELDS,
+    CONSENT_FIELDS,
     add_evidence,
     add_event,
     classify_field,
@@ -43,6 +45,15 @@ class NeonForensicsTests(unittest.TestCase):
         payload = filter_payload({"some_future_field": "value"}, consent_granted=True)
         self.assertEqual(payload, {})
 
+    def test_policy_classes_do_not_overlap(self):
+        self.assertTrue(SAFE_FIELDS.isdisjoint(CONSENT_FIELDS))
+
+    def test_endpoint_fields_require_consent(self):
+        for field in ("source_endpoint", "destination_endpoint"):
+            self.assertEqual(classify_field(field), CollectionClass.CONSENT_REQUIRED)
+            self.assertNotIn(field, filter_payload({field: "endpoint"}))
+            self.assertIn(field, filter_payload({field: "endpoint"}, consent_granted=True))
+
     def test_incident_event_is_correlated_and_severity_escalates(self):
         incident = create_incident(device_id="device-test")
         event = add_event(
@@ -74,6 +85,22 @@ class NeonForensicsTests(unittest.TestCase):
         manifest = evidence_manifest(incident)
         self.assertEqual(manifest["entries"][0]["sha256"], item.sha256)
         self.assertEqual(len(manifest["manifest_sha256"]), 64)
+
+    def test_manifest_hash_is_stable_across_regeneration(self):
+        incident = create_incident()
+        add_evidence(
+            incident,
+            b"stable evidence",
+            source="user_selected_file",
+            content_type="text/plain",
+            classification=CollectionClass.USER_SUBMITTED,
+        )
+        first = evidence_manifest(incident)
+        second = evidence_manifest(incident)
+        self.assertEqual(first["manifest_sha256"], second["manifest_sha256"])
+        self.assertEqual(first["entries"], second["entries"])
+        self.assertNotEqual(first["generated_at_utc"], "")
+        self.assertNotEqual(second["generated_at_utc"], "")
 
     def test_export_writes_incident_and_manifest(self):
         incident = create_incident()
