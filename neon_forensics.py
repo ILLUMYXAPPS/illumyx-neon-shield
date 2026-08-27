@@ -110,8 +110,8 @@ SAFE_FIELDS = {
     "suspicious_network_connection", "code_signature_status", "team_identifier",
     "launch_agent_metadata", "launch_daemon_metadata", "login_item_metadata",
     "system_extension_metadata", "configuration_profile_metadata", "bytes_sent",
-    "bytes_received", "source_ip", "source_endpoint", "destination_endpoint",
-    "coarse_location", "country", "region", "approximate_location",
+    "bytes_received", "source_ip", "coarse_location", "country", "region",
+    "approximate_location",
 }
 
 CONSENT_FIELDS = {
@@ -218,15 +218,23 @@ def _severity_rank(value: IncidentSeverity) -> int:
 
 
 def evidence_manifest(incident: Incident) -> dict[str, Any]:
-    """Create a deterministic manifest suitable for hashing/signing externally."""
+    """Create a deterministic evidence manifest suitable for hashing/signing externally.
+
+    The generated timestamp is export metadata and is deliberately excluded from
+    the canonical hash input so regenerating a manifest for the same evidence
+    produces the same manifest hash.
+    """
     entries = [{"evidence_id": item.evidence_id, "sha256": item.sha256,
                 "size_bytes": item.size_bytes, "collected_at_utc": item.collected_at_utc}
                for item in sorted(incident.evidence, key=lambda x: x.evidence_id)]
-    manifest = {"manifest_version": 1, "incident_id": incident.incident_id,
-                "generated_at_utc": utc_now(), "entries": entries}
-    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    manifest["manifest_sha256"] = sha256_bytes(canonical)
-    return manifest
+    canonical_manifest = {"manifest_version": 1, "incident_id": incident.incident_id,
+                          "entries": entries}
+    canonical = json.dumps(canonical_manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {
+        **canonical_manifest,
+        "generated_at_utc": utc_now(),
+        "manifest_sha256": sha256_bytes(canonical),
+    }
 
 
 def export_incident(incident: Incident, directory: str | Path) -> Path:
