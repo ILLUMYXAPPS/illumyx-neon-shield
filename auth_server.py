@@ -43,13 +43,7 @@ class SecurityAuditEvent:
 
 
 class InMemoryIdentityService(IdentityService):
-    """Reference implementation with injected credential verification.
-
-    Credentials are never stored or logged. The verifier receives the supplied
-    identity and credential and returns the canonical subject ID on success.
-    Device trust, identity blocking, and optional phone denylisting are enforced
-    here, before a server session can be issued.
-    """
+    """Reference implementation with injected credential verification."""
 
     def __init__(
         self,
@@ -110,6 +104,17 @@ class InMemoryIdentityService(IdentityService):
         self._record_audit("session_issued", request.device_id)
         return session
 
+    def resolve_session(self, session_id: str) -> ServerSession:
+        if not session_id:
+            raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
+        session = self._sessions.get(session_id)
+        if session is None:
+            if session_id in self._revoked:
+                raise AuthenticationError(AuthFailure.REVOKED_SESSION)
+            raise AuthenticationError(AuthFailure.EXPIRED_SESSION)
+        self._require_active(session)
+        return session
+
     def refresh(self, session: ServerSession) -> ServerSession:
         self._require_active(session)
         if not self.is_device_trusted(session):
@@ -142,7 +147,6 @@ class InMemoryIdentityService(IdentityService):
         return subject_id in self._blocked_subjects
 
     def audit_events(self) -> tuple[SecurityAuditEvent, ...]:
-        """Return an immutable snapshot for tests/admin adapters, not client telemetry."""
         return tuple(self._audit_events)
 
     def _is_device_id_trusted(self, device_id: str) -> bool:
