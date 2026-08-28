@@ -1,40 +1,27 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:illumyx_neon_shield/auth/auth_session.dart';
 import 'package:illumyx_neon_shield/auth/secure_auth_session_store.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-class InMemorySecureStorage implements FlutterSecureStorage {
+class InMemoryAuthSecretStorage implements AuthSecretStorage {
   final Map<String, String> _values = {};
 
   @override
-  Future<String?> read({required String key, Map<String, String>? options}) async => _values[key];
+  Future<String?> read({required String key}) async => _values[key];
 
   @override
-  Future<void> write({required String key, required String value, Map<String, String>? options}) async {
+  Future<void> write({required String key, required String value}) async {
     _values[key] = value;
   }
 
   @override
-  Future<void> delete({required String key, Map<String, String>? options}) async {
+  Future<void> delete({required String key}) async {
     _values.remove(key);
   }
-
-  @override
-  Future<void> deleteAll({Map<String, String>? options}) async => _values.clear();
-
-  @override
-  Future<Map<String, String>> readAll({Map<String, String>? options}) async => Map.unmodifiable(_values);
-
-  @override
-  Future<bool> containsKey({required String key, Map<String, String>? options}) async => _values.containsKey(key);
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
   test('writes and restores a session', () async {
-    final storage = InMemorySecureStorage();
+    final storage = InMemoryAuthSecretStorage();
     final store = SecureAuthSessionStore(storage: storage);
     final session = AuthSession(
       token: 'opaque-server-token',
@@ -52,7 +39,7 @@ void main() {
   });
 
   test('returns null for malformed stored session', () async {
-    final storage = InMemorySecureStorage();
+    final storage = InMemoryAuthSecretStorage();
     await storage.write(key: 'neon_shield.auth_session', value: '{not-json}');
     final store = SecureAuthSessionStore(storage: storage);
 
@@ -60,7 +47,7 @@ void main() {
   });
 
   test('clears a stored session', () async {
-    final storage = InMemorySecureStorage();
+    final storage = InMemoryAuthSecretStorage();
     final store = SecureAuthSessionStore(storage: storage);
     await store.write(
       AuthSession(
