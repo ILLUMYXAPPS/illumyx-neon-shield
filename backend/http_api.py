@@ -9,22 +9,30 @@ from auth_server_contract import AuthFailure, SignInRequest
 
 
 def _session_json(session):
-    return {"session_id": session.session_id, "subject_id": session.subject_id, "device_id": session.device_id, "issued_at": session.issued_at.isoformat(), "expires_at": session.expires_at.isoformat()}
+    return {
+        "session_id": session.session_id,
+        "subject_id": session.subject_id,
+        "device_id": session.device_id,
+        "issued_at": session.issued_at.isoformat(),
+        "expires_at": session.expires_at.isoformat(),
+    }
 
 
 def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
         server_version = "NeonShieldAuth/1.0"
 
-        def _json(self, status: int, payload: dict) -> None:
-            body = json.dumps(payload, separators=(",", ":")).encode()
+        def _json(self, status: int, payload: dict | None = None) -> None:
+            body = b"" if status == 204 else json.dumps(payload or {}, separators=(",", ":")).encode()
             self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
+            if status != 204:
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
-            self.wfile.write(body)
+            if body:
+                self.wfile.write(body)
 
         def _body(self) -> dict:
             length = int(self.headers.get("Content-Length", "0"))
@@ -35,14 +43,14 @@ def make_handler(service):
                 raise ValueError("JSON object required")
             return value
 
-        def _token(self) -> str:
+        def _session(self):
             value = self.headers.get("Authorization", "")
             if not value.startswith("Bearer "):
                 raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
             token = value[7:].strip()
             if not token:
                 raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
-            return token
+            return service.resolve_session(token)
 
         def do_GET(self) -> None:
             if self.path == "/health":
@@ -54,16 +62,29 @@ def make_handler(service):
             try:
                 data = self._body()
                 if self.path == "/v1/auth/sign-in":
-                    session = service.sign_in(SignInRequest(str(data.get("identity", "")), str(data.get("credential", "")), str(data.get("device_id", "")), str(data["phone_identity"]) if data.get("phone_identity") is not None else None))
+                    session = service.sign_in(
+                        SignInRequest(
+                            str(data.get("identity", "")),
+                            str(data.get("credential", "")),
+                            str(data.get("device_id", "")),
+                            str(data["phone_identity"])
+                            if data.get("phone_identity") is not None
+                            else None,
+                        )
+                    )
                     self._json(200, {"session": _session_json(session)})
                     return
-                token = self._token()
+
+                session = self._session()
                 if self.path == "/v1/auth/refresh":
-                    self._json(200, {"session": _session_json(service.refresh_token(token))})
+                    self._json(200, {"session": _session_json(service.refresh(session))})
                     return
                 if self.path == "/v1/auth/logout":
-                    service.revoke_token(token)
-                    self._json(204, {})
+                    service.revoke(session)
+                    self._json(204)
+                    return
+                if self.path == "/v1/auth/trusted-device":
+                    self._json(200, {"trusted": service.is_device_trusted(session)})
                     return
                 self._json(404, {"error": "not_found"})
             except AuthenticationError as exc:
