@@ -48,3 +48,22 @@ jobs:
             echo 'Private-key material detected in tracked source files.'
             exit 1
           fi
+
+      - name: Check production safety invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Production code must not contain obvious debug-mode assignments.
+          if git grep -n -I -E -- '(^|[^A-Za-z_])(DEBUG|FLASK_DEBUG|DEV_MODE)[[:space:]]*=[[:space:]]*(True|1|"true"|\x27true\x27)([^A-Za-z_]|$)' -- '*.py' '*.dart'; then
+            echo 'Debug mode appears enabled in tracked application source.'
+            exit 1
+          fi
+
+          # Reject non-local plaintext HTTP endpoints in application source.
+          if git grep -n -I -E -- 'https?://[^[:space:]"'"'"'<>]+' -- '*.py' '*.dart' | grep -E 'http://[^[:space:]"'"'"'<>]*(api|auth|neon|prod|production)' | grep -vE 'http://(localhost|127\.0\.0\.1)(:|/)' ; then
+            echo 'Potential production HTTP endpoint detected in application source.'
+            exit 1
+          fi
+
+          echo 'Production safety invariants passed.'
