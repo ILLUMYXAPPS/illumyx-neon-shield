@@ -4,12 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import '../lib/auth/auth_api_contract.dart';
-import '../lib/auth/auth_session.dart';
-import '../lib/auth/https_auth_api.dart';
+import 'package:illumyx_neon_shield/auth/auth_api_contract.dart';
+import 'package:illumyx_neon_shield/auth/auth_service.dart';
+import 'package:illumyx_neon_shield/auth/auth_session.dart';
+import 'package:illumyx_neon_shield/auth/https_auth_api.dart';
 
 void main() {
-  const session = AuthSession(
+  final session = AuthSession(
     token: 'session-123',
     expiresAt: DateTime.utc(2026, 12, 1),
     deviceId: 'device-123',
