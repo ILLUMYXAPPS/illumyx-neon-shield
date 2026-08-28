@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import secrets
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -13,6 +14,12 @@ from backend.store import AuthStore, verify_secret
 class PersistentIdentityService(IdentityService):
     """Hashed credentials, opaque rotating sessions and persistent device policy."""
 
+    _RATE_WINDOW_SECONDS = 300
+    _MAX_TRACKED_IDENTITIES = 10_000
+    _MAX_IDENTITY_LENGTH = 320
+    _MAX_DEVICE_ID_LENGTH = 512
+    _MAX_TOKEN_LENGTH = 512
+
     def __init__(self, store: AuthStore, session_ttl: timedelta = timedelta(minutes=15), max_sign_ins: int = 5) -> None:
         if session_ttl <= timedelta(0) or max_sign_ins < 1:
             raise ValueError("invalid authentication limits")
@@ -20,21 +27,44 @@ class PersistentIdentityService(IdentityService):
         self.session_ttl = session_ttl
         self.max_sign_ins = max_sign_ins
         self._failed_attempts: dict[str, tuple[int, float]] = {}
+        self._rate_lock = threading.Lock()
 
     def _rate_limited(self, identity: str) -> bool:
-        count, started = self._failed_attempts.get(identity, (0, time.monotonic()))
-        if time.monotonic() - started >= 300:
-            self._failed_attempts.pop(identity, None)
-            return False
-        return count >= self.max_sign_ins
+        now = time.monotonic()
+        with self._rate_lock:
+            entry = self._failed_attempts.get(identity)
+            if entry is None:
+                return False
+            count, started = entry
+            if now - started >= self._RATE_WINDOW_SECONDS:
+                self._failed_attempts.pop(identity, None)
+                return False
+            return count >= self.max_sign_ins
 
     def _failure(self, identity: str) -> None:
-        count, started = self._failed_attempts.get(identity, (0, time.monotonic()))
-        self._failed_attempts[identity] = (count + 1, started)
+        now = time.monotonic()
+        with self._rate_lock:
+            count, started = self._failed_attempts.get(identity, (0, now))
+            if now - started >= self._RATE_WINDOW_SECONDS:
+                count, started = 0, now
+            self._failed_attempts[identity] = (count + 1, started)
+            if len(self._failed_attempts) > self._MAX_TRACKED_IDENTITIES:
+                oldest = min(self._failed_attempts, key=lambda key: self._failed_attempts[key][1])
+                self._failed_attempts.pop(oldest, None)
+
+    def _clear_failures(self, identity: str) -> None:
+        with self._rate_lock:
+            self._failed_attempts.pop(identity, None)
 
     def sign_in(self, request: SignInRequest) -> ServerSession:
         identity = request.identity.strip().lower()
-        if not identity or not request.credential or not request.device_id:
+        if (
+            not identity
+            or len(identity) > self._MAX_IDENTITY_LENGTH
+            or not request.credential
+            or not request.device_id
+            or len(request.device_id) > self._MAX_DEVICE_ID_LENGTH
+        ):
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         if self._rate_limited(identity):
             raise AuthenticationError(AuthFailure.RATE_LIMITED)
@@ -57,10 +87,12 @@ class PersistentIdentityService(IdentityService):
         session = ServerSession(token, subject_id, request.device_id, now, now + self.session_ttl)
         self.store.save_session(token, subject_id, request.device_id, now.isoformat(), session.expires_at.isoformat())
         self.store.add_audit("session_issued", subject_id, request.device_id)
-        self._failed_attempts.pop(identity, None)
+        self._clear_failures(identity)
         return session
 
     def _load_row(self, token: str):
+        if not isinstance(token, str) or not token or len(token) > self._MAX_TOKEN_LENGTH:
+            raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         row = self.store.get_session(token)
         if row is None or row["revoked"]:
             raise AuthenticationError(AuthFailure.REVOKED_SESSION if row and row["revoked"] else AuthFailure.EXPIRED_SESSION)
