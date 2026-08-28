@@ -29,7 +29,7 @@ class InMemorySecureStorage implements FlutterSecureStorage {
   Future<bool> containsKey({required String key, Map<String, String>? options}) async => _values.containsKey(key);
 
   @override
-  Future<void> deleteWithResult({required String key, Map<String, String>? options}) async => _values.remove(key);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
