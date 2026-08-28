@@ -36,6 +36,7 @@ class SignInRequest:
     identity: str
     credential: str
     device_id: str
+    phone_identity: str | None = None
 
 
 class IdentityService(Protocol):
