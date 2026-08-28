@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from datetime import timedelta
 
 from auth_server import AuthenticationError, InMemoryIdentityService
@@ -69,6 +70,17 @@ class AuthServerTests(unittest.TestCase):
             self.service.refresh(session)
         self.assertEqual(raised.exception.failure, AuthFailure.REVOKED_SESSION)
 
+    def test_expired_session_cannot_refresh(self):
+        session = self.service.sign_in(
+            SignInRequest("user@example.test", "correct", "device-trusted")
+        )
+        expired = replace(session, expires_at=session.issued_at - timedelta(seconds=1))
+        self.service._sessions[expired.session_id] = expired
+        with self.assertRaises(AuthenticationError) as raised:
+            self.service.refresh(expired)
+        self.assertEqual(raised.exception.failure, AuthFailure.EXPIRED_SESSION)
+        self.assertEqual(self.service.audit_events()[-1].event_type, "expired_session")
+
     def test_blocked_identity_cannot_sign_in(self):
         service = InMemoryIdentityService(
             verify_credential=lambda _identity, _credential: "blocked-subject",
@@ -79,6 +91,19 @@ class AuthServerTests(unittest.TestCase):
             service.sign_in(
                 SignInRequest("blocked@example.test", "correct", "device-1")
             )
+        self.assertEqual(raised.exception.failure, AuthFailure.BLOCKED_IDENTITY)
+
+    def test_blocked_identity_cannot_refresh_existing_session(self):
+        service = InMemoryIdentityService(
+            verify_credential=lambda _identity, _credential: "subject-123",
+            trusted_devices={"device-1"},
+        )
+        session = service.sign_in(
+            SignInRequest("user@example.test", "correct", "device-1")
+        )
+        service._blocked_subjects.add("subject-123")
+        with self.assertRaises(AuthenticationError) as raised:
+            service.refresh(session)
         self.assertEqual(raised.exception.failure, AuthFailure.BLOCKED_IDENTITY)
 
     def test_blocked_phone_cannot_sign_in(self):
@@ -94,7 +119,7 @@ class AuthServerTests(unittest.TestCase):
                 )
             )
         self.assertEqual(raised.exception.failure, AuthFailure.BLOCKED_IDENTITY)
-        self.assertEqual(self.service.audit_events(), ())
+        self.assertEqual(service.audit_events()[-1].event_type, "blocked_phone")
 
     def test_audit_chain_is_tamper_evident_and_does_not_store_raw_device_id(self):
         with self.assertRaises(AuthenticationError):
