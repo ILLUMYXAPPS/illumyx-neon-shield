@@ -2,7 +2,7 @@ name: Neon Shield Tests
 
 on:
   push:
-    branches: [main, "agent/**"]
+    branches: [main, "agent/**", "feat/**"]
   pull_request:
 
 permissions:
@@ -31,7 +31,7 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Compile Python sources
-        run: python -m compileall -q app_ui.py security_checks.py auth_server_contract.py auth_server.py neon_forensics.py neon_forensics_vault.py platform_collectors.py windows_wfp_telemetry.py tests
+        run: python -m compileall -q app_ui.py security_checks.py auth_server_contract.py auth_server.py neon_forensics.py neon_forensics_vault.py platform_collectors.py windows_wfp_telemetry.py backend tests
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
