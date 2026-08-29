@@ -18,7 +18,7 @@ void main() {
 
   test('rejects non-HTTPS production endpoints', () {
     expect(
-      () => HttpsAuthApi(baseUri: Uri.parse('http://api.example.com')),
+      () => HttpsAuthApi(baseUri: Uri.parse('http://example.invalid')),
       throwsArgumentError,
     );
   });
@@ -47,7 +47,7 @@ void main() {
     });
 
     final api = HttpsAuthApi(
-      baseUri: Uri.parse('https://api.example.com'),
+      baseUri: Uri.parse('https://example.invalid'),
       client: client,
     );
 
@@ -76,7 +76,7 @@ void main() {
     });
 
     final api = HttpsAuthApi(
-      baseUri: Uri.parse('https://api.example.com'),
+      baseUri: Uri.parse('https://example.invalid'),
       client: client,
     );
 
@@ -92,7 +92,7 @@ void main() {
         ));
 
     final api = HttpsAuthApi(
-      baseUri: Uri.parse('https://api.example.com'),
+      baseUri: Uri.parse('https://example.invalid'),
       client: client,
     );
 
