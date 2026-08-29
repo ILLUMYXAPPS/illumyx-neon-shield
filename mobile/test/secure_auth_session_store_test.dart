@@ -1,18 +1,31 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:illumyx_neon_shield/auth/auth_session.dart';
 import 'package:illumyx_neon_shield/auth/secure_auth_session_store.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+class InMemoryAuthSecretStorage implements AuthSecretStorage {
+  final Map<String, String> _values = {};
+
+  @override
+  Future<String?> read({required String key}) async => _values[key];
+
+  @override
+  Future<void> write({required String key, required String value}) async {
+    _values[key] = value;
+  }
+
+  @override
+  Future<void> delete({required String key}) async {
+    _values.remove(key);
+  }
+}
 
 void main() {
-  setUp(() async {
-    SharedPreferences.setMockInitialValues({});
-  });
-
   test('writes and restores a session', () async {
-    final store = SharedPreferencesAuthSessionStore();
+    final storage = InMemoryAuthSecretStorage();
+    final store = SecureAuthSessionStore(storage: storage);
     final session = AuthSession(
       token: 'opaque-server-token',
-      expiresAt: DateTime.utc(2026, 8, 25, 5),
+      expiresAt: DateTime.utc(2026, 12, 25, 5),
       deviceId: 'device-123',
     );
 
@@ -26,20 +39,20 @@ void main() {
   });
 
   test('returns null for malformed stored session', () async {
-    SharedPreferences.setMockInitialValues({
-      'neon_shield.auth_session': '{not-json}',
-    });
-    final store = SharedPreferencesAuthSessionStore();
+    final storage = InMemoryAuthSecretStorage();
+    await storage.write(key: 'neon_shield.auth_session', value: '{not-json}');
+    final store = SecureAuthSessionStore(storage: storage);
 
     expect(await store.read(), isNull);
   });
 
   test('clears a stored session', () async {
-    final store = SharedPreferencesAuthSessionStore();
+    final storage = InMemoryAuthSecretStorage();
+    final store = SecureAuthSessionStore(storage: storage);
     await store.write(
       AuthSession(
         token: 'opaque-server-token',
-        expiresAt: DateTime.utc(2026, 8, 25, 5),
+        expiresAt: DateTime.utc(2026, 12, 25, 5),
         deviceId: 'device-123',
       ),
     );

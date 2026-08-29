@@ -46,6 +46,10 @@ class IdentityService(Protocol):
         """Authenticate identity and issue a short-lived server session."""
         ...
 
+    def resolve_session(self, session_id: str) -> ServerSession:
+        """Resolve and validate a bearer session identifier server-side."""
+        ...
+
     def refresh(self, session: ServerSession) -> ServerSession:
         """Rotate/refresh a valid server session."""
         ...
