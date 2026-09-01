@@ -58,6 +58,10 @@ class IdentityService(Protocol):
         """Ask the authoritative service whether the device is trusted."""
         ...
 
+    def validate(self, session: ServerSession) -> ServerSession:
+        """Validate a session without rotating or changing its credentials."""
+        ...
+
     def is_identity_blocked(self, subject_id: str) -> bool:
         """Ask the authoritative service whether the identity is blocked."""
         ...
