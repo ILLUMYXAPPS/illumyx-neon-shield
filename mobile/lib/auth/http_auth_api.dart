@@ -120,13 +120,9 @@ class HttpAuthApi implements AuthApiContract {
 
   @override
   Future<bool> isDeviceTrusted(AuthSession session) async {
-    // The current backend contract validates trusted-device state whenever
-    // an authenticated session is loaded/refreshed. Until a dedicated
-    // trusted-device endpoint exists, a successful refresh is the authoritative
-    // check and avoids inventing a client-side security authority.
     try {
-      final refreshed = await refresh(session);
-      return refreshed.deviceId == session.deviceId;
+      await _postSession('/v1/auth/validate', const {}, token: session.token);
+      return true;
     } on AuthServiceException catch (error) {
       if (error.failure == AuthFailure.untrustedDevice ||
           error.failure == AuthFailure.revokedSession ||
