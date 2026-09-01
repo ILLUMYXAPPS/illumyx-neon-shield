@@ -39,9 +39,6 @@ class ServerBackedAuthService implements AuthService {
   }
 
   /// Refreshes the currently persisted session through the server.
-  ///
-  /// A missing or locally expired session is cleared rather than treated as
-  /// authenticated. The server remains authoritative for refresh validity.
   Future<AuthSession?> refreshSession() async {
     final current = await _store.read();
     if (current == null || current.isExpired) {
@@ -87,13 +84,4 @@ class ServerBackedAuthService implements AuthService {
 
     return session;
   }
-}
-
-class AuthServiceException implements Exception {
-  const AuthServiceException(this.failure);
-
-  final AuthFailure failure;
-
-  @override
-  String toString() => 'AuthServiceException(${failure.name})';
 }
