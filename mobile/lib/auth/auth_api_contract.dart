@@ -35,3 +35,12 @@ enum AuthFailure {
   rateLimited,
   unavailable,
 }
+
+class AuthServiceException implements Exception {
+  const AuthServiceException(this.failure);
+
+  final AuthFailure failure;
+
+  @override
+  String toString() => 'AuthServiceException(${failure.name})';
+}
