@@ -76,6 +76,19 @@ class PersistentBackendTests(unittest.TestCase):
             self.service.sign_in(request)
         self.assertEqual(raised.exception.failure, AuthFailure.RATE_LIMITED)
 
+    def test_malformed_password_record_is_rejected(self):
+        self.store._db.execute("UPDATE users SET credential_record='pbkdf2_sha256$1$00$00'")
+        self.assertFalse(verify_secret("correct", self.store.find_user("user@example.test")["credential_record"]))
+
+    def test_refresh_rotation_is_atomic(self):
+        first = self.service.sign_in(SignInRequest("user@example.test", "correct", "device-1"))
+        self.store._db.execute("PRAGMA query_only=ON")
+        with self.assertRaises(AuthenticationError):
+            self.service.refresh(first)
+        self.store._db.execute("PRAGMA query_only=OFF")
+        row = self.store.get_session(first.session_id)
+        self.assertEqual(row["revoked"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
