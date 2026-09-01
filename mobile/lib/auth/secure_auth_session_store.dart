@@ -1,29 +1,23 @@
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'auth_session.dart';
 
-/// Persistence adapter for the auth boundary.
+/// Platform-backed secure persistence for the current auth session.
 ///
-/// This adapter is intentionally small and isolated so the storage mechanism
-/// can be replaced with platform secure storage before production release.
-/// It must not be treated as proof that a session is still authorized: the
-/// server remains authoritative and [AuthSession.isExpired] is checked before
-/// a restored session is used.
-class SharedPreferencesAuthSessionStore implements AuthSessionStore {
-  SharedPreferencesAuthSessionStore({SharedPreferences? preferences})
-      : _preferences = preferences;
+/// Session tokens are credentials and must not be persisted in plain
+/// SharedPreferences. The server remains authoritative for session validity.
+class SecureAuthSessionStore implements AuthSessionStore {
+  SecureAuthSessionStore({FlutterSecureStorage? storage})
+      : _storage = storage ?? const FlutterSecureStorage();
 
   static const _key = 'neon_shield.auth_session';
-  SharedPreferences? _preferences;
-
-  Future<SharedPreferences> get _prefs async =>
-      _preferences ??= await SharedPreferences.getInstance();
+  final FlutterSecureStorage _storage;
 
   @override
   Future<AuthSession?> read() async {
-    final raw = (await _prefs).getString(_key);
+    final raw = await _storage.read(key: _key);
     if (raw == null) return null;
 
     try {
@@ -32,25 +26,31 @@ class SharedPreferencesAuthSessionStore implements AuthSessionStore {
       final token = json['token'];
       final expiresAt = json['expiresAt'];
       final deviceId = json['deviceId'];
-      if (token is! String || expiresAt is! String || deviceId is! String) {
+      if (token is! String || token.isEmpty ||
+          expiresAt is! String || deviceId is! String || deviceId.isEmpty) {
+        await clear();
         return null;
       }
 
       return AuthSession(
         token: token,
-        expiresAt: DateTime.parse(expiresAt),
+        expiresAt: DateTime.parse(expiresAt).toUtc(),
         deviceId: deviceId,
       );
     } on FormatException {
+      await clear();
+      return null;
+    } on TypeError {
+      await clear();
       return null;
     }
   }
 
   @override
   Future<void> write(AuthSession session) async {
-    await (await _prefs).setString(
-      _key,
-      jsonEncode({
+    await _storage.write(
+      key: _key,
+      value: jsonEncode({
         'token': session.token,
         'expiresAt': session.expiresAt.toUtc().toIso8601String(),
         'deviceId': session.deviceId,
@@ -59,7 +59,5 @@ class SharedPreferencesAuthSessionStore implements AuthSessionStore {
   }
 
   @override
-  Future<void> clear() async {
-    await (await _prefs).remove(_key);
-  }
+  Future<void> clear() => _storage.delete(key: _key);
 }
