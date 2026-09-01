@@ -102,6 +102,16 @@ class PersistentIdentityService(IdentityService):
             raise AuthenticationError(AuthFailure.UNTRUSTED_DEVICE)
         return row
 
+    def validate_token(self, token: str) -> ServerSession:
+        row = self._load_row(token)
+        return ServerSession(
+            token,
+            row["subject_id"],
+            row["device_hash"],
+            datetime.fromisoformat(row["issued_at"]),
+            datetime.fromisoformat(row["expires_at"]),
+        )
+
     def refresh_token(self, token: str) -> ServerSession:
         row = self._load_row(token)
         now = datetime.now(timezone.utc)
@@ -127,6 +137,9 @@ class PersistentIdentityService(IdentityService):
 
     def is_device_trusted(self, session: ServerSession) -> bool:
         return self.store.device_hash_trusted(session.subject_id, session.device_id) if len(session.device_id) == 64 else self.store.device_trusted(session.subject_id, session.device_id)
+
+    def validate(self, session: ServerSession) -> ServerSession:
+        return self.validate_token(session.session_id)
 
     def is_identity_blocked(self, subject_id: str) -> bool:
         return self.store.identity_blocked(subject_id)
