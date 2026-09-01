@@ -58,13 +58,7 @@ class PersistentIdentityService(IdentityService):
 
     def sign_in(self, request: SignInRequest) -> ServerSession:
         identity = request.identity.strip().lower()
-        if (
-            not identity
-            or len(identity) > self._MAX_IDENTITY_LENGTH
-            or not request.credential
-            or not request.device_id
-            or len(request.device_id) > self._MAX_DEVICE_ID_LENGTH
-        ):
+        if not identity or len(identity) > self._MAX_IDENTITY_LENGTH or not request.credential or not request.device_id or len(request.device_id) > self._MAX_DEVICE_ID_LENGTH:
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         if self._rate_limited(identity):
             raise AuthenticationError(AuthFailure.RATE_LIMITED)
@@ -112,10 +106,13 @@ class PersistentIdentityService(IdentityService):
         row = self._load_row(token)
         now = datetime.now(timezone.utc)
         new_token = secrets.token_urlsafe(32)
-        self.store.revoke_session(token)
-        self.store.save_session_hash(new_token, row["subject_id"], row["device_hash"], now.isoformat(), (now + self.session_ttl).isoformat())
+        expires_at = now + self.session_ttl
+        try:
+            self.store.rotate_session(token, new_token, row["subject_id"], row["device_hash"], now.isoformat(), expires_at.isoformat())
+        except ValueError:
+            raise AuthenticationError(AuthFailure.REVOKED_SESSION)
         self.store.add_audit_fingerprint("session_refreshed", row["subject_id"], row["device_hash"])
-        return ServerSession(new_token, row["subject_id"], row["device_hash"], now, now + self.session_ttl)
+        return ServerSession(new_token, row["subject_id"], row["device_hash"], now, expires_at)
 
     def revoke_token(self, token: str) -> None:
         row = self._load_row(token)
