@@ -61,6 +61,9 @@ def make_handler(service):
                 if self.path == "/v1/auth/refresh":
                     self._json(200, {"session": _session_json(service.refresh_token(token))})
                     return
+                if self.path == "/v1/auth/validate":
+                    self._json(200, {"session": _session_json(service.validate_token(token))})
+                    return
                 if self.path == "/v1/auth/logout":
                     service.revoke_token(token)
                     self._json(204, {})
