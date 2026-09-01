@@ -80,12 +80,20 @@ class PersistentBackendTests(unittest.TestCase):
         self.store._db.execute("UPDATE users SET credential_record='pbkdf2_sha256$1$00$00'")
         self.assertFalse(verify_secret("correct", self.store.find_user("user@example.test")["credential_record"]))
 
-    def test_refresh_rotation_is_atomic(self):
+    def test_refresh_failure_does_not_revoke_old_session(self):
         first = self.service.sign_in(SignInRequest("user@example.test", "correct", "device-1"))
-        self.store._db.execute("PRAGMA query_only=ON")
-        with self.assertRaises(AuthenticationError):
-            self.service.refresh(first)
-        self.store._db.execute("PRAGMA query_only=OFF")
+        original_rotate = self.store.rotate_session
+
+        def fail_rotation(*args, **kwargs):
+            raise ValueError("simulated atomic rotation failure")
+
+        self.store.rotate_session = fail_rotation
+        try:
+            with self.assertRaises(AuthenticationError) as raised:
+                self.service.refresh(first)
+            self.assertEqual(raised.exception.failure, AuthFailure.REVOKED_SESSION)
+        finally:
+            self.store.rotate_session = original_rotate
         row = self.store.get_session(first.session_id)
         self.assertEqual(row["revoked"], 0)
 
