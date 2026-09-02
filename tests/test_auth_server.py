@@ -50,6 +50,9 @@ class AuthServerTests(unittest.TestCase):
         with self.assertRaises(AuthenticationError) as raised:
             self.service.refresh(session)
         self.assertEqual(raised.exception.failure, AuthFailure.UNTRUSTED_DEVICE)
+        self.assertEqual(
+            self.service.audit_events()[-1].event_type, "untrusted_device_session"
+        )
 
     def test_refresh_rotates_session_and_revokes_old_session(self):
         session = self.service.sign_in(
@@ -80,6 +83,37 @@ class AuthServerTests(unittest.TestCase):
             self.service.refresh(expired)
         self.assertEqual(raised.exception.failure, AuthFailure.EXPIRED_SESSION)
         self.assertEqual(self.service.audit_events()[-1].event_type, "expired_session")
+
+    def test_expired_session_cannot_resolve(self):
+        session = self.service.sign_in(
+            SignInRequest("user@example.test", "correct", "device-trusted")
+        )
+        expired = replace(session, expires_at=session.issued_at - timedelta(seconds=1))
+        self.service._sessions[expired.session_id] = expired
+        with self.assertRaises(AuthenticationError) as raised:
+            self.service.resolve_session(expired.session_id)
+        self.assertEqual(raised.exception.failure, AuthFailure.EXPIRED_SESSION)
+
+    def test_revoked_session_cannot_resolve(self):
+        session = self.service.sign_in(
+            SignInRequest("user@example.test", "correct", "device-trusted")
+        )
+        self.service.revoke(session)
+        with self.assertRaises(AuthenticationError) as raised:
+            self.service.resolve_session(session.session_id)
+        self.assertEqual(raised.exception.failure, AuthFailure.REVOKED_SESSION)
+
+    def test_untrusted_session_cannot_resolve(self):
+        session = self.service.sign_in(
+            SignInRequest("user@example.test", "correct", "device-trusted")
+        )
+        self.service._trusted_devices.remove("device-trusted")
+        with self.assertRaises(AuthenticationError) as raised:
+            self.service.resolve_session(session.session_id)
+        self.assertEqual(raised.exception.failure, AuthFailure.UNTRUSTED_DEVICE)
+        self.assertEqual(
+            self.service.audit_events()[-1].event_type, "untrusted_device_session"
+        )
 
     def test_blocked_identity_cannot_sign_in(self):
         service = InMemoryIdentityService(
