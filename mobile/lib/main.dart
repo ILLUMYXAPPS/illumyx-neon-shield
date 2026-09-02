@@ -4,6 +4,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
+import 'security/geo_tracer.dart';
 import 'security/security_service.dart';
 
 void main() => runApp(const NeonShieldApp());
@@ -38,13 +39,19 @@ class ShieldDashboard extends StatefulWidget {
 }
 
 class _ShieldDashboardState extends State<ShieldDashboard> {
+  static const String recognisedIphoneLabel = 'Aaron Paszek iPhone 16 Pro';
+
   final SecurityService security = SecurityService();
+  final GeoTracer geoTracer = GeoTracer();
 
   bool loading = true;
+  bool geoLoading = false;
   String device = 'Checking device…';
+  String deviceId = '';
   String network = 'Checking network…';
   String platformStatus = 'Checking platform…';
   String securityStatus = 'Loading security state…';
+  String geoStatus = 'Geo Tracer ready • permission required';
 
   @override
   void initState() {
@@ -71,6 +78,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
     final wifi = NetworkInfo();
 
     var nextDevice = 'Device details unavailable';
+    var nextDeviceId = '';
     var nextNetwork = 'Network details unavailable';
     var nextPlatformStatus = 'Platform details unavailable';
 
@@ -78,10 +86,12 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
       if (Platform.isAndroid) {
         final d = await info.androidInfo;
         nextDevice = '${d.manufacturer} ${d.model}';
+        nextDeviceId = d.id;
         nextPlatformStatus = 'Android ${d.version.release}';
       } else if (Platform.isIOS) {
         final d = await info.iosInfo;
         nextDevice = d.name;
+        nextDeviceId = d.identifierForVendor ?? '';
         nextPlatformStatus = '${d.systemName} ${d.systemVersion}';
       } else {
         nextDevice = Platform.operatingSystem;
@@ -104,6 +114,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
     final snapshot = security.snapshot();
     setState(() {
       device = nextDevice;
+      deviceId = nextDeviceId;
       network = nextNetwork;
       platformStatus = nextPlatformStatus;
       securityStatus = snapshot.ownerInitialized
@@ -113,8 +124,74 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
     });
   }
 
+  Future<void> initializeOwner() async {
+    try {
+      await security.initializeOwner();
+      await refresh();
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('$error');
+    }
+  }
+
+  Future<void> recogniseCurrentIphone() async {
+    if (!Platform.isIOS || !device.contains('iPhone 16 Pro')) {
+      _showMessage('This action is only available on the iPhone 16 Pro.');
+      return;
+    }
+    if (!security.snapshot().ownerInitialized) {
+      _showMessage('Initialize the Shield owner before recognising a device.');
+      return;
+    }
+    if (deviceId.isEmpty) {
+      _showMessage('The device identity is unavailable.');
+      return;
+    }
+
+    try {
+      await security.addTrustedDevice(deviceId);
+      if (!mounted) return;
+      setState(() {
+        securityStatus = 'Recognised • $recognisedIphoneLabel';
+      });
+    } catch (error) {
+      _showMessage('$error');
+    }
+  }
+
+  Future<void> captureGeo() async {
+    if (geoLoading) return;
+    setState(() {
+      geoLoading = true;
+      geoStatus = 'Requesting permitted location…';
+    });
+
+    try {
+      final trace = await geoTracer.captureCurrentLocation();
+      if (!mounted) return;
+      setState(() {
+        geoStatus = trace == null
+            ? 'Location unavailable or permission not granted'
+            : 'Geo trace captured • ${trace.latitude.toStringAsFixed(5)}, '
+                '${trace.longitude.toStringAsFixed(5)} • ±${trace.accuracyMeters.toStringAsFixed(0)}m';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => geoStatus = 'Geo trace failed safely');
+    } finally {
+      if (mounted) setState(() => geoLoading = false);
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
+    final canRecognise = Platform.isIOS && device.contains('iPhone 16 Pro');
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -140,14 +217,39 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             _hero(),
             const SizedBox(height: 18),
             _card(Icons.lock_rounded, 'SECURITY', securityStatus,
-                'Access-control policy is owned by the application security service.'),
-            _card(Icons.phone_iphone_rounded, 'DEVICE', device, 'Local device identification only.'),
+                'Recognised-device access remains denied until owner setup and device enrolment are completed.'),
+            _card(Icons.phone_iphone_rounded, 'DEVICE', device, 'Platform-provided local device identity.'),
+            if (deviceId.isNotEmpty)
+              _card(Icons.fingerprint_rounded, 'DEVICE ID', deviceId,
+                  'Used locally for recognised-device matching; never use the display name as the trust credential.'),
             _card(Icons.shield_outlined, 'PLATFORM', platformStatus, 'Security capabilities follow iOS and Android permission boundaries.'),
             _card(Icons.wifi_rounded, 'NETWORK', network, 'Network information is shown only when the operating system permits access.'),
-            _card(Icons.lock_outline_rounded, 'PRIVACY', 'Local-first', 'Neon Shield does not need your passwords or remote-device access.'),
+            _card(Icons.location_on_outlined, 'GEO TRACER', geoStatus,
+                'Foreground location only. The operating system must grant permission before a trace is captured.'),
+            const SizedBox(height: 6),
+            if (!security.snapshot().ownerInitialized)
+              FilledButton.icon(
+                onPressed: loading ? null : initializeOwner,
+                icon: const Icon(Icons.admin_panel_settings_outlined),
+                label: const Text('INITIALIZE SHIELD OWNER'),
+              ),
+            if (canRecognise) ...[
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: recogniseCurrentIphone,
+                icon: const Icon(Icons.verified_user_outlined),
+                label: const Text('RECOGNISE AARON PASZEK IPHONE 16 PRO'),
+              ),
+            ],
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: geoLoading ? null : captureGeo,
+              icon: const Icon(Icons.my_location_rounded),
+              label: Text(geoLoading ? 'TRACING…' : 'CAPTURE PERMITTED GEO TRACE'),
+            ),
             const SizedBox(height: 12),
             const Text(
-              'Mobile beta foundation. Platform-native posture checks will be added only where Apple and Android expose supported APIs.',
+              'Mobile beta foundation. Unknown-device login enforcement and server-side security events must be enforced by the authentication backend before a session or token is issued.',
               style: TextStyle(color: Color(0xFF9BA7C7), height: 1.45),
             ),
           ],

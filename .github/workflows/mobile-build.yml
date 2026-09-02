@@ -52,6 +52,10 @@ jobs:
       - name: Generate iOS platform project
         working-directory: mobile
         run: flutter create --platforms=ios --org com.illumyx --project-name illumyx_neon_shield .
+      - name: Configure location permission
+        working-directory: mobile
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string ILLUMYX Neon Shield uses your location only when you explicitly enable Geo Tracer for security events." ios/Runner/Info.plist
       - name: Get dependencies
         working-directory: mobile
         run: flutter pub get

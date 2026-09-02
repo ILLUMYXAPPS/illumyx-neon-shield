@@ -69,6 +69,24 @@ void main() {
     expect(service.isTrustedDevice('device-a'), isFalse);
   });
 
+  test('records and restores unsupported-device login events', () async {
+    final service = SecurityService();
+    await service.load();
+    await service.recordUnsupportedLogin(
+      deviceId: 'unknown-device',
+      reason: 'device not enrolled',
+    );
+
+    expect(service.snapshot().securityEventCount, 1);
+    expect(service.recentSecurityEvents.single.type, 'unsupported_login');
+    expect(service.recentSecurityEvents.single.deviceId, 'unknown-device');
+
+    final restored = SecurityService();
+    await restored.load();
+    expect(restored.snapshot().securityEventCount, 1);
+    expect(restored.recentSecurityEvents.single.reason, 'device not enrolled');
+  });
+
   test('denies authorization until persisted security state is loaded', () {
     final service = SecurityService();
 
