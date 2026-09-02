@@ -137,14 +137,20 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               style: TextStyle(color: Color(0xFF9BA7C7), height: 1.4),
             ),
             const SizedBox(height: 14),
-            for (final profile in protectionProfiles)
-              RadioListTile<ProtectionProfile>(
-                value: profile,
-                groupValue: selectedProfile,
-                title: Text(profile.name),
-                subtitle: Text(profile.description),
-                onChanged: (value) => Navigator.of(context).pop(value),
+            RadioGroup<ProtectionProfile>(
+              groupValue: selectedProfile,
+              onChanged: (value) => Navigator.of(context).pop(value),
+              child: Column(
+                children: [
+                  for (final profile in protectionProfiles)
+                    RadioListTile<ProtectionProfile>(
+                      value: profile,
+                      title: Text(profile.name),
+                      subtitle: Text(profile.description),
+                    ),
+                ],
               ),
+            ),
           ],
         ),
       ),
