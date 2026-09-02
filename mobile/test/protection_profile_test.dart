@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/protection/protection_profile.dart';
+import 'package:illumyx_neon_shield/protection/protection_profile.dart';
 
 void main() {
   test('profile catalog matches server contract order', () {
