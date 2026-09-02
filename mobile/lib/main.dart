@@ -4,6 +4,8 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
+import 'protection/protection_profile.dart';
+import 'protection/protection_profile_service.dart';
 import 'security/security_service.dart';
 
 void main() => runApp(const NeonShieldApp());
@@ -39,12 +41,14 @@ class ShieldDashboard extends StatefulWidget {
 
 class _ShieldDashboardState extends State<ShieldDashboard> {
   final SecurityService security = SecurityService();
+  final ProtectionProfileService profiles = ProtectionProfileService();
 
   bool loading = true;
   String device = 'Checking device…';
   String network = 'Checking network…';
   String platformStatus = 'Checking platform…';
   String securityStatus = 'Loading security state…';
+  ProtectionProfile selectedProfile = protectionProfiles.first;
 
   @override
   void initState() {
@@ -58,6 +62,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
 
     try {
       await security.load();
+      selectedProfile = await profiles.loadSelected();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -113,6 +118,50 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
     });
   }
 
+  Future<void> chooseProfile() async {
+    final chosen = await showModalBottomSheet<ProtectionProfile>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+          children: [
+            const Text(
+              'Protection profile',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Choose what the protection engine should be configured to cover. Enforcement remains server-authoritative.',
+              style: TextStyle(color: Color(0xFF9BA7C7), height: 1.4),
+            ),
+            const SizedBox(height: 14),
+            for (final profile in protectionProfiles)
+              RadioListTile<ProtectionProfile>(
+                value: profile,
+                groupValue: selectedProfile,
+                title: Text(profile.name),
+                subtitle: Text(profile.description),
+                onChanged: (value) => Navigator.of(context).pop(value),
+              ),
+          ],
+        ),
+      ),
+    );
+
+    if (chosen == null || !mounted || chosen.key == selectedProfile.key) return;
+
+    try {
+      await profiles.select(chosen.key);
+    } catch (_) {
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => selectedProfile = chosen);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -139,6 +188,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
           children: [
             _hero(),
             const SizedBox(height: 18),
+            _profileCard(),
             _card(Icons.lock_rounded, 'SECURITY', securityStatus,
                 'Access-control policy is owned by the application security service.'),
             _card(Icons.phone_iphone_rounded, 'DEVICE', device, 'Local device identification only.'),
@@ -155,6 +205,60 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
       ),
     );
   }
+
+  Widget _profileCard() => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF11172A),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFF21E6FF).withValues(alpha: .28)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.tune_rounded, color: Color(0xFF21E6FF)),
+                SizedBox(width: 12),
+                Text('PROTECTION PROFILE', style: TextStyle(fontSize: 12, color: Color(0xFF9BA7C7), fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(selectedProfile.name, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 5),
+                      Text(selectedProfile.description, style: const TextStyle(color: Color(0xFF9BA7C7), height: 1.35)),
+                      const SizedBox(height: 9),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: selectedProfile.evidence.map((item) => Chip(label: Text(item))).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Change protection profile',
+                  onPressed: loading ? null : chooseProfile,
+                  icon: const Icon(Icons.edit_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 5),
+            const Text(
+              'Configuration only • matching and enforcement remain authoritative outside this UI.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF9BA7C7)),
+            ),
+          ],
+        ),
+      );
 
   Widget _hero() => Container(
         padding: const EdgeInsets.all(22),
