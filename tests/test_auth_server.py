@@ -51,7 +51,7 @@ class AuthServerTests(unittest.TestCase):
             self.service.refresh(session)
         self.assertEqual(raised.exception.failure, AuthFailure.UNTRUSTED_DEVICE)
         self.assertEqual(
-            self.service.audit_events()[-1].event_type, "untrusted_device_refresh"
+            self.service.audit_events()[-1].event_type, "untrusted_device_session"
         )
 
     def test_refresh_rotates_session_and_revokes_old_session(self):
