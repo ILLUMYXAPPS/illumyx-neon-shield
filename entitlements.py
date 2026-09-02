@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Protocol
 
 
 class Package(str, Enum):
@@ -43,6 +44,8 @@ class SubscriptionSnapshot:
     def __post_init__(self) -> None:
         if self.family_member_count < 0:
             raise ValueError("family_member_count must not be negative")
+        if self.family_member_count > EntitlementPolicy.MAX_FAMILY_MEMBERS:
+            raise ValueError("family_member_count must not exceed five")
         if self.package is not Package.PREMIUM_FAMILY and self.family_member_count:
             raise ValueError("family members require Premium Family")
         if self.expires_at is not None and self.expires_at.tzinfo is None:
@@ -55,6 +58,14 @@ class SubscriptionSnapshot:
             return True
         current = now or datetime.now(timezone.utc)
         return current < self.expires_at
+
+
+class IdentityServiceLike(Protocol):
+    """Minimal auth boundary required before a protected feature is authorized."""
+
+    def resolve_session(self, session_id: str):
+        """Resolve an active server-authoritative session."""
+        ...
 
 
 class EntitlementPolicy:
@@ -94,6 +105,20 @@ class EntitlementPolicy:
         if feature in cls._FAMILY_FEATURES:
             return snapshot.package is Package.PREMIUM_FAMILY
         return False
+
+    @classmethod
+    def authorize_feature(
+        cls,
+        identity_service: IdentityServiceLike,
+        session_id: str,
+        snapshot: SubscriptionSnapshot,
+        feature: Feature,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        """Require an active server session before applying package entitlement."""
+        identity_service.resolve_session(session_id)
+        return cls.allows(snapshot, feature, now=now)
 
     @classmethod
     def family_member_allowed(
