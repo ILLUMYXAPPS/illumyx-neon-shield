@@ -35,10 +35,20 @@ class SecurityService {
 
   Future<void> load() async {
     final preferences = await SharedPreferences.getInstance();
-    _ownerInitialized = preferences.getBool(_ownerKey) ?? false;
+    final persistedDevices = preferences.getStringList(_trustedDevicesKey) ??
+        const <String>[];
+
+    // Treat persisted state as untrusted input. Canonicalize identifiers and
+    // discard malformed empty entries before the state becomes authoritative.
     _trustedDevices
       ..clear()
-      ..addAll(preferences.getStringList(_trustedDevicesKey) ?? const <String>[]);
+      ..addAll(
+        persistedDevices
+            .map((deviceId) => deviceId.trim())
+            .where((deviceId) => deviceId.isNotEmpty),
+      );
+
+    _ownerInitialized = preferences.getBool(_ownerKey) ?? false;
     _loaded = true;
   }
 

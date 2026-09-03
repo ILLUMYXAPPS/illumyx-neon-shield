@@ -32,6 +32,25 @@ class AccessControlTests(unittest.TestCase):
         self.assertEqual(self.acl.audit_log[-1].action, "trusted_device_remove")
         self.assertFalse(self.acl.audit_log[-1].success)
 
+    def test_device_identifiers_are_canonicalized_for_authorization(self):
+        self.acl.add_trusted_device(self.owner, self.salt, "  trusted-2  ")
+        self.assertTrue(self.acl.is_trusted("trusted-2"))
+        self.assertTrue(self.acl.is_trusted(" trusted-2 "))
+        self.acl.remove_trusted_device(self.owner, self.salt, " trusted-2 ")
+        self.assertFalse(self.acl.is_trusted("trusted-2"))
+
+    def test_invalid_device_identifier_fails_closed_and_is_audited(self):
+        with self.assertRaises(ValueError):
+            self.acl.add_trusted_device(self.owner, self.salt, "   ")
+        self.assertFalse(self.acl.is_trusted("   "))
+        self.assertEqual(self.acl.audit_log[-1].action, "trusted_device_add")
+        self.assertFalse(self.acl.audit_log[-1].success)
+
+        with self.assertRaises(ValueError):
+            self.acl.remove_trusted_device(self.owner, self.salt, "")
+        self.assertEqual(self.acl.audit_log[-1].action, "trusted_device_remove")
+        self.assertFalse(self.acl.audit_log[-1].success)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -69,6 +69,40 @@ void main() {
     expect(service.isTrustedDevice('device-a'), isFalse);
   });
 
+  test('canonicalizes malformed persisted trusted-device entries', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'neon_shield.owner_initialized': true,
+      'neon_shield.trusted_devices': <String>[
+        ' device-a ',
+        '',
+        '   ',
+        'device-a',
+        'device-b ',
+      ],
+    });
+
+    final service = SecurityService();
+    await service.load();
+
+    expect(service.snapshot().ownerInitialized, isTrue);
+    expect(service.snapshot().trustedDeviceCount, 2);
+    expect(service.isTrustedDevice('device-a'), isTrue);
+    expect(service.isTrustedDevice(' device-a '), isTrue);
+    expect(service.isTrustedDevice('device-b'), isTrue);
+    expect(service.isTrustedDevice(''), isFalse);
+  });
+
+  test('does not create duplicate trusted-device state', () async {
+    final service = SecurityService();
+    await service.load();
+    await service.initializeOwner();
+
+    await service.addTrustedDevice('device-a');
+    await service.addTrustedDevice('  device-a  ');
+
+    expect(service.snapshot().trustedDeviceCount, 1);
+  });
+
   test('denies authorization until persisted security state is loaded', () {
     final service = SecurityService();
 
