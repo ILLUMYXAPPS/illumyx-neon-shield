@@ -44,6 +44,13 @@ class AccessControl:
             raise ValueError("salt must not be empty")
         return sha256(salt + token.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _canonical_device_id(device_id: str) -> str:
+        canonical = device_id.strip()
+        if not canonical:
+            raise ValueError("device_id must not be empty")
+        return canonical
+
     def initialize_owner(self, token: str, salt: bytes) -> None:
         """Initialize ownership once. Re-initialization is always rejected."""
         if self.owner_token_hash is not None:
@@ -63,24 +70,36 @@ class AccessControl:
 
     def add_trusted_device(self, actor_token: str, salt: bytes, device_id: str) -> None:
         """Only the current owner can add a trusted device."""
-        if not device_id:
-            raise ValueError("device_id must not be empty")
+        try:
+            canonical_device_id = self._canonical_device_id(device_id)
+        except (AttributeError, ValueError):
+            self._audit("trusted_device_add", AccessRole.TRUSTED_DEVICE, False)
+            raise ValueError("device_id must not be empty") from None
         if not self.verify_owner(actor_token, salt):
             self._audit("trusted_device_add", AccessRole.TRUSTED_DEVICE, False)
             raise PermissionError("owner verification required")
-        self.trusted_device_ids.add(device_id)
+        self.trusted_device_ids.add(canonical_device_id)
         self._audit("trusted_device_add", AccessRole.OWNER, True)
 
     def remove_trusted_device(self, actor_token: str, salt: bytes, device_id: str) -> None:
         """Only the current owner can remove a trusted device."""
+        try:
+            canonical_device_id = self._canonical_device_id(device_id)
+        except (AttributeError, ValueError):
+            self._audit("trusted_device_remove", AccessRole.TRUSTED_DEVICE, False)
+            raise ValueError("device_id must not be empty") from None
         if not self.verify_owner(actor_token, salt):
             self._audit("trusted_device_remove", AccessRole.TRUSTED_DEVICE, False)
             raise PermissionError("owner verification required")
-        self.trusted_device_ids.discard(device_id)
+        self.trusted_device_ids.discard(canonical_device_id)
         self._audit("trusted_device_remove", AccessRole.OWNER, True)
 
     def is_trusted(self, device_id: str) -> bool:
-        return device_id in self.trusted_device_ids
+        try:
+            canonical_device_id = self._canonical_device_id(device_id)
+        except (AttributeError, ValueError):
+            return False
+        return canonical_device_id in self.trusted_device_ids
 
     def _audit(self, action: str, actor: AccessRole, success: bool) -> None:
         self.audit_log.append(
