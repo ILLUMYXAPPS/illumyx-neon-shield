@@ -8,6 +8,7 @@ on:
       - "agent/**"
       - "fix/**"
       - "feat/**"
+      - "feature/**"
     paths:
       - "mobile/**"
       - ".github/workflows/mobile-checks.yml"
@@ -27,6 +28,7 @@ env:
 jobs:
   flutter-checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
