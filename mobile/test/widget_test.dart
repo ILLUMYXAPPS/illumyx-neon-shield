@@ -1,13 +1,18 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:illumyx_neon_shield/main.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('renders Neon Shield onboarding shell', (tester) async {
-    await tester.pumpWidget(const NeonShieldApp());
+  setUp(() {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+  });
 
-    // Bootstrap performs asynchronous security-state loading and the onboarding
-    // shell contains ongoing UI animation, so pump a bounded amount of time
-    // instead of waiting for the entire widget tree to become idle.
+  testWidgets('renders Neon Shield onboarding shell', (tester) async {
+    // Isolate bootstrap state so a persisted onboarding/owner value from
+    // another test cannot change the first-run screen under test.
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    await tester.pumpWidget(const NeonShieldApp());
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pump(const Duration(milliseconds: 500));
 
