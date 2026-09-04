@@ -60,9 +60,11 @@ jobs:
             exit 1
           fi
 
-          # Reject non-local plaintext HTTP endpoints in application source.
-          if git grep -n -I -E -- 'https?://[^[:space:]"'"'"'<>]+' -- '*.py' '*.dart' | grep -E 'http://[^[:space:]"'"'"'<>]*(api|auth|neon|prod|production)' | grep -vE 'http://(localhost|127\.0\.0\.1)(:|/)' ; then
-            echo 'Potential production HTTP endpoint detected in application source.'
+          # Any plaintext HTTP URL in application source must be explicitly
+          # local-only. This is intentionally broader than a keyword-based
+          # production endpoint check so a newly named API cannot bypass it.
+          if git grep -n -I -E -- 'http://[^[:space:]"'"'"'<>]+' -- '*.py' '*.dart' | grep -vE 'http://(localhost|127\.0\.0\.1)(:|/)' ; then
+            echo 'Non-local plaintext HTTP endpoint detected in application source.'
             exit 1
           fi
 
