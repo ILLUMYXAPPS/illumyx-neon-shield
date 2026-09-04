@@ -102,6 +102,36 @@ jobs:
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/NeonShield.mobileprovision"
 
+      - name: Validate and configure provisioning profile
+        shell: bash
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/profile.plist"
+          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$PROFILE_PLIST")
+          PROFILE_TEAM=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$PROFILE_PLIST")
+          PROFILE_APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROFILE_PLIST")
+          test -n "$PROFILE_NAME"
+          test "$PROFILE_TEAM" = "$APPLE_TEAM_ID"
+          test "$PROFILE_APP_ID" = "$APPLE_TEAM_ID.$APPLE_BUNDLE_ID"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          path = Path('mobile/ios/Runner.xcodeproj/project.pbxproj')
+          text = path.read_text()
+          profile = os.environ['PROFILE_NAME']
+          team = os.environ['APPLE_TEAM_ID']
+          text = text.replace('CODE_SIGN_STYLE = Automatic;', 'CODE_SIGN_STYLE = Manual;\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "' + profile.replace('"', '\\"') + '";\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";')
+          text = text.replace('DEVELOPMENT_TEAM = ;', 'DEVELOPMENT_TEAM = ' + team + ';')
+          path.write_text(text)
+          PY
+          grep -q 'CODE_SIGN_STYLE = Manual;' mobile/ios/Runner.xcodeproj/project.pbxproj
+          grep -q 'PROVISIONING_PROFILE_SPECIFIER' mobile/ios/Runner.xcodeproj/project.pbxproj
+
       - name: Install dependencies
         working-directory: mobile
         run: flutter pub get
@@ -123,6 +153,10 @@ jobs:
             <key>method</key><string>app-store-connect</string>
             <key>teamID</key><string>$APPLE_TEAM_ID</string>
             <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.illumyx.illumyx_neon_shield</key><string>$PROFILE_NAME</string>
+            </dict>
             <key>stripSwiftSymbols</key><true/>
             <key>uploadSymbols</key><true/>
           </dict></plist>
