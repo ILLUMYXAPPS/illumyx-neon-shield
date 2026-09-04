@@ -1,0 +1,21 @@
+name: CI Trigger Verification
+
+on:
+  push:
+    branches: ["ci/trigger-verification"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Verify CI trigger
+        run: python -m compileall -q app_ui.py security_checks.py tests
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
