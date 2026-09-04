@@ -24,3 +24,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+# V1 release-readiness CI trigger: keep mobile validation attached to this branch.

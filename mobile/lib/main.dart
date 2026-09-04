@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'onboarding/onboarding_screen.dart';
 import 'protection/protection_profile.dart';
 import 'protection/protection_profile_service.dart';
 import 'security/security_service.dart';
@@ -27,7 +29,122 @@ class NeonShieldApp extends StatelessWidget {
           surface: Color(0xFF11172A),
         ),
       ),
-      home: const ShieldDashboard(),
+      home: const AppBootstrap(),
+    );
+  }
+}
+
+class AppBootstrap extends StatefulWidget {
+  const AppBootstrap({super.key});
+
+  @override
+  State<AppBootstrap> createState() => _AppBootstrapState();
+}
+
+class _AppBootstrapState extends State<AppBootstrap> {
+  static const _onboardingKey = 'neon_shield.onboarding_complete';
+  bool? _showOnboarding;
+  Object? _bootstrapError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBootstrapState();
+  }
+
+  Future<void> _loadBootstrapState() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final security = SecurityService();
+      await security.load();
+      final completed = preferences.getBool(_onboardingKey) ?? false;
+      if (!mounted) return;
+      final ownerReady = security.snapshot().ownerInitialized;
+      setState(() {
+        _showOnboarding = !completed && !ownerReady;
+        _bootstrapError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _showOnboarding = null;
+        _bootstrapError = error;
+      });
+    }
+  }
+
+  Future<void> _completeOnboarding() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final security = SecurityService();
+      await security.load();
+      if (!security.snapshot().ownerInitialized) {
+        if (!mounted) return;
+        setState(() {
+          _bootstrapError = StateError(
+            'Owner initialization is required before protected dashboard access.',
+          );
+        });
+        return;
+      }
+      await preferences.setBool(_onboardingKey, true);
+      if (!mounted) return;
+      setState(() => _showOnboarding = false);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _bootstrapError = error);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_bootstrapError != null) {
+      return _BootstrapError(onRetry: _loadBootstrapState);
+    }
+    if (_showOnboarding == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    return _showOnboarding!
+        ? OnboardingScreen(onComplete: _completeOnboarding)
+        : const ShieldDashboard();
+  }
+}
+
+class _BootstrapError extends StatelessWidget {
+  const _BootstrapError({required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.shield_outlined, size: 64, color: Color(0xFF21E6FF)),
+                const SizedBox(height: 20),
+                const Text('Security state unavailable', textAlign: TextAlign.center, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 12),
+                const Text(
+                  'Neon Shield cannot safely determine the current security state. No protected dashboard access is granted until the state can be loaded.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF9BA7C7), height: 1.45),
+                ),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -92,18 +209,12 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
         nextDevice = Platform.operatingSystem;
         nextPlatformStatus = 'Unsupported mobile platform';
       }
-    } catch (_) {
-      // Keep safe fallback values.
-    }
+    } catch (_) {}
 
     try {
       final name = await wifi.getWifiName();
-      nextNetwork = name == null || name.isEmpty
-          ? 'Wi-Fi name unavailable'
-          : 'Wi-Fi: $name';
-    } catch (_) {
-      // Keep safe fallback value.
-    }
+      nextNetwork = name == null || name.isEmpty ? 'Wi-Fi name unavailable' : 'Wi-Fi: $name';
+    } catch (_) {}
 
     if (!mounted) return;
     final snapshot = security.snapshot();
@@ -127,10 +238,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
           shrinkWrap: true,
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
           children: [
-            const Text(
-              'Protection profile',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-            ),
+            const Text('Protection profile', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
             const Text(
               'Choose what the protection engine should be configured to cover. Enforcement remains server-authoritative.',
@@ -181,10 +289,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
           ],
         ),
         actions: [
-          IconButton(
-            onPressed: loading ? null : refresh,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
+          IconButton(onPressed: loading ? null : refresh, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
       body: RefreshIndicator(
@@ -195,8 +300,10 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             _hero(),
             const SizedBox(height: 18),
             _profileCard(),
-            _card(Icons.lock_rounded, 'SECURITY', securityStatus,
-                'Access-control policy is owned by the application security service.'),
+            const SizedBox(height: 18),
+            _commandCentre(),
+            const SizedBox(height: 18),
+            _card(Icons.lock_rounded, 'SECURITY', securityStatus, 'Access-control policy is owned by the application security service.'),
             _card(Icons.phone_iphone_rounded, 'DEVICE', device, 'Local device identification only.'),
             _card(Icons.shield_outlined, 'PLATFORM', platformStatus, 'Security capabilities follow iOS and Android permission boundaries.'),
             _card(Icons.wifi_rounded, 'NETWORK', network, 'Network information is shown only when the operating system permits access.'),
@@ -242,26 +349,64 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
                       const SizedBox(height: 5),
                       Text(selectedProfile.description, style: const TextStyle(color: Color(0xFF9BA7C7), height: 1.35)),
                       const SizedBox(height: 9),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: selectedProfile.evidence.map((item) => Chip(label: Text(item))).toList(),
-                      ),
+                      Wrap(spacing: 6, runSpacing: 6, children: selectedProfile.evidence.map((item) => Chip(label: Text(item))).toList()),
                     ],
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Change protection profile',
-                  onPressed: loading ? null : chooseProfile,
-                  icon: const Icon(Icons.edit_rounded),
-                ),
+                IconButton(tooltip: 'Change protection profile', onPressed: loading ? null : chooseProfile, icon: const Icon(Icons.edit_rounded)),
               ],
             ),
             const SizedBox(height: 5),
-            const Text(
-              'Configuration only • matching and enforcement remain authoritative outside this UI.',
-              style: TextStyle(fontSize: 12, color: Color(0xFF9BA7C7)),
-            ),
+            const Text('Configuration only • matching and enforcement remain authoritative outside this UI.', style: TextStyle(fontSize: 12, color: Color(0xFF9BA7C7))),
+          ],
+        ),
+      );
+
+  Widget _commandCentre() {
+    final snapshot = security.snapshot();
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        color: const Color(0xFF11172A),
+        border: Border.all(color: const Color(0xFF8B5CFF).withValues(alpha: .45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.radar_rounded, color: Color(0xFF21E6FF)),
+              SizedBox(width: 10),
+              Expanded(child: Text('PROTECTION COMMAND CENTRE', style: TextStyle(fontWeight: FontWeight.w800))),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text('A clear view of the protection state currently known to this device.', style: TextStyle(color: Color(0xFF9BA7C7), height: 1.4)),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(child: _metric(Icons.verified_user_rounded, snapshot.ownerInitialized ? 'READY' : 'SETUP', 'Owner state')),
+              const SizedBox(width: 10),
+              Expanded(child: _metric(Icons.devices_rounded, '${snapshot.trustedDeviceCount}', 'Trusted devices')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _metric(IconData icon, String value, String label) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(16), color: const Color(0xFF070A16)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: const Color(0xFF8B5CFF)),
+            const SizedBox(height: 8),
+            Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3),
+            Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF9BA7C7))),
           ],
         ),
       );
@@ -270,12 +415,8 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
         padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(24),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF11172A), Color(0xFF24143A)],
-          ),
-          border: Border.all(
-            color: const Color(0xFF21E6FF).withValues(alpha: .45),
-          ),
+          gradient: const LinearGradient(colors: [Color(0xFF11172A), Color(0xFF24143A)]),
+          border: Border.all(color: const Color(0xFF21E6FF).withValues(alpha: .45)),
         ),
         child: Row(
           children: [
@@ -285,15 +426,9 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    loading ? 'Checking…' : 'Mobile Shield Ready',
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
+                  Text(loading ? 'Checking…' : 'Mobile Shield Ready', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
-                  const Text(
-                    'Secure. Smart. Neon.',
-                    style: TextStyle(color: Color(0xFFFF38D1), fontWeight: FontWeight.w600),
-                  ),
+                  const Text('Secure. Smart. Neon.', style: TextStyle(color: Color(0xFFFF38D1), fontWeight: FontWeight.w600)),
                 ],
               ),
             ),
@@ -304,10 +439,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
   Widget _card(IconData icon, String title, String value, String detail) => Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: const Color(0xFF11172A),
-          borderRadius: BorderRadius.circular(18),
-        ),
+        decoration: BoxDecoration(color: const Color(0xFF11172A), borderRadius: BorderRadius.circular(18)),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
