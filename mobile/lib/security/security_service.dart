@@ -72,7 +72,12 @@ class SecurityService {
       throw ArgumentError.value(deviceId, 'deviceId', 'must not be empty');
     }
     if (_trustedDevices.add(normalizedId)) {
-      await _persistTrustedDevices();
+      try {
+        await _persistTrustedDevices();
+      } catch (_) {
+        _trustedDevices.remove(normalizedId);
+        rethrow;
+      }
     }
   }
 
