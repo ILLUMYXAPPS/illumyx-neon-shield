@@ -1,1 +1,0 @@
-Identity/auth review remediation is implemented on security/identity-auth-review-69. The production review explicitly keeps deployment-only evidence items unclaimed.
