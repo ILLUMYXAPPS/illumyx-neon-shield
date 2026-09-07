@@ -12,7 +12,7 @@ A gate is marked complete only when the required evidence exists. Failed checks 
 
 | Gate | Required evidence | Status |
 | --- | --- | --- |
-| CI and automated security | Fresh CI run for the current source, including security, tests, mobile checks and builds | 🟢 Latest main validation passed for PR #69 source |
+| CI and automated security | Fresh CI run for the current source, including security, tests, mobile checks and builds | 🟡 Main advanced after PR #70; fresh post-merge CI still required |
 | Production HTTPS | Managed TLS, HTTPS-only transport, certificate validity/renewal evidence | ⬜ Not deployed |
 | Managed persistence | Durable production storage for identities, trusted devices, blocks, sessions and audit events | ⬜ Not deployed |
 | Production secrets | Deployment-platform secret manager configured and verified | ⬜ Not deployed |
@@ -22,16 +22,25 @@ A gate is marked complete only when the required evidence exists. Failed checks 
 | Session security | Expiry, revocation and refresh rotation verified end-to-end | 🟢 Application-level atomic refresh rotation reviewed and regression-tested; production-like verification remains open |
 | Security audit trail | Durable events, safe correlation data and audit-chain integrity verification | ⬜ Not deployed |
 | Monitoring and alerting | Authentication, abuse, service, database and audit-integrity alerts verified | ⬜ Not deployed |
-| Real-device smoke test | iPhone 15 Pro, iPhone 16 Pro and iPad 16 test plan executed on available release builds | ⬜ Pending device execution |
+| Real-device smoke test | Supported iPhone/iPad test plan executed on available release builds | ⬜ Pending device execution |
 | Release signing | Android/iOS signing validation and store-upload readiness | 🟡 Pipeline hardened, final signing evidence pending |
-| Independent security review | Independent scope, findings, remediation and retest evidence | 🟢 Identity/authentication review completed in PR #69; deployment-only verification remains open |
+| Independent security review | Independent scope, findings, remediation and retest evidence | 🟢 Identity/authentication review completed in PR #69; additional application review recorded after PR #70 |
 | Store/release readiness | Store metadata, privacy/support material and production configuration verified | ⬜ Pending final release preparation |
+
+## Application-level review notes
+
+- PR #69 addressed the identified high-severity refresh-token concurrency boundary with atomic session rotation.
+- PR #70 made managed-database row locking the default for concurrency-sensitive audit/session operations.
+- Focused review found no implemented password-reset, recovery-token, OTP or identity-verification code path. These remain integration/deployment gates and must not be represented as completed until a real implementation is independently reviewed.
+- `NEON_SESSION_SECRET` remains part of the production secret contract. Its cryptographic purpose must be explicitly assigned before deployment; the project does not assume that it signs or encrypts sessions without evidence.
+- Production composition fails closed when required secret, managed persistence, security-event or alert dependencies are absent.
+- Monitoring and alert routing are implemented as provider-neutral boundaries; actual delivery infrastructure remains deployment responsibility.
 
 ## Evidence rules
 
 1. Do not delete failed runs, failed tests, warnings or remediation history to improve appearances.
 2. When a check fails, record the failure, identify the root cause, fix it, add or strengthen regression coverage where appropriate, and rerun the relevant gate.
-3. Do not increase the internal readiness percentage merely because work was attempted. Increase it only when a meaningful release gate has been verified.
+3. Do not increase the internal readiness percentage merely because work was attempted. Increase it only when a meaningful gate has been verified.
 4. Do not describe the project as secure, certified or production-ready solely because CI is green.
 5. Independent review findings are not failures of the process by themselves. The required response is reproduce, remediate, verify and preserve the evidence.
 
@@ -61,7 +70,7 @@ Preserve, rather than rewrite away, the project's development history:
 - signing-pipeline hardening evidence
 - production-boundary decisions
 - known limitations and remaining gates
-- final remediation and retest evidence from the independent reviewer
+- final remediation and retest evidence from independent reviewers
 
 ## Final release decision
 
