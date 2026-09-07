@@ -37,7 +37,7 @@ class ManagedDbAuthStore(ManagedAuthStore):
         *,
         pepper: str,
         placeholder: str = "%s",
-        audit_lock_clause: str = "",
+        audit_lock_clause: str = " FOR UPDATE",
     ) -> None:
         if not pepper:
             raise RuntimeError("managed database auth store requires a deployment-supplied pepper")

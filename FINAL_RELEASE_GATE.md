@@ -12,19 +12,19 @@ A gate is marked complete only when the required evidence exists. Failed checks 
 
 | Gate | Required evidence | Status |
 | --- | --- | --- |
-| CI and automated security | Fresh CI run for the current source, including security, tests, mobile checks and builds | 🟡 Pending verification for latest transport-gate fix |
+| CI and automated security | Fresh CI run for the current source, including security, tests, mobile checks and builds | 🟢 Latest main validation passed for PR #69 source |
 | Production HTTPS | Managed TLS, HTTPS-only transport, certificate validity/renewal evidence | ⬜ Not deployed |
 | Managed persistence | Durable production storage for identities, trusted devices, blocks, sessions and audit events | ⬜ Not deployed |
 | Production secrets | Deployment-platform secret manager configured and verified | ⬜ Not deployed |
 | Production authentication | Server-authoritative authentication exercised against a non-production test account | ⬜ Not deployed |
 | Trusted-device enforcement | Removal/revocation blocks subsequent session use or refresh | ⬜ Not verified in production-like environment |
 | Block enforcement | Blocked identity and blocked phone checks verified end-to-end | ⬜ Not verified in production-like environment |
-| Session security | Expiry, revocation and refresh rotation verified end-to-end | ⬜ Not verified in production-like environment |
+| Session security | Expiry, revocation and refresh rotation verified end-to-end | 🟢 Application-level atomic refresh rotation reviewed and regression-tested; production-like verification remains open |
 | Security audit trail | Durable events, safe correlation data and audit-chain integrity verification | ⬜ Not deployed |
 | Monitoring and alerting | Authentication, abuse, service, database and audit-integrity alerts verified | ⬜ Not deployed |
 | Real-device smoke test | iPhone 15 Pro, iPhone 16 Pro and iPad 16 test plan executed on available release builds | ⬜ Pending device execution |
 | Release signing | Android/iOS signing validation and store-upload readiness | 🟡 Pipeline hardened, final signing evidence pending |
-| Independent security review | Independent scope, findings, remediation and retest evidence | ⬜ Not completed |
+| Independent security review | Independent scope, findings, remediation and retest evidence | 🟢 Identity/authentication review completed in PR #69; deployment-only verification remains open |
 | Store/release readiness | Store metadata, privacy/support material and production configuration verified | ⬜ Pending final release preparation |
 
 ## Evidence rules
