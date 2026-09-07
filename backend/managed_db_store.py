@@ -1,10 +1,4 @@
-"""DB-API managed persistence adapter for the production auth boundary.
-
-The adapter deliberately accepts an injected connection factory rather than
-choosing a cloud provider or bundling production credentials. Deployments must
-provide a managed durable database connection, TLS configuration, pooling and
-secret-backed credentials.
-"""
+"""DB-API managed persistence adapter for the production auth boundary."""
 from __future__ import annotations
 
 import hashlib
@@ -27,6 +21,8 @@ _SCHEMA = (
     "CREATE INDEX IF NOT EXISTS idx_managed_audit_time ON audit_events(occurred_at)",
 )
 
+_ALLOWED_AUDIT_LOCK_CLAUSES = {"", " FOR UPDATE"}
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -47,6 +43,8 @@ class ManagedDbAuthStore(ManagedAuthStore):
             raise RuntimeError("managed database auth store requires a deployment-supplied pepper")
         if placeholder not in {"%s", "?", ":1"}:
             raise ValueError("unsupported DB-API placeholder")
+        if audit_lock_clause not in _ALLOWED_AUDIT_LOCK_CLAUSES:
+            raise ValueError("unsupported audit lock clause")
         self._connection_factory = connection_factory
         self._pepper = pepper
         self._placeholder = placeholder

@@ -11,7 +11,7 @@ class ProductionConfigTests(unittest.TestCase):
     def _env(self):
         return {
             "NEON_AUTH_ENV": "production",
-            "NEON_AUTH_DB": "postgresql://managed.example/auth",
+            "NEON_AUTH_DB": "postgresql://managed.example/auth?sslmode=verify-full",
             "NEON_IDP_URL": "https://idp.example",
             "NEON_IDP_CLIENT_ID": "client-id",
             "NEON_MONITORING_ENDPOINT": "https://monitor.example/events",
@@ -29,6 +29,24 @@ class ProductionConfigTests(unittest.TestCase):
         self.assertEqual(config.idp_client_secret, "idp-test-value")
         self.assertEqual(config.session_secret, "session-test-value")
         self.assertEqual(config.database_pepper, "pepper-test-value")
+
+    def test_database_tls_is_required(self):
+        env = self._env()
+        env["NEON_AUTH_DB"] = "postgresql://managed.example/auth"
+        with self.assertRaisesRegex(RuntimeError, "must explicitly require TLS"):
+            validate_production_config(env, secret_provider=self._provider())
+
+    def test_database_tls_rejects_invalid_sslmode(self):
+        env = self._env()
+        env["NEON_AUTH_DB"] = "postgresql://managed.example/auth?sslmode=disable"
+        with self.assertRaisesRegex(RuntimeError, "must explicitly require TLS"):
+            validate_production_config(env, secret_provider=self._provider())
+
+    def test_non_postgresql_database_is_rejected(self):
+        env = self._env()
+        env["NEON_AUTH_DB"] = "mysql://managed.example/auth?sslmode=require"
+        with self.assertRaisesRegex(RuntimeError, "must use a PostgreSQL connection URL"):
+            validate_production_config(env, secret_provider=self._provider())
 
     def test_missing_secret_fails_closed(self):
         provider = MappingSecretProvider({"NEON_IDP_CLIENT_SECRET": "idp-test-value"})
