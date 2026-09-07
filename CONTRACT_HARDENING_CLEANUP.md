@@ -1,0 +1,1 @@
+Cleanup note: duplicate connector-generated hardening notes are being removed from this security branch. Production remains fail-closed and requires a managed durable adapter.
