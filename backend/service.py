@@ -56,27 +56,12 @@ class PersistentIdentityService(IdentityService):
         )
 
     def _rate_limited(self, identity: str) -> bool:
-        """Atomically reserve an authentication attempt before credential verification.
-
-        The durable store's failure counter is used as an attempt reservation. We
-        reserve up to one slot beyond the configured threshold so the threshold
-        check remains exact: the first ``max_sign_ins`` reservations proceed, and
-        the next reservation is rejected. This closes the check-then-increment
-        race across multiple service instances.
-        """
-        now = datetime.now(timezone.utc).isoformat()
-        reservation_limit = self.max_sign_ins + 1
-        self.store.record_sign_in_failure(
+        """Atomically reserve one sign-in attempt in durable storage."""
+        return not self.store.reserve_sign_in_attempt(
             identity,
-            now,
+            datetime.now(timezone.utc).isoformat(),
             self._RATE_WINDOW_SECONDS,
-            reservation_limit,
-        )
-        return self.store.sign_in_rate_limited(
-            identity,
-            now,
-            self._RATE_WINDOW_SECONDS,
-            reservation_limit,
+            self.max_sign_ins,
         )
 
     def _clear_failures(self, identity: str) -> None:
