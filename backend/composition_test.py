@@ -67,7 +67,7 @@ class CompositionTests(unittest.TestCase):
 
     def test_production_requires_managed_store_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
-            with self.assertRaisesRegex(RuntimeError, "managed store"):
+            with self.assertRaisesRegex(RuntimeError, "ManagedAuthStore"):
                 build_service(secret_provider=self._secret_provider())
 
     def test_production_requires_observability_sink_injection(self):
