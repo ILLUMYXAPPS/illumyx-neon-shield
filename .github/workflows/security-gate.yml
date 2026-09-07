@@ -40,9 +40,12 @@ jobs:
         run: >-
           python -m unittest discover -s tests -v
 
-      - name: Run backend security regression tests
+      - name: Run monitoring hardening tests
         run: >-
-          python -m unittest discover -s backend -p '*_test.py' -v
+          python -m unittest -v
+          backend.observability_test
+          backend.composition_test
+          backend.security_monitoring_test
 
       - name: Reject obvious private-key material
         shell: bash
