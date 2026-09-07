@@ -1,9 +1,4 @@
-"""Production persistence boundary for Neon Shield.
-
-This module deliberately defines the interface only. The local SQLite AuthStore
-remains the development/integration adapter. Production deployments must supply
-a managed durable implementation behind this boundary.
-"""
+"""Production persistence boundary for Neon Shield auth."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -54,6 +49,15 @@ class ManagedAuthStore(ABC):
 
     @abstractmethod
     def rotate_session(self, token: str, new_token: str, issued_at: str, expires_at: str) -> Any: ...
+
+    @abstractmethod
+    def sign_in_rate_limited(self, identity: str, now: str, window_seconds: int, max_sign_ins: int) -> bool: ...
+
+    @abstractmethod
+    def record_sign_in_failure(self, identity: str, now: str, window_seconds: int, max_sign_ins: int) -> None: ...
+
+    @abstractmethod
+    def clear_sign_in_failures(self, identity: str) -> None: ...
 
     @abstractmethod
     def last_audit_hash(self) -> str: ...
