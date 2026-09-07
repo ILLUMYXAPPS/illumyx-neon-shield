@@ -32,14 +32,7 @@ def _now() -> str:
 class ManagedDbAuthStore(ManagedAuthStore):
     """Concrete managed-database adapter using an injected DB-API connection factory."""
 
-    def __init__(
-        self,
-        connection_factory: Callable[[], Any],
-        *,
-        pepper: str,
-        placeholder: str = "%s",
-        audit_lock_clause: str = " FOR UPDATE",
-    ) -> None:
+    def __init__(self, connection_factory: Callable[[], Any], *, pepper: str, placeholder: str = "%s", audit_lock_clause: str = " FOR UPDATE") -> None:
         if not pepper:
             raise RuntimeError("managed database auth store requires a deployment-supplied pepper")
         if placeholder not in {"%s", "?", ":1"}:
@@ -90,7 +83,6 @@ class ManagedDbAuthStore(ManagedAuthStore):
         return dict(zip(columns, row, strict=False))
 
     def migrate(self) -> None:
-        """Create the adapter schema; production migrations should be versioned separately."""
         with self._cursor() as (connection, cursor):
             for statement in _SCHEMA:
                 cursor.execute(statement)
@@ -160,7 +152,6 @@ class ManagedDbAuthStore(ManagedAuthStore):
             connection.commit()
 
     def rotate_session(self, token: str, new_token: str, issued_at: str, expires_at: str) -> Any:
-        """Atomically consume one live session and create its replacement."""
         connection = self._connection_factory()
         cursor = connection.cursor()
         try:
@@ -213,6 +204,42 @@ class ManagedDbAuthStore(ManagedAuthStore):
             elif int(row[0]) < max_sign_ins:
                 cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=failure_count+1 WHERE identity_hash=?"), (identity_hash,))
             connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            close = getattr(cursor, "close", None)
+            if close is not None:
+                close()
+            close_connection = getattr(connection, "close", None)
+            if close_connection is not None:
+                close_connection()
+
+    def reserve_sign_in_attempt(self, identity: str, now: str, window_seconds: int, max_sign_ins: int) -> bool:
+        """Atomically consume one bounded sign-in reservation and return whether it is allowed."""
+        identity_hash = _hash(identity.strip().lower(), self._pepper)
+        now_dt = datetime.fromisoformat(now)
+        connection = self._connection_factory()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(self._sql("SELECT failure_count, window_started_at FROM sign_in_rate_limits WHERE identity_hash=?" + self._audit_lock_clause), (identity_hash,))
+            row = cursor.fetchone()
+            if row is None:
+                new_count = 1
+                try:
+                    cursor.execute(self._sql("INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) VALUES(?,?,?)"), (identity_hash, new_count, now))
+                except Exception:
+                    connection.rollback()
+                    connection.close()
+                    return self.reserve_sign_in_attempt(identity, now, window_seconds, max_sign_ins)
+            elif now_dt.timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
+                new_count = 1
+                cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=1,window_started_at=? WHERE identity_hash=?"), (now, identity_hash))
+            else:
+                new_count = min(int(row[0]) + 1, max_sign_ins + 1)
+                cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=? WHERE identity_hash=?"), (new_count, identity_hash))
+            connection.commit()
+            return new_count <= max_sign_ins
         except Exception:
             connection.rollback()
             raise
