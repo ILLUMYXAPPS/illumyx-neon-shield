@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import fields
 
 from backend.production_config import validate_production_config
 from backend.secrets import MappingSecretProvider
@@ -27,7 +28,7 @@ class ProductionConfigTests(unittest.TestCase):
         config = validate_production_config(self._env(), secret_provider=self._provider())
         self.assertEqual(config.idp_client_secret, "idp-test-value")
         self.assertEqual(config.database_pepper, "pepper-test-value")
-        self.assertNotIn("session_secret", config.__dataclass_fields__)
+        self.assertNotIn("session_secret", {item.name for item in fields(config)})
 
     def test_database_tls_is_required(self):
         env = self._env()
