@@ -11,13 +11,16 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   android:
     name: Android beta APK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           cache: true
@@ -34,7 +37,7 @@ jobs:
         working-directory: mobile
         run: flutter build apk --release
       - name: Upload Android beta
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ILLUMYX-Neon-Shield-Android-beta
           path: mobile/build/app/outputs/flutter-apk/app-release.apk
@@ -44,8 +47,8 @@ jobs:
     name: iOS unsigned beta
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           cache: true
@@ -65,7 +68,7 @@ jobs:
         working-directory: mobile
         run: ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app ILLUMYX-Neon-Shield-iOS-unsigned.zip
       - name: Upload iOS beta
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ILLUMYX-Neon-Shield-iOS-unsigned-beta
           path: mobile/ILLUMYX-Neon-Shield-iOS-unsigned.zip
