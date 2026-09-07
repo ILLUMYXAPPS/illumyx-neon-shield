@@ -40,8 +40,8 @@ class PersistentIdentityService(IdentityService):
         self._rate_lock = threading.Lock()
 
     @staticmethod
-    def _observability_subject_hash(subject_id: str) -> str:
-        return hashlib.sha256(subject_id.encode()).hexdigest()
+    def _observability_hash(value: str) -> str:
+        return hashlib.sha256(value.encode()).hexdigest()
 
     def _emit_security_event(
         self,
@@ -54,7 +54,7 @@ class PersistentIdentityService(IdentityService):
         self.security_event_sink.emit(
             security_event(
                 name,
-                subject_hash=self._observability_subject_hash(subject_id) if subject_id else None,
+                subject_hash=self._observability_hash(subject_id) if subject_id else None,
                 device_hash=device_hash,
                 metadata=metadata,
             )
@@ -117,14 +117,14 @@ class PersistentIdentityService(IdentityService):
             raise AuthenticationError(AuthFailure.BLOCKED_IDENTITY)
         if not self.store.device_trusted(subject_id, request.device_id):
             self.store.add_audit("untrusted_device", subject_id, request.device_id)
-            self._emit_security_event("auth.untrusted_device", subject_id=subject_id, metadata={"reason": "device_not_trusted"})
+            self._emit_security_event("auth.untrusted_device", subject_id=subject_id, device_hash=self._observability_hash(request.device_id), metadata={"reason": "device_not_trusted"})
             raise AuthenticationError(AuthFailure.UNTRUSTED_DEVICE)
         now = datetime.now(timezone.utc)
         token = secrets.token_urlsafe(32)
         session = ServerSession(token, subject_id, request.device_id, now, now + self.session_ttl)
         self.store.save_session(token, subject_id, request.device_id, now.isoformat(), session.expires_at.isoformat())
         self.store.add_audit("session_issued", subject_id, request.device_id)
-        self._emit_security_event("auth.success", subject_id=subject_id, device_hash=self.store.device_hash_trusted.__name__ and None, metadata={"event": "session_issued"})
+        self._emit_security_event("auth.success", subject_id=subject_id, device_hash=self._observability_hash(request.device_id), metadata={"event": "session_issued"})
         self._clear_failures(identity)
         return session
 
