@@ -138,6 +138,17 @@ class PersistentIdentityService(IdentityService):
             raise AuthenticationError(AuthFailure.UNTRUSTED_DEVICE)
         return row
 
+    def resolve_session(self, session_id: str) -> ServerSession:
+        """Resolve a bearer session through the authoritative validation path."""
+        row = self._load_row(session_id)
+        return ServerSession(
+            session_id,
+            row["subject_id"],
+            row["device_hash"],
+            datetime.fromisoformat(row["issued_at"]),
+            datetime.fromisoformat(row["expires_at"]),
+        )
+
     def refresh_token(self, token: str) -> ServerSession:
         row = self._load_row(token)
         now = datetime.now(timezone.utc)
