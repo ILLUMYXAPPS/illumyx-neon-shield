@@ -48,7 +48,7 @@ class RecordingAlertSink(SecurityAlertSink):
     def __init__(self) -> None:
         self.alerts: list[SecurityAlert] = []
 
-    def send(self, alert: SecurityAlert) -> None:
+    def emit_alert(self, alert: SecurityAlert) -> None:
         self.alerts.append(alert)
 
 
@@ -68,28 +68,28 @@ class CompositionTests(unittest.TestCase):
     def test_production_requires_managed_store_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
             with self.assertRaisesRegex(RuntimeError, "managed store"):
-                build_service()
+                build_service(secret_provider=self._secret_provider())
 
     def test_production_requires_observability_sink_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
-            with self.assertRaisesRegex(RuntimeError, "observability"):
-                build_service(store=StubManagedStore(), secret_provider=self._secret_provider())
+            with self.assertRaisesRegex(RuntimeError, "SecurityEventSink"):
+                build_service(managed_store=StubManagedStore(), secret_provider=self._secret_provider())
 
     def test_production_requires_alert_sink_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
-            with self.assertRaisesRegex(RuntimeError, "alert"):
-                build_service(store=StubManagedStore(), security_event_sink=RecordingSink(), secret_provider=self._secret_provider())
+            with self.assertRaisesRegex(RuntimeError, "SecurityAlertSink"):
+                build_service(managed_store=StubManagedStore(), security_event_sink=RecordingSink(), secret_provider=self._secret_provider())
 
     def test_production_requires_secret_provider_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
-            with self.assertRaisesRegex(RuntimeError, "secret provider"):
-                build_service(store=StubManagedStore(), security_event_sink=RecordingSink(), alert_sink=RecordingAlertSink())
+            with self.assertRaisesRegex(RuntimeError, "SecretProvider"):
+                build_service(managed_store=StubManagedStore(), security_event_sink=RecordingSink(), security_alert_sink=RecordingAlertSink())
 
     def test_production_wraps_monitoring_boundary(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
             sink = RecordingSink()
             alerts = RecordingAlertSink()
-            service = build_service(store=StubManagedStore(), security_event_sink=sink, alert_sink=alerts, secret_provider=self._secret_provider())
+            service = build_service(managed_store=StubManagedStore(), security_event_sink=sink, security_alert_sink=alerts, secret_provider=self._secret_provider())
             self.assertIsInstance(service.security_event_sink, ProductionSecurityMonitor)
 
 
