@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-import threading
-import time
 from datetime import datetime, timedelta, timezone
 
 from auth_server import AuthenticationError
@@ -18,7 +16,6 @@ class PersistentIdentityService(IdentityService):
     """Hashed credentials, opaque rotating sessions and persistent device policy."""
 
     _RATE_WINDOW_SECONDS = 300
-    _MAX_TRACKED_IDENTITIES = 10_000
     _MAX_IDENTITY_LENGTH = 320
     _MAX_DEVICE_ID_LENGTH = 512
     _MAX_TOKEN_LENGTH = 512
@@ -36,8 +33,6 @@ class PersistentIdentityService(IdentityService):
         self.session_ttl = session_ttl
         self.max_sign_ins = max_sign_ins
         self.security_event_sink = security_event_sink or NoopSecurityEventSink()
-        self._failed_attempts: dict[str, tuple[int, float]] = {}
-        self._rate_lock = threading.Lock()
 
     @staticmethod
     def _observability_hash(value: str) -> str:
@@ -61,31 +56,23 @@ class PersistentIdentityService(IdentityService):
         )
 
     def _rate_limited(self, identity: str) -> bool:
-        now = time.monotonic()
-        with self._rate_lock:
-            entry = self._failed_attempts.get(identity)
-            if entry is None:
-                return False
-            count, started = entry
-            if now - started >= self._RATE_WINDOW_SECONDS:
-                self._failed_attempts.pop(identity, None)
-                return False
-            return count >= self.max_sign_ins
+        return self.store.sign_in_rate_limited(
+            identity,
+            datetime.now(timezone.utc).isoformat(),
+            self._RATE_WINDOW_SECONDS,
+            self.max_sign_ins,
+        )
 
     def _failure(self, identity: str) -> None:
-        now = time.monotonic()
-        with self._rate_lock:
-            count, started = self._failed_attempts.get(identity, (0, now))
-            if now - started >= self._RATE_WINDOW_SECONDS:
-                count, started = 0, now
-            self._failed_attempts[identity] = (count + 1, started)
-            if len(self._failed_attempts) > self._MAX_TRACKED_IDENTITIES:
-                oldest = min(self._failed_attempts, key=lambda key: self._failed_attempts[key][1])
-                self._failed_attempts.pop(oldest, None)
+        self.store.record_sign_in_failure(
+            identity,
+            datetime.now(timezone.utc).isoformat(),
+            self._RATE_WINDOW_SECONDS,
+            self.max_sign_ins,
+        )
 
     def _clear_failures(self, identity: str) -> None:
-        with self._rate_lock:
-            self._failed_attempts.pop(identity, None)
+        self.store.clear_sign_in_failures(identity)
 
     def sign_in(self, request: SignInRequest) -> ServerSession:
         identity = request.identity.strip().lower()
