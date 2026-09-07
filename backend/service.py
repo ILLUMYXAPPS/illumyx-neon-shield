@@ -56,19 +56,27 @@ class PersistentIdentityService(IdentityService):
         )
 
     def _rate_limited(self, identity: str) -> bool:
-        return self.store.sign_in_rate_limited(
-            identity,
-            datetime.now(timezone.utc).isoformat(),
-            self._RATE_WINDOW_SECONDS,
-            self.max_sign_ins,
-        )
+        """Atomically reserve an authentication attempt before credential verification.
 
-    def _failure(self, identity: str) -> None:
+        The durable store's failure counter is used as an attempt reservation. We
+        reserve up to one slot beyond the configured threshold so the threshold
+        check remains exact: the first ``max_sign_ins`` reservations proceed, and
+        the next reservation is rejected. This closes the check-then-increment
+        race across multiple service instances.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        reservation_limit = self.max_sign_ins + 1
         self.store.record_sign_in_failure(
             identity,
-            datetime.now(timezone.utc).isoformat(),
+            now,
             self._RATE_WINDOW_SECONDS,
-            self.max_sign_ins,
+            reservation_limit,
+        )
+        return self.store.sign_in_rate_limited(
+            identity,
+            now,
+            self._RATE_WINDOW_SECONDS,
+            reservation_limit,
         )
 
     def _clear_failures(self, identity: str) -> None:
@@ -90,7 +98,6 @@ class PersistentIdentityService(IdentityService):
             raise AuthenticationError(AuthFailure.RATE_LIMITED)
         user = self.store.find_user(identity)
         if user is None or not verify_secret(request.credential, user["credential_record"]):
-            self._failure(identity)
             self._emit_security_event("auth.failure", metadata={"reason": "invalid_credentials"})
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         subject_id = user["subject_id"]
