@@ -16,6 +16,7 @@ _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS devices (subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, trusted INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, PRIMARY KEY(subject_id, device_hash), FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
     "CREATE TABLE IF NOT EXISTS blocked_phones (phone_hash TEXT PRIMARY KEY, created_at TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS sessions (session_hash TEXT PRIMARY KEY, subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
+    "CREATE TABLE IF NOT EXISTS sign_in_rate_limits (identity_hash TEXT PRIMARY KEY, failure_count INTEGER NOT NULL, window_started_at TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS audit_events (event_hash TEXT PRIMARY KEY, event_type TEXT NOT NULL, occurred_at TEXT NOT NULL, subject_id TEXT, device_fingerprint TEXT NOT NULL, previous_hash TEXT NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_managed_sessions_subject ON sessions(subject_id)",
     "CREATE INDEX IF NOT EXISTS idx_managed_audit_time ON audit_events(occurred_at)",
@@ -185,6 +186,48 @@ class ManagedDbAuthStore(ManagedAuthStore):
             close_connection = getattr(connection, "close", None)
             if close_connection is not None:
                 close_connection()
+
+    def sign_in_rate_limited(self, identity: str, now: str, window_seconds: int, max_sign_ins: int) -> bool:
+        identity_hash = _hash(identity.strip().lower(), self._pepper)
+        with self._cursor() as (connection, cursor):
+            cursor.execute(self._sql("SELECT failure_count, window_started_at FROM sign_in_rate_limits WHERE identity_hash=?"), (identity_hash,))
+            row = cursor.fetchone()
+            if row is None:
+                return False
+            if datetime.fromisoformat(now).timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
+                cursor.execute(self._sql("DELETE FROM sign_in_rate_limits WHERE identity_hash=?"), (identity_hash,))
+                connection.commit()
+                return False
+            return int(row[0]) >= max_sign_ins
+
+    def record_sign_in_failure(self, identity: str, now: str, window_seconds: int, max_sign_ins: int) -> None:
+        identity_hash = _hash(identity.strip().lower(), self._pepper)
+        now_dt = datetime.fromisoformat(now)
+        connection = self._connection_factory()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(self._sql("SELECT failure_count, window_started_at FROM sign_in_rate_limits WHERE identity_hash=?" + self._audit_lock_clause), (identity_hash,))
+            row = cursor.fetchone()
+            if row is None or now_dt.timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
+                cursor.execute(self._sql("INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) VALUES(?,?,?) ON CONFLICT(identity_hash) DO UPDATE SET failure_count=1,window_started_at=excluded.window_started_at"), (identity_hash, 1, now))
+            elif int(row[0]) < max_sign_ins:
+                cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=failure_count+1 WHERE identity_hash=?"), (identity_hash,))
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            close = getattr(cursor, "close", None)
+            if close is not None:
+                close()
+            close_connection = getattr(connection, "close", None)
+            if close_connection is not None:
+                close_connection()
+
+    def clear_sign_in_failures(self, identity: str) -> None:
+        with self._cursor() as (connection, cursor):
+            cursor.execute(self._sql("DELETE FROM sign_in_rate_limits WHERE identity_hash=?"), (_hash(identity.strip().lower(), self._pepper),))
+            connection.commit()
 
     def last_audit_hash(self) -> str:
         with self._cursor() as (_, cursor):
