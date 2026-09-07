@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, IdentityService, ServerSession, SignInRequest
 from backend.managed_store import ManagedAuthStore
+from backend.observability import NoopSecurityEventSink, SecurityEventSink, security_event
 from backend.store import verify_secret
 
 
@@ -21,14 +22,38 @@ class PersistentIdentityService(IdentityService):
     _MAX_DEVICE_ID_LENGTH = 512
     _MAX_TOKEN_LENGTH = 512
 
-    def __init__(self, store: ManagedAuthStore, session_ttl: timedelta = timedelta(minutes=15), max_sign_ins: int = 5) -> None:
+    def __init__(
+        self,
+        store: ManagedAuthStore,
+        session_ttl: timedelta = timedelta(minutes=15),
+        max_sign_ins: int = 5,
+        security_event_sink: SecurityEventSink | None = None,
+    ) -> None:
         if session_ttl <= timedelta(0) or max_sign_ins < 1:
             raise ValueError("invalid authentication limits")
         self.store = store
         self.session_ttl = session_ttl
         self.max_sign_ins = max_sign_ins
+        self.security_event_sink = security_event_sink or NoopSecurityEventSink()
         self._failed_attempts: dict[str, tuple[int, float]] = {}
         self._rate_lock = threading.Lock()
+
+    def _emit_security_event(
+        self,
+        name: str,
+        *,
+        subject_hash: str | None = None,
+        device_hash: str | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> None:
+        self.security_event_sink.emit(
+            security_event(
+                name,
+                subject_hash=subject_hash,
+                device_hash=device_hash,
+                metadata=metadata,
+            )
+        )
 
     def _rate_limited(self, identity: str) -> bool:
         now = time.monotonic()
@@ -66,46 +91,58 @@ class PersistentIdentityService(IdentityService):
             or not request.device_id
             or len(request.device_id) > self._MAX_DEVICE_ID_LENGTH
         ):
+            self._emit_security_event("auth.failure", metadata={"reason": "invalid_request"})
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         if self._rate_limited(identity):
+            self._emit_security_event("auth.rate_limited", metadata={"reason": "sign_in_threshold"})
             raise AuthenticationError(AuthFailure.RATE_LIMITED)
         user = self.store.find_user(identity)
         if user is None or not verify_secret(request.credential, user["credential_record"]):
             self._failure(identity)
+            self._emit_security_event("auth.failure", metadata={"reason": "invalid_credentials"})
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         subject_id = user["subject_id"]
         if self.store.identity_blocked(subject_id):
             self.store.add_audit("blocked_identity", subject_id, request.device_id)
+            self._emit_security_event("auth.blocked_identity", metadata={"reason": "identity_blocked"})
             raise AuthenticationError(AuthFailure.BLOCKED_IDENTITY)
         if request.phone_identity and self.store.phone_blocked(request.phone_identity):
             self.store.add_audit("blocked_phone", subject_id, request.device_id)
+            self._emit_security_event("auth.blocked_phone", metadata={"reason": "phone_blocked"})
             raise AuthenticationError(AuthFailure.BLOCKED_IDENTITY)
         if not self.store.device_trusted(subject_id, request.device_id):
             self.store.add_audit("untrusted_device", subject_id, request.device_id)
+            self._emit_security_event("auth.untrusted_device", metadata={"reason": "device_not_trusted"})
             raise AuthenticationError(AuthFailure.UNTRUSTED_DEVICE)
         now = datetime.now(timezone.utc)
         token = secrets.token_urlsafe(32)
         session = ServerSession(token, subject_id, request.device_id, now, now + self.session_ttl)
         self.store.save_session(token, subject_id, request.device_id, now.isoformat(), session.expires_at.isoformat())
         self.store.add_audit("session_issued", subject_id, request.device_id)
+        self._emit_security_event("auth.success", metadata={"event": "session_issued"})
         self._clear_failures(identity)
         return session
 
     def _load_row(self, token: str):
         if not isinstance(token, str) or not token or len(token) > self._MAX_TOKEN_LENGTH:
+            self._emit_security_event("session.invalid", metadata={"reason": "invalid_token"})
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         row = self.store.get_session(token)
         if row is None or row["revoked"]:
+            self._emit_security_event("session.rejected", metadata={"reason": "revoked_or_missing"})
             raise AuthenticationError(AuthFailure.REVOKED_SESSION if row and row["revoked"] else AuthFailure.EXPIRED_SESSION)
         if datetime.now(timezone.utc) >= datetime.fromisoformat(row["expires_at"]):
             self.store.revoke_session(token)
             self.store.add_audit_fingerprint("expired_session", row["subject_id"], row["device_hash"])
+            self._emit_security_event("session.expired", subject_hash=row["subject_id"], device_hash=row["device_hash"], metadata={"reason": "ttl_expired"})
             raise AuthenticationError(AuthFailure.EXPIRED_SESSION)
         if self.store.identity_blocked(row["subject_id"]):
             self.store.add_audit_fingerprint("blocked_identity_session", row["subject_id"], row["device_hash"])
+            self._emit_security_event("session.blocked_identity", subject_hash=row["subject_id"], device_hash=row["device_hash"], metadata={"reason": "identity_blocked"})
             raise AuthenticationError(AuthFailure.BLOCKED_IDENTITY)
         if not self.store.device_hash_trusted(row["subject_id"], row["device_hash"]):
             self.store.add_audit_fingerprint("untrusted_device_session", row["subject_id"], row["device_hash"])
+            self._emit_security_event("session.untrusted_device", subject_hash=row["subject_id"], device_hash=row["device_hash"], metadata={"reason": "device_not_trusted"})
             raise AuthenticationError(AuthFailure.UNTRUSTED_DEVICE)
         return row
 
@@ -116,12 +153,14 @@ class PersistentIdentityService(IdentityService):
         self.store.revoke_session(token)
         self.store.save_session_hash(new_token, row["subject_id"], row["device_hash"], now.isoformat(), (now + self.session_ttl).isoformat())
         self.store.add_audit_fingerprint("session_refreshed", row["subject_id"], row["device_hash"])
+        self._emit_security_event("session.refreshed", subject_hash=row["subject_id"], device_hash=row["device_hash"])
         return ServerSession(new_token, row["subject_id"], row["device_hash"], now, now + self.session_ttl)
 
     def revoke_token(self, token: str) -> None:
         row = self._load_row(token)
         self.store.revoke_session(token)
         self.store.add_audit_fingerprint("session_revoked", row["subject_id"], row["device_hash"])
+        self._emit_security_event("session.revoked", subject_hash=row["subject_id"], device_hash=row["device_hash"])
 
     def refresh(self, session: ServerSession) -> ServerSession:
         return self.refresh_token(session.session_id)
