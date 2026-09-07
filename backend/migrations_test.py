@@ -20,10 +20,13 @@ class MigrationRunnerTests(unittest.TestCase):
             self.assertEqual(runner.apply_pending(), 3)
             connection = sqlite3.connect(path)
             try:
-                self.assertIsNotNone(connection.execute("SELECT 1 FROM sign_in_rate_limits LIMIT 1").fetchone())
+                table = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='sign_in_rate_limits'"
+                ).fetchone()
                 versions = connection.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version").fetchall()
             finally:
                 connection.close()
+            self.assertIsNotNone(table)
             self.assertEqual(versions, [
                 (1, "create_auth_tables"),
                 (2, "create_auth_indexes"),
