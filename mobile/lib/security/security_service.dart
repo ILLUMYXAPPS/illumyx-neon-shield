@@ -1,8 +1,37 @@
 import 'dart:math';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'access_blocklist.dart';
+
+abstract interface class TrustedDeviceStore {
+  Future<List<String>?> readTrustedDevices();
+  Future<void> writeTrustedDevices(List<String> deviceIds);
+}
+
+class SecureTrustedDeviceStore implements TrustedDeviceStore {
+  SecureTrustedDeviceStore({FlutterSecureStorage? storage})
+      : _storage = storage ?? const FlutterSecureStorage();
+
+  static const String _key = 'neon_shield.trusted_devices';
+  final FlutterSecureStorage _storage;
+
+  @override
+  Future<List<String>?> readTrustedDevices() async {
+    final value = await _storage.read(key: _key);
+    if (value == null) return null;
+    return value
+        .split('\n')
+        .map((deviceId) => deviceId.trim())
+        .where((deviceId) => deviceId.isNotEmpty)
+        .toList();
+  }
+
+  @override
+  Future<void> writeTrustedDevices(List<String> deviceIds) =>
+      _storage.write(key: _key, value: deviceIds.join('\n'));
+}
 
 class SecuritySnapshot {
   const SecuritySnapshot({
@@ -20,7 +49,12 @@ class SecuritySnapshot {
 /// repository's Python policy implementation directly.
 class SecurityService {
   static const String _ownerKey = 'neon_shield.owner_initialized';
-  static const String _trustedDevicesKey = 'neon_shield.trusted_devices';
+
+  SecurityService({TrustedDeviceStore? trustedDeviceStore})
+      : _trustedDeviceStore =
+            trustedDeviceStore ?? SecureTrustedDeviceStore();
+
+  final TrustedDeviceStore _trustedDeviceStore;
 
   bool _ownerInitialized = false;
   final Set<String> _trustedDevices = <String>{};
@@ -35,8 +69,8 @@ class SecurityService {
 
   Future<void> load() async {
     final preferences = await SharedPreferences.getInstance();
-    final persistedDevices = preferences.getStringList(_trustedDevicesKey) ??
-        const <String>[];
+    final persistedDevices =
+        await _trustedDeviceStore.readTrustedDevices() ?? const <String>[];
 
     // Treat persisted state as untrusted input. Canonicalize identifiers and
     // discard malformed empty entries before the state becomes authoritative.
@@ -72,7 +106,12 @@ class SecurityService {
       throw ArgumentError.value(deviceId, 'deviceId', 'must not be empty');
     }
     if (_trustedDevices.add(normalizedId)) {
-      await _persistTrustedDevices();
+      try {
+        await _persistTrustedDevices();
+      } catch (_) {
+        _trustedDevices.remove(normalizedId);
+        rethrow;
+      }
     }
   }
 
@@ -83,7 +122,12 @@ class SecurityService {
     }
     final normalizedId = deviceId.trim();
     if (_trustedDevices.remove(normalizedId)) {
-      await _persistTrustedDevices();
+      try {
+        await _persistTrustedDevices();
+      } catch (_) {
+        _trustedDevices.add(normalizedId);
+        rethrow;
+      }
     }
   }
 
@@ -124,10 +168,7 @@ class SecurityService {
   }
 
   Future<void> _persistTrustedDevices() async {
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setStringList(
-      _trustedDevicesKey,
-      _trustedDevices.toList()..sort(),
-    );
+    final sortedDevices = _trustedDevices.toList()..sort();
+    await _trustedDeviceStore.writeTrustedDevices(sortedDevices);
   }
 }
