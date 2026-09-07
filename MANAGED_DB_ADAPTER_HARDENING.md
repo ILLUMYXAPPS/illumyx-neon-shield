@@ -18,6 +18,8 @@ The managed database adapter is the production persistence seam. It remains prov
 
 Production releases must use versioned schema migrations, backup/restore procedures, TLS-protected connections, pooling, encryption at rest, access controls, retention and monitoring. The adapter does not provision those resources.
 
+For production configuration, `NEON_AUTH_DB` must be a PostgreSQL connection URL with explicit TLS enabled via `sslmode=require`, `sslmode=verify-ca`, or preferably `sslmode=verify-full`. Plain PostgreSQL URLs and `sslmode=disable` are rejected before service construction.
+
 The deployment secret name is `NEON_DB_PEPPER`.
 
 Apple configuration remains outside this boundary.
