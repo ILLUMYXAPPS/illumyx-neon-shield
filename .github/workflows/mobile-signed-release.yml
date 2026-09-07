@@ -15,13 +15,16 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   android:
     name: Signed Android AAB
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           cache: true
@@ -103,7 +106,7 @@ jobs:
           set -euo pipefail
           test -s mobile/build/app/outputs/bundle/release/app-release.aab
       - name: Upload Android AAB
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ILLUMYX-Neon-Shield-Android-signed
           path: mobile/build/app/outputs/bundle/release/app-release.aab
@@ -117,8 +120,8 @@ jobs:
     name: Signed iOS IPA
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           cache: true
@@ -205,7 +208,7 @@ jobs:
           IPA_PATH=$(find mobile/build/ios/ipa -maxdepth 1 -type f -name '*.ipa' -print -quit)
           test -s "$IPA_PATH"
       - name: Upload iOS IPA
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ILLUMYX-Neon-Shield-iOS-signed
           path: mobile/build/ios/ipa/*.ipa
