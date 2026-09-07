@@ -52,6 +52,34 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
             store.revoke_session("opaque-token")
             self.assertTrue(store.get_session("opaque-token")["revoked"])
 
+    def test_distributed_rate_limit_state_is_persistent_and_bounded(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "managed-test.sqlite3"
+            first = ManagedDbAuthStore(lambda: sqlite3.connect(path), pepper="test-pepper", placeholder="?", audit_lock_clause="")
+            first.migrate()
+            now = datetime.now(timezone.utc).isoformat()
+            self.assertFalse(first.sign_in_rate_limited("user@example.com", now, 300, 5))
+            for _ in range(5):
+                first.record_sign_in_failure("user@example.com", now, 300, 5)
+            first.close()
+
+            second = ManagedDbAuthStore(lambda: sqlite3.connect(path), pepper="test-pepper", placeholder="?", audit_lock_clause="")
+            self.assertTrue(second.sign_in_rate_limited("user@example.com", now, 300, 5))
+            second.clear_sign_in_failures("user@example.com")
+            self.assertFalse(second.sign_in_rate_limited("user@example.com", now, 300, 5))
+            second.close()
+
+    def test_rate_limit_window_expiry_resets_counter(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = _store(Path(directory))
+            store.migrate()
+            old = (datetime.now(timezone.utc) - timedelta(seconds=301)).isoformat()
+            for _ in range(5):
+                store.record_sign_in_failure("user@example.com", old, 300, 5)
+            now = datetime.now(timezone.utc).isoformat()
+            self.assertFalse(store.sign_in_rate_limited("user@example.com", now, 300, 5))
+            store.close()
+
     def test_audit_chain_is_linked(self) -> None:
         with TemporaryDirectory() as directory:
             store = _store(Path(directory))
