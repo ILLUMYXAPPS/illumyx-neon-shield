@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   security-regression:
     name: Security regression suite
@@ -20,10 +23,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -72,22 +75,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          # Production code must not contain obvious debug-mode assignments.
-          # Test fixtures are excluded because they intentionally exercise
-          # defensive behavior and may contain invalid/debug values.
           if git grep -n -I -E -- '(^|[^A-Za-z_])(DEBUG|FLASK_DEBUG|DEV_MODE)[[:space:]]*=[[:space:]]*(True|1|"true"|\x27true\x27)([^A-Za-z_]|$)' -- '*.py' '*.dart' ':!tests/**' ':!mobile/test/**'; then
             echo 'Debug mode appears enabled in tracked application source.'
             exit 1
           fi
-
-          # Any plaintext HTTP URL in production application source must be
-          # explicitly local-only. Test fixtures are excluded because they
-          # intentionally exercise rejection of insecure endpoints.
-          # Keeping the rule broad prevents a newly named API from bypassing it.
           if git grep -n -I -E -- 'http://[^[:space:]"'"'"'<>]+' -- '*.py' '*.dart' ':!tests/**' ':!mobile/test/**' | grep -vE 'http://(localhost|127\.0\.0\.1)(:|/)' ; then
             echo 'Non-local plaintext HTTP endpoint detected in production application source.'
             exit 1
           fi
-
           echo 'Production safety invariants passed.'
