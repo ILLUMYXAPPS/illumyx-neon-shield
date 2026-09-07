@@ -34,11 +34,18 @@ jobs:
       - name: Compile security-sensitive Python sources
         run: >-
           python -m compileall -q
-          auth_server.py auth_server_contract.py security_checks.py tests
+          auth_server.py auth_server_contract.py security_checks.py backend tests
 
       - name: Run authentication and security tests
         run: >-
           python -m unittest discover -s tests -v
+
+      - name: Run monitoring hardening tests
+        run: >-
+          python -m unittest -v
+          backend.observability_test
+          backend.composition_test
+          backend.security_monitoring_test
 
       - name: Reject obvious private-key material
         shell: bash

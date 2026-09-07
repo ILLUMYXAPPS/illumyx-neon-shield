@@ -33,5 +33,12 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q app_ui.py security_checks.py auth_server_contract.py auth_server.py neon_forensics.py neon_forensics_vault.py platform_collectors.py windows_wfp_telemetry.py backend tests
 
-      - name: Run unit tests
+      - name: Run application unit tests
         run: python -m unittest discover -s tests -v
+
+      - name: Run monitoring hardening tests
+        run: >-
+          python -m unittest -v
+          backend.observability_test
+          backend.composition_test
+          backend.security_monitoring_test

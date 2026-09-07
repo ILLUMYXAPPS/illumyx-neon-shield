@@ -8,6 +8,7 @@ from unittest.mock import patch
 from backend.composition import build_service
 from backend.managed_store import ManagedAuthStore
 from backend.observability import SecurityEvent, SecurityEventSink
+from backend.security_monitoring import SecurityAlert, SecurityAlertSink, ProductionSecurityMonitor
 from backend.secrets import MappingSecretProvider
 
 
@@ -38,11 +39,19 @@ class RecordingSink(SecurityEventSink):
         self.events.append(event)
 
 
+class RecordingAlertSink(SecurityAlertSink):
+    def __init__(self) -> None:
+        self.alerts: list[SecurityAlert] = []
+
+    def emit_alert(self, alert: SecurityAlert) -> None:
+        self.alerts.append(alert)
+
+
 class CompositionTests(unittest.TestCase):
     def _production_env(self):
         return {
             "NEON_AUTH_ENV": "production",
-            "NEON_AUTH_DB": "postgresql://managed.example/auth",
+            "NEON_AUTH_DB": "postgresql://managed.example/auth?sslmode=verify-full",
             "NEON_IDP_URL": "https://idp.example",
             "NEON_IDP_CLIENT_ID": "client-id",
             "NEON_MONITORING_ENDPOINT": "https://monitor.example/events",
@@ -71,18 +80,30 @@ class CompositionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "injected SecurityEventSink"):
                 build_service(managed_store=store, secret_provider=self._secret_provider())
 
-    def test_production_accepts_all_required_boundaries(self):
+    def test_production_requires_alert_sink_injection(self):
         store = StubManagedStore()
         sink = RecordingSink()
-        secrets = self._secret_provider()
+        with patch.dict(os.environ, self._production_env(), clear=False):
+            with self.assertRaisesRegex(RuntimeError, "injected SecurityAlertSink"):
+                build_service(
+                    managed_store=store,
+                    security_event_sink=sink,
+                    secret_provider=self._secret_provider(),
+                )
+
+    def test_production_wraps_monitoring_boundary(self):
+        store = StubManagedStore()
+        sink = RecordingSink()
+        alerts = RecordingAlertSink()
         with patch.dict(os.environ, self._production_env(), clear=False):
             service = build_service(
                 managed_store=store,
                 security_event_sink=sink,
-                secret_provider=secrets,
+                security_alert_sink=alerts,
+                secret_provider=self._secret_provider(),
             )
         self.assertIs(service.store, store)
-        self.assertIs(service.security_event_sink, sink)
+        self.assertIsInstance(service.security_event_sink, ProductionSecurityMonitor)
 
 
 if __name__ == "__main__":
