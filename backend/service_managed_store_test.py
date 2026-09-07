@@ -66,6 +66,24 @@ class ManagedStoreServiceTests(unittest.TestCase):
         self.assertIsNone(event.subject_hash)
         self.assertIsNone(event.device_hash)
 
+    def test_rate_limit_survives_service_recreation(self):
+        store = AuthStore(":memory:", pepper="test-pepper")
+        store.create_user("subject-1", "user@example.com", "correct-password")
+        store.trust_device("subject-1", "device-1")
+        service_one = PersistentIdentityService(store, max_sign_ins=5)
+        request = SignInRequest("user@example.com", "wrong-password", "device-1")
+
+        for _ in range(5):
+            with self.assertRaises(AuthenticationError) as raised:
+                service_one.sign_in(request)
+            self.assertEqual(raised.exception.failure, AuthFailure.INVALID_CREDENTIALS)
+
+        service_two = PersistentIdentityService(store, max_sign_ins=5)
+        with self.assertRaises(AuthenticationError) as raised:
+            service_two.sign_in(request)
+        self.assertEqual(raised.exception.failure, AuthFailure.RATE_LIMITED)
+        store.close()
+
     def test_sqlite_rotation_consumes_old_session_once(self):
         store = AuthStore(":memory:", pepper="test-pepper")
         now = datetime.now(timezone.utc)
