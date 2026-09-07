@@ -8,6 +8,12 @@ The application validates production configuration through that provider. Requir
 - `NEON_SESSION_SECRET`
 - `NEON_DB_PEPPER`
 
+The production validator requires the provider explicitly. It does not silently fall back to environment lookup, so a production caller cannot accidentally bypass the secret-provider boundary.
+
+Secret-bearing fields in `ProductionConfig` are excluded from the dataclass representation. This prevents ordinary `repr(config)` logging from exposing the resolved values.
+
+`NEON_DB_PEPPER` is the deployment-supplied pepper used when constructing `ManagedDbAuthStore`. The composition root intentionally does not create that adapter because the connection factory, DB driver, TLS, pooling and credentials are deployment concerns. The deployment composition must obtain the pepper from the same `SecretProvider` and pass it to the managed store constructor.
+
 The current `EnvironmentSecretProvider` is deliberately provider-neutral. A managed cloud secret-store adapter can replace it without changing the authentication service or composition contract.
 
 Development and integration continue to use explicit local configuration paths. Production does not receive a secret fallback.
