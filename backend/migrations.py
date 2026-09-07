@@ -9,9 +9,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 
-_MIGRATION_TABLE = "neon_schema_migrations"
-
-
 @dataclass(frozen=True)
 class Migration:
     version: int
@@ -22,9 +19,18 @@ class Migration:
 class MigrationRunner:
     """Apply a validated, contiguous migration set to one DB-API connection."""
 
-    def __init__(self, connection_factory, migrations: tuple[Migration, ...]) -> None:
+    def __init__(
+        self,
+        connection_factory,
+        migrations: tuple[Migration, ...],
+        *,
+        placeholder: str = "?",
+    ) -> None:
+        if placeholder not in {"%s", "?", ":1"}:
+            raise ValueError("unsupported DB-API placeholder")
         self._connection_factory = connection_factory
         self._migrations = self._validate_migrations(migrations)
+        self._placeholder = placeholder
 
     @staticmethod
     def _validate_migrations(migrations: tuple[Migration, ...]) -> tuple[Migration, ...]:
@@ -51,6 +57,14 @@ class MigrationRunner:
             "applied_at TEXT NOT NULL)"
         )
 
+    def _insert_applied(self, cursor, migration: Migration) -> None:
+        p = self._placeholder
+        cursor.execute(
+            "INSERT INTO neon_schema_migrations (version, name, applied_at) "
+            f"VALUES ({p}, {p}, {p})",
+            (migration.version, migration.name, datetime.now(timezone.utc).isoformat()),
+        )
+
     def current_version(self) -> int:
         connection = self._connection_factory()
         cursor = connection.cursor()
@@ -71,11 +85,7 @@ class MigrationRunner:
             connection.close()
 
     def apply_pending(self) -> int:
-        """Apply all pending migrations in one explicit transaction.
-
-        Existing versions must match the supplied migration set exactly. An
-        unknown database version fails closed rather than attempting a guess.
-        """
+        """Apply all pending migrations in one explicit transaction."""
         connection = self._connection_factory()
         cursor = connection.cursor()
         try:
@@ -90,8 +100,8 @@ class MigrationRunner:
                     raise RuntimeError(f"migration name mismatch for version {version}")
 
             applied_versions = {version for version, _ in applied}
-            expected_applied = set(range(1, max(applied_versions, default=0) + 1))
-            if applied_versions != expected_applied:
+            expected = set(range(1, max(applied_versions, default=0) + 1))
+            if applied_versions != expected:
                 raise RuntimeError("database migration history is not contiguous")
 
             for migration in self._migrations:
@@ -104,10 +114,7 @@ class MigrationRunner:
                     )
                 for statement in migration.statements:
                     cursor.execute(statement)
-                cursor.execute(
-                    "INSERT INTO neon_schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
-                    (migration.version, migration.name, datetime.now(timezone.utc).isoformat()),
-                )
+                self._insert_applied(cursor, migration)
                 applied_versions.add(migration.version)
 
             connection.commit()
