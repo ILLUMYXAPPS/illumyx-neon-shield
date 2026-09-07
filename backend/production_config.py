@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from backend.secrets import SecretProvider
 
 _REQUIRED = ("NEON_AUTH_DB", "NEON_IDP_URL", "NEON_IDP_CLIENT_ID", "NEON_MONITORING_ENDPOINT")
 _REQUIRED_SECRETS = ("NEON_IDP_CLIENT_SECRET", "NEON_SESSION_SECRET", "NEON_DB_PEPPER")
+_ALLOWED_DB_SSLMODES = {"require", "verify-ca", "verify-full"}
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,18 @@ def _reject_local_database(value: str) -> None:
         raise RuntimeError("NEON_AUTH_DB must identify a managed durable production database")
 
 
+def _require_database_tls(value: str) -> None:
+    """Require explicit TLS for the PostgreSQL production connection."""
+    parsed = urlparse(value)
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        raise RuntimeError("NEON_AUTH_DB must use a PostgreSQL connection URL")
+    sslmodes = parse_qs(parsed.query).get("sslmode", [])
+    if len(sslmodes) != 1 or sslmodes[0].lower() not in _ALLOWED_DB_SSLMODES:
+        raise RuntimeError(
+            "NEON_AUTH_DB must explicitly require TLS with sslmode=require, verify-ca, or verify-full"
+        )
+
+
 def validate_production_config(
     env: dict[str, str] | None = None,
     *,
@@ -52,6 +65,7 @@ def validate_production_config(
     idp_url = values["NEON_IDP_URL"]
     monitoring_endpoint = values["NEON_MONITORING_ENDPOINT"]
     _reject_local_database(database_url)
+    _require_database_tls(database_url)
     _require_https("NEON_IDP_URL", idp_url)
     _require_https("NEON_MONITORING_ENDPOINT", monitoring_endpoint)
     secrets = {name: secret_provider.get_required(name) for name in _REQUIRED_SECRETS}
