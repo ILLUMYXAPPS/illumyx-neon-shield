@@ -1,3 +1,0 @@
-@echo off
-echo Launching ILLUMYX App...
-python main.py
