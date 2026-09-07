@@ -9,6 +9,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from backend.managed_store import ManagedAuthStore
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -36,7 +38,7 @@ def verify_secret(secret: str, encoded: str) -> bool:
         return False
 
 
-class AuthStore:
+class AuthStore(ManagedAuthStore):
     """SQLite adapter for development/integration; managed DB replaces this before launch."""
 
     def __init__(self, path: str = "neon_shield_auth.sqlite3", pepper: str | None = None) -> None:
