@@ -26,6 +26,7 @@ class StubManagedStore(ManagedAuthStore):
     def save_session_hash(self, token, subject_id, device_hash, issued_at, expires_at): pass
     def get_session(self, token): return None
     def revoke_session(self, token): pass
+    def rotate_session(self, token, new_token, issued_at, expires_at): return None
     def last_audit_hash(self): return ""
     def add_audit(self, event_type, subject_id, device_id): return ""
     def add_audit_fingerprint(self, event_type, subject_id, device_fingerprint): return ""

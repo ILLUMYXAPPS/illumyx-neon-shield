@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from auth_server import AuthenticationError
-from auth_server_contract import AuthFailure, SignInRequest
+from auth_server_contract import AuthFailure, ServerSession, SignInRequest
 from backend.managed_store import ManagedAuthStore
 from backend.observability import SecurityEvent, SecurityEventSink
 from backend.service import PersistentIdentityService
+from backend.store import AuthStore
 
 
 class StubManagedStore(ManagedAuthStore):
@@ -25,6 +26,7 @@ class StubManagedStore(ManagedAuthStore):
     def save_session_hash(self, token, subject_id, device_hash, issued_at, expires_at): pass
     def get_session(self, token): return None
     def revoke_session(self, token): pass
+    def rotate_session(self, token, new_token, issued_at, expires_at): return None
     def last_audit_hash(self): return ""
     def add_audit(self, event_type, subject_id, device_id): return ""
     def add_audit_fingerprint(self, event_type, subject_id, device_fingerprint): return ""
@@ -60,6 +62,20 @@ class ManagedStoreServiceTests(unittest.TestCase):
         self.assertEqual(event.metadata, {"reason": "invalid_request"})
         self.assertIsNone(event.subject_hash)
         self.assertIsNone(event.device_hash)
+
+    def test_sqlite_rotation_consumes_old_session_once(self):
+        store = AuthStore(":memory:", pepper="test-pepper")
+        now = datetime.now(timezone.utc)
+        store.save_session("old", "subject-1", "device-1", now.isoformat(), (now + timedelta(minutes=15)).isoformat())
+        first = store.rotate_session("old", "new-1", now.isoformat(), (now + timedelta(minutes=15)).isoformat())
+        second = store.rotate_session("old", "new-2", now.isoformat(), (now + timedelta(minutes=15)).isoformat())
+
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertIsNotNone(store.get_session("new-1"))
+        self.assertIsNone(store.get_session("new-2"))
+        self.assertTrue(store.get_session("old")["revoked"])
+        store.close()
 
 
 if __name__ == "__main__":

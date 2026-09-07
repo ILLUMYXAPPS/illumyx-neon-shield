@@ -53,6 +53,9 @@ class ManagedAuthStore(ABC):
     def revoke_session(self, token: str) -> None: ...
 
     @abstractmethod
+    def rotate_session(self, token: str, new_token: str, issued_at: str, expires_at: str) -> Any: ...
+
+    @abstractmethod
     def last_audit_hash(self) -> str: ...
 
     @abstractmethod

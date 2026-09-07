@@ -114,6 +114,31 @@ class AuthStore(ManagedAuthStore):
         self._db.execute("UPDATE sessions SET revoked=1 WHERE session_hash=?", (_hash(token, self.pepper),))
         self._db.commit()
 
+    def rotate_session(self, token: str, new_token: str, issued_at: str, expires_at: str):
+        """Atomically consume one live session and create its replacement."""
+        try:
+            self._db.execute("BEGIN IMMEDIATE")
+            old = self._db.execute(
+                "SELECT subject_id, device_hash, expires_at FROM sessions WHERE session_hash=? AND revoked=0",
+                (_hash(token, self.pepper),),
+            ).fetchone()
+            if old is None or datetime.fromisoformat(old["expires_at"]) <= datetime.now(timezone.utc):
+                self._db.rollback()
+                return None
+            self._db.execute("UPDATE sessions SET revoked=1 WHERE session_hash=? AND revoked=0", (_hash(token, self.pepper),))
+            if self._db.execute("SELECT changes()").fetchone()[0] != 1:
+                self._db.rollback()
+                return None
+            self._db.execute(
+                "INSERT INTO sessions(session_hash,subject_id,device_hash,issued_at,expires_at) VALUES(?,?,?,?,?)",
+                (_hash(new_token, self.pepper), old["subject_id"], old["device_hash"], issued_at, expires_at),
+            )
+            self._db.commit()
+            return old
+        except Exception:
+            self._db.rollback()
+            raise
+
     def last_audit_hash(self) -> str:
         row = self._db.execute("SELECT event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1").fetchone()
         return row["event_hash"] if row else "0" * 64

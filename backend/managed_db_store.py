@@ -158,6 +158,34 @@ class ManagedDbAuthStore(ManagedAuthStore):
             cursor.execute(self._sql("UPDATE sessions SET revoked=1 WHERE session_hash=?"), (_hash(token, self._pepper),))
             connection.commit()
 
+    def rotate_session(self, token: str, new_token: str, issued_at: str, expires_at: str) -> Any:
+        """Atomically consume one live session and create its replacement."""
+        connection = self._connection_factory()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(self._sql("SELECT subject_id, device_hash, expires_at FROM sessions WHERE session_hash=? AND revoked=0" + self._audit_lock_clause), (_hash(token, self._pepper),))
+            row = self._row(cursor, cursor.fetchone())
+            if row is None or datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
+                connection.rollback()
+                return None
+            cursor.execute(self._sql("UPDATE sessions SET revoked=1 WHERE session_hash=? AND revoked=0"), (_hash(token, self._pepper),))
+            if getattr(cursor, "rowcount", 1) != 1:
+                connection.rollback()
+                return None
+            cursor.execute(self._sql("INSERT INTO sessions(session_hash,subject_id,device_hash,issued_at,expires_at) VALUES(?,?,?,?,?)"), (_hash(new_token, self._pepper), row["subject_id"], row["device_hash"], issued_at, expires_at))
+            connection.commit()
+            return row
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            close = getattr(cursor, "close", None)
+            if close is not None:
+                close()
+            close_connection = getattr(connection, "close", None)
+            if close_connection is not None:
+                close_connection()
+
     def last_audit_hash(self) -> str:
         with self._cursor() as (_, cursor):
             cursor.execute("SELECT event_hash FROM audit_events ORDER BY occurred_at DESC, event_hash DESC LIMIT 1")

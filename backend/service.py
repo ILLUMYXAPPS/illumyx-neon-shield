@@ -155,11 +155,14 @@ class PersistentIdentityService(IdentityService):
         row = self._load_row(token)
         now = datetime.now(timezone.utc)
         new_token = secrets.token_urlsafe(32)
-        self.store.revoke_session(token)
-        self.store.save_session_hash(new_token, row["subject_id"], row["device_hash"], now.isoformat(), (now + self.session_ttl).isoformat())
+        new_expires_at = now + self.session_ttl
+        rotated = self.store.rotate_session(token, new_token, now.isoformat(), new_expires_at.isoformat())
+        if rotated is None:
+            self._emit_security_event("session.rejected", metadata={"reason": "refresh_race"})
+            raise AuthenticationError(AuthFailure.REVOKED_SESSION)
         self.store.add_audit_fingerprint("session_refreshed", row["subject_id"], row["device_hash"])
         self._emit_security_event("session.refreshed", subject_id=row["subject_id"], device_hash=row["device_hash"])
-        return ServerSession(new_token, row["subject_id"], row["device_hash"], now, now + self.session_ttl)
+        return ServerSession(new_token, row["subject_id"], row["device_hash"], now, new_expires_at)
 
     def revoke_token(self, token: str) -> None:
         row = self._load_row(token)
