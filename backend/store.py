@@ -111,7 +111,7 @@ class AuthStore(ManagedAuthStore):
         return self._db.execute("SELECT * FROM sessions WHERE session_hash=?", (_hash(token, self.pepper),)).fetchone()
 
     def revoke_session(self, token: str) -> None:
-        self._db.execute("UPDATE sessions SET revoked=1 WHERE session_hash=?", (_hash(token, self.pepper)))
+        self._db.execute("UPDATE sessions SET revoked=1 WHERE session_hash=?", (_hash(token, self.pepper),))
         self._db.commit()
 
     def last_audit_hash(self) -> str:
