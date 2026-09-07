@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -10,29 +12,21 @@ from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
 
 
-def _store() -> ManagedDbAuthStore:
-    connection = sqlite3.connect(":memory:", check_same_thread=False)
-
-    def factory():
-        return connection
-
-    store = ManagedDbAuthStore(factory, pepper="test-pepper", placeholder="?")
-    store._test_connection = connection
-    return store
+def _store(tmp: Path) -> ManagedDbAuthStore:
+    path = tmp / "managed-test.sqlite3"
+    return ManagedDbAuthStore(lambda: sqlite3.connect(path), pepper="test-pepper", placeholder="?")
 
 
 def test_managed_db_store_implements_contract() -> None:
-    store = _store()
-    try:
+    with TemporaryDirectory() as directory:
+        store = _store(Path(directory))
         assert isinstance(store, ManagedAuthStore)
         store.migrate()
-    finally:
-        store._test_connection.close()
 
 
 def test_managed_db_store_persists_auth_state() -> None:
-    store = _store()
-    try:
+    with TemporaryDirectory() as directory:
+        store = _store(Path(directory))
         store.migrate()
         store.create_user("subject-1", "User@example.com", "correct horse battery staple")
         store.trust_device("subject-1", "device-1")
@@ -54,20 +48,16 @@ def test_managed_db_store_persists_auth_state() -> None:
 
         store.revoke_session("opaque-token")
         assert store.get_session("opaque-token")["revoked"]
-    finally:
-        store._test_connection.close()
 
 
 def test_managed_db_store_audit_chain_is_linked() -> None:
-    store = _store()
-    try:
+    with TemporaryDirectory() as directory:
+        store = _store(Path(directory))
         store.migrate()
         first = store.add_audit_fingerprint("sign_in", "subject-1", "device-hash-1")
         second = store.add_audit_fingerprint("refresh", "subject-1", "device-hash-1")
         assert first != second
         assert store.last_audit_hash() == second
-    finally:
-        store._test_connection.close()
 
 
 def test_managed_db_store_requires_pepper() -> None:
