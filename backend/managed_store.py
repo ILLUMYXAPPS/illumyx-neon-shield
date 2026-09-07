@@ -57,6 +57,9 @@ class ManagedAuthStore(ABC):
     def record_sign_in_failure(self, identity: str, now: str, window_seconds: int, max_sign_ins: int) -> None: ...
 
     @abstractmethod
+    def reserve_sign_in_attempt(self, identity: str, now: str, window_seconds: int, max_sign_ins: int) -> bool: ...
+
+    @abstractmethod
     def clear_sign_in_failures(self, identity: str) -> None: ...
 
     @abstractmethod
