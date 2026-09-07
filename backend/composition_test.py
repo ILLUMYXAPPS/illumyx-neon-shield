@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from backend.composition import build_service
 from backend.managed_store import ManagedAuthStore
+from backend.observability import SecurityEvent, SecurityEventSink
 
 
 class StubManagedStore(ManagedAuthStore):
@@ -28,6 +29,14 @@ class StubManagedStore(ManagedAuthStore):
     def add_audit_fingerprint(self, event_type, subject_id, device_fingerprint): return ""
 
 
+class RecordingSink(SecurityEventSink):
+    def __init__(self) -> None:
+        self.events: list[SecurityEvent] = []
+
+    def emit(self, event: SecurityEvent) -> None:
+        self.events.append(event)
+
+
 class CompositionTests(unittest.TestCase):
     def _production_env(self):
         return {
@@ -45,11 +54,19 @@ class CompositionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "injected ManagedAuthStore"):
                 build_service()
 
-    def test_production_accepts_managed_store(self):
+    def test_production_requires_observability_sink_injection(self):
         store = StubManagedStore()
         with patch.dict(os.environ, self._production_env(), clear=False):
-            service = build_service(managed_store=store)
+            with self.assertRaisesRegex(RuntimeError, "injected SecurityEventSink"):
+                build_service(managed_store=store)
+
+    def test_production_accepts_managed_store_and_sink(self):
+        store = StubManagedStore()
+        sink = RecordingSink()
+        with patch.dict(os.environ, self._production_env(), clear=False):
+            service = build_service(managed_store=store, security_event_sink=sink)
         self.assertIs(service.store, store)
+        self.assertIs(service.security_event_sink, sink)
 
 
 if __name__ == "__main__":
