@@ -1,0 +1,1 @@
+The SQLite development adapter explicitly implements the managed authentication store boundary. Production remains fail-closed and requires a separately supplied durable managed adapter.
