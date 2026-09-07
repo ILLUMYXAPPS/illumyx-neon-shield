@@ -12,19 +12,19 @@ A gate is marked complete only when the required evidence exists. Failed checks 
 
 | Gate | Required evidence | Status |
 | --- | --- | --- |
-| CI and automated security | Fresh CI run for the current source, including security, tests, mobile checks and builds | 🟡 Pending verification for latest transport-gate fix |
+| CI and automated security | Fresh CI run for the current source, including security, tests, mobile checks and builds | 🟢 Verified for the merged authentication hardening |
 | Production HTTPS | Managed TLS, HTTPS-only transport, certificate validity/renewal evidence | ⬜ Not deployed |
 | Managed persistence | Durable production storage for identities, trusted devices, blocks, sessions and audit events | ⬜ Not deployed |
 | Production secrets | Deployment-platform secret manager configured and verified | ⬜ Not deployed |
 | Production authentication | Server-authoritative authentication exercised against a non-production test account | ⬜ Not deployed |
-| Trusted-device enforcement | Removal/revocation blocks subsequent session use or refresh | ⬜ Not verified in production-like environment |
-| Block enforcement | Blocked identity and blocked phone checks verified end-to-end | ⬜ Not verified in production-like environment |
-| Session security | Expiry, revocation and refresh rotation verified end-to-end | ⬜ Not verified in production-like environment |
-| Security audit trail | Durable events, safe correlation data and audit-chain integrity verification | ⬜ Not deployed |
-| Monitoring and alerting | Authentication, abuse, service, database and audit-integrity alerts verified | ⬜ Not deployed |
+| Trusted-device enforcement | Removal/revocation blocks subsequent session use or refresh | ⬜ Application logic verified, production-like execution pending |
+| Block enforcement | Blocked identity and blocked phone checks verified end-to-end | 🟢 Application logic verified, production-like execution pending |
+| Session security | Expiry, revocation and refresh rotation verified end-to-end | 🟢 Atomic refresh rotation verified by regression coverage; production-like execution pending |
+| Security audit trail | Durable events, safe correlation data and audit-chain integrity verification | 🟢 Application boundary verified; production deployment pending |
+| Monitoring and alerting | Authentication, abuse, service, database and audit-integrity alerts verified | 🟢 Monitoring and alert-routing boundary verified; production destination pending |
 | Real-device smoke test | iPhone 15 Pro, iPhone 16 Pro and iPad 16 test plan executed on available release builds | ⬜ Pending device execution |
 | Release signing | Android/iOS signing validation and store-upload readiness | 🟡 Pipeline hardened, final signing evidence pending |
-| Independent security review | Independent scope, findings, remediation and retest evidence | ⬜ Not completed |
+| Independent security review | Independent scope, findings, remediation and retest evidence | 🟢 Identity/authentication review completed and merged in PR #69 |
 | Store/release readiness | Store metadata, privacy/support material and production configuration verified | ⬜ Pending final release preparation |
 
 ## Evidence rules
@@ -34,6 +34,17 @@ A gate is marked complete only when the required evidence exists. Failed checks 
 3. Do not increase the internal readiness percentage merely because work was attempted. Increase it only when a meaningful release gate has been verified.
 4. Do not describe the project as secure, certified or production-ready solely because CI is green.
 5. Independent review findings are not failures of the process by themselves. The required response is reproduce, remediate, verify and preserve the evidence.
+
+## Current application-level review evidence
+
+- PR #69 completed an independent identity/authentication review.
+- The review identified refresh-token rotation as a high-severity concurrency boundary.
+- `rotate_session()` was added to the persistence contract.
+- SQLite and managed DB implementations now consume a live session and create its replacement atomically.
+- Regression coverage verifies a consumed refresh token cannot be rotated twice.
+- Monitoring and alert routing remain provider-neutral and fail closed on delivery errors.
+- Production deployment, managed infrastructure, deployment secrets, real-device execution and external identity-verification integration remain explicitly unclaimed until evidence exists.
+- No Apple signing, provisioning, TestFlight, certificate or iOS release configuration was changed as part of this hardening cycle.
 
 ## Real-device smoke-test sequence
 
