@@ -20,15 +20,14 @@ class ProductionConfigTests(unittest.TestCase):
     def _provider(self):
         return MappingSecretProvider({
             "NEON_IDP_CLIENT_SECRET": "idp-test-value",
-            "NEON_SESSION_SECRET": "session-test-value",
             "NEON_DB_PEPPER": "pepper-test-value",
         })
 
     def test_production_config_resolves_secrets_through_provider(self):
         config = validate_production_config(self._env(), secret_provider=self._provider())
         self.assertEqual(config.idp_client_secret, "idp-test-value")
-        self.assertEqual(config.session_secret, "session-test-value")
         self.assertEqual(config.database_pepper, "pepper-test-value")
+        self.assertNotIn("session_secret", config.__dataclass_fields__)
 
     def test_database_tls_is_required(self):
         env = self._env()
@@ -50,7 +49,7 @@ class ProductionConfigTests(unittest.TestCase):
 
     def test_missing_secret_fails_closed(self):
         provider = MappingSecretProvider({"NEON_IDP_CLIENT_SECRET": "idp-test-value"})
-        with self.assertRaisesRegex(RuntimeError, "NEON_SESSION_SECRET"):
+        with self.assertRaisesRegex(RuntimeError, "NEON_DB_PEPPER"):
             validate_production_config(self._env(), secret_provider=provider)
 
 
