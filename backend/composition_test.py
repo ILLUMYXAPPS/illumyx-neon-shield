@@ -8,6 +8,7 @@ from unittest.mock import patch
 from backend.composition import build_service
 from backend.managed_store import ManagedAuthStore
 from backend.observability import SecurityEvent, SecurityEventSink
+from backend.secrets import MappingSecretProvider
 
 
 class StubManagedStore(ManagedAuthStore):
@@ -44,27 +45,42 @@ class CompositionTests(unittest.TestCase):
             "NEON_AUTH_DB": "postgresql://managed.example/auth",
             "NEON_IDP_URL": "https://idp.example",
             "NEON_IDP_CLIENT_ID": "client-id",
-            "NEON_IDP_CLIENT_SECRET": "client-secret",
-            "NEON_SESSION_SECRET": "session-secret",
             "NEON_MONITORING_ENDPOINT": "https://monitor.example/events",
         }
+
+    def _secret_provider(self):
+        return MappingSecretProvider({
+            "NEON_IDP_CLIENT_SECRET": "client-secret",
+            "NEON_SESSION_SECRET": "session-secret",
+            "NEON_DB_PEPPER": "database-pepper",
+        })
+
+    def test_production_requires_secret_provider_injection(self):
+        with patch.dict(os.environ, self._production_env(), clear=False):
+            with self.assertRaisesRegex(RuntimeError, "injected SecretProvider"):
+                build_service()
 
     def test_production_requires_managed_store_injection(self):
         with patch.dict(os.environ, self._production_env(), clear=False):
             with self.assertRaisesRegex(RuntimeError, "injected ManagedAuthStore"):
-                build_service()
+                build_service(secret_provider=self._secret_provider())
 
     def test_production_requires_observability_sink_injection(self):
         store = StubManagedStore()
         with patch.dict(os.environ, self._production_env(), clear=False):
             with self.assertRaisesRegex(RuntimeError, "injected SecurityEventSink"):
-                build_service(managed_store=store)
+                build_service(managed_store=store, secret_provider=self._secret_provider())
 
-    def test_production_accepts_managed_store_and_sink(self):
+    def test_production_accepts_all_required_boundaries(self):
         store = StubManagedStore()
         sink = RecordingSink()
+        secrets = self._secret_provider()
         with patch.dict(os.environ, self._production_env(), clear=False):
-            service = build_service(managed_store=store, security_event_sink=sink)
+            service = build_service(
+                managed_store=store,
+                security_event_sink=sink,
+                secret_provider=secrets,
+            )
         self.assertIs(service.store, store)
         self.assertIs(service.security_event_sink, sink)
 
