@@ -1,0 +1,1 @@
+This change is limited to development-contract alignment. It does not enable SQLite in production.
