@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, IdentityService, ServerSession, SignInRequest
-from backend.store import AuthStore, verify_secret
+from backend.managed_store import ManagedAuthStore
+from backend.store import verify_secret
 
 
 class PersistentIdentityService(IdentityService):
@@ -20,7 +21,7 @@ class PersistentIdentityService(IdentityService):
     _MAX_DEVICE_ID_LENGTH = 512
     _MAX_TOKEN_LENGTH = 512
 
-    def __init__(self, store: AuthStore, session_ttl: timedelta = timedelta(minutes=15), max_sign_ins: int = 5) -> None:
+    def __init__(self, store: ManagedAuthStore, session_ttl: timedelta = timedelta(minutes=15), max_sign_ins: int = 5) -> None:
         if session_ttl <= timedelta(0) or max_sign_ins < 1:
             raise ValueError("invalid authentication limits")
         self.store = store
@@ -58,13 +59,7 @@ class PersistentIdentityService(IdentityService):
 
     def sign_in(self, request: SignInRequest) -> ServerSession:
         identity = request.identity.strip().lower()
-        if (
-            not identity
-            or len(identity) > self._MAX_IDENTITY_LENGTH
-            or not request.credential
-            or not request.device_id
-            or len(request.device_id) > self._MAX_DEVICE_ID_LENGTH
-        ):
+        if not identity or len(identity) > self._MAX_IDENTITY_LENGTH or not request.credential or not request.device_id or len(request.device_id) > self._MAX_DEVICE_ID_LENGTH:
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         if self._rate_limited(identity):
             raise AuthenticationError(AuthFailure.RATE_LIMITED)
