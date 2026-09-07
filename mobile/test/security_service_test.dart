@@ -3,13 +3,34 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:illumyx_neon_shield/security/security_service.dart';
 
+class FakeTrustedDeviceStore implements TrustedDeviceStore {
+  FakeTrustedDeviceStore([List<String>? initial])
+      : devices = initial == null ? null : List<String>.from(initial);
+
+  List<String>? devices;
+  bool failWrites = false;
+  int writeCount = 0;
+
+  @override
+  Future<List<String>?> readTrustedDevices() async =>
+      devices == null ? null : List<String>.from(devices!);
+
+  @override
+  Future<void> writeTrustedDevices(List<String> deviceIds) async {
+    writeCount++;
+    if (failWrites) throw StateError('secure storage write failed');
+    devices = List<String>.from(deviceIds);
+  }
+}
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
   test('persists owner initialization and trusted devices', () async {
-    final first = SecurityService();
+    final store = FakeTrustedDeviceStore();
+    final first = SecurityService(trustedDeviceStore: store);
     await first.load();
 
     expect(first.snapshot().ownerInitialized, isFalse);
@@ -19,7 +40,7 @@ void main() {
     await first.addTrustedDevice('device-a');
     await first.addTrustedDevice('device-b');
 
-    final restored = SecurityService();
+    final restored = SecurityService(trustedDeviceStore: store);
     await restored.load();
 
     expect(restored.snapshot().ownerInitialized, isTrue);
@@ -29,7 +50,7 @@ void main() {
   });
 
   test('does not allow ownership to be initialized twice', () async {
-    final service = SecurityService();
+    final service = SecurityService(trustedDeviceStore: FakeTrustedDeviceStore());
     await service.load();
     await service.initializeOwner();
 
@@ -37,7 +58,7 @@ void main() {
   });
 
   test('requires owner initialization before adding a device', () async {
-    final service = SecurityService();
+    final service = SecurityService(trustedDeviceStore: FakeTrustedDeviceStore());
     await service.load();
 
     await expectLater(
@@ -47,7 +68,7 @@ void main() {
   });
 
   test('rejects empty trusted device identifiers', () async {
-    final service = SecurityService();
+    final service = SecurityService(trustedDeviceStore: FakeTrustedDeviceStore());
     await service.load();
     await service.initializeOwner();
 
@@ -58,7 +79,8 @@ void main() {
   });
 
   test('normalizes trusted device identifiers when removing', () async {
-    final service = SecurityService();
+    final store = FakeTrustedDeviceStore();
+    final service = SecurityService(trustedDeviceStore: store);
     await service.load();
     await service.initializeOwner();
     await service.addTrustedDevice('device-a');
@@ -67,21 +89,22 @@ void main() {
 
     expect(service.snapshot().trustedDeviceCount, 0);
     expect(service.isTrustedDevice('device-a'), isFalse);
+    expect(store.devices, isEmpty);
   });
 
   test('canonicalizes malformed persisted trusted-device entries', () async {
+    final store = FakeTrustedDeviceStore(<String>[
+      ' device-a ',
+      '',
+      '   ',
+      'device-a',
+      'device-b ',
+    ]);
     SharedPreferences.setMockInitialValues(<String, Object>{
       'neon_shield.owner_initialized': true,
-      'neon_shield.trusted_devices': <String>[
-        ' device-a ',
-        '',
-        '   ',
-        'device-a',
-        'device-b ',
-      ],
     });
 
-    final service = SecurityService();
+    final service = SecurityService(trustedDeviceStore: store);
     await service.load();
 
     expect(service.snapshot().ownerInitialized, isTrue);
@@ -93,7 +116,8 @@ void main() {
   });
 
   test('does not create duplicate trusted-device state', () async {
-    final service = SecurityService();
+    final store = FakeTrustedDeviceStore();
+    final service = SecurityService(trustedDeviceStore: store);
     await service.load();
     await service.initializeOwner();
 
@@ -101,10 +125,53 @@ void main() {
     await service.addTrustedDevice('  device-a  ');
 
     expect(service.snapshot().trustedDeviceCount, 1);
+    expect(store.writeCount, 1);
+  });
+
+  test('rolls back a newly trusted device when secure persistence fails', () async {
+    final store = FakeTrustedDeviceStore()..failWrites = true;
+    final service = SecurityService(trustedDeviceStore: store);
+    await service.load();
+    await service.initializeOwner();
+
+    await expectLater(
+      service.addTrustedDevice('device-a'),
+      throwsA(isA<StateError>()),
+    );
+    expect(service.snapshot().trustedDeviceCount, 0);
+    expect(service.isTrustedDevice('device-a'), isFalse);
+  });
+
+  test('restores a removed trusted device when secure persistence fails', () async {
+    final store = FakeTrustedDeviceStore(<String>['device-a'])
+      ..failWrites = true;
+    final service = SecurityService(trustedDeviceStore: store);
+    await service.load();
+    await service.initializeOwner();
+
+    await expectLater(
+      service.removeTrustedDevice('device-a'),
+      throwsA(isA<StateError>()),
+    );
+    expect(service.snapshot().trustedDeviceCount, 1);
+    expect(service.isTrustedDevice('device-a'), isTrue);
+  });
+
+  test('does not trust devices from the legacy SharedPreferences store', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'neon_shield.owner_initialized': true,
+      'neon_shield.trusted_devices': <String>['legacy-device'],
+    });
+
+    final service = SecurityService(trustedDeviceStore: FakeTrustedDeviceStore());
+    await service.load();
+
+    expect(service.snapshot().trustedDeviceCount, 0);
+    expect(service.isTrustedDevice('legacy-device'), isFalse);
   });
 
   test('denies authorization until persisted security state is loaded', () {
-    final service = SecurityService();
+    final service = SecurityService(trustedDeviceStore: FakeTrustedDeviceStore());
 
     expect(
       service.canAuthorize(
@@ -116,7 +183,7 @@ void main() {
   });
 
   test('allows an initialized trusted device with an unblocked identity', () async {
-    final service = SecurityService();
+    final service = SecurityService(trustedDeviceStore: FakeTrustedDeviceStore());
     await service.load();
     await service.initializeOwner();
     await service.addTrustedDevice('device-a');
@@ -131,7 +198,7 @@ void main() {
   });
 
   test('denies an empty phone identity even on a trusted device', () async {
-    final service = SecurityService();
+    final service = SecurityService(trustedDeviceStore: FakeTrustedDeviceStore());
     await service.load();
     await service.initializeOwner();
     await service.addTrustedDevice('device-a');
@@ -153,7 +220,7 @@ void main() {
   });
 
   test('denies a blocked phone identity even on a trusted device', () async {
-    final service = SecurityService();
+    final service = SecurityService(trustedDeviceStore: FakeTrustedDeviceStore());
     await service.load();
     await service.initializeOwner();
     await service.addTrustedDevice('device-a');
@@ -175,7 +242,7 @@ void main() {
   });
 
   test('denies an untrusted device even with an unblocked identity', () async {
-    final service = SecurityService();
+    final service = SecurityService(trustedDeviceStore: FakeTrustedDeviceStore());
     await service.load();
     await service.initializeOwner();
     await service.addTrustedDevice('device-a');
