@@ -13,10 +13,14 @@ from backend.managed_store import ManagedAuthStore
 
 def _store(tmp: Path) -> ManagedDbAuthStore:
     path = tmp / "managed-test.sqlite3"
-    return ManagedDbAuthStore(lambda: sqlite3.connect(path), pepper="test-pepper", placeholder="?")
+    return ManagedDbAuthStore(lambda: sqlite3.connect(path), pepper="test-pepper", placeholder="?", audit_lock_clause="")
 
 
 class ManagedDbAuthStoreTests(unittest.TestCase):
+    def test_defaults_to_row_locking_for_managed_database(self) -> None:
+        store = ManagedDbAuthStore(lambda: sqlite3.connect(":memory:"), pepper="test-pepper", placeholder="?")
+        self.assertEqual(store._audit_lock_clause, " FOR UPDATE")
+
     def test_implements_contract(self) -> None:
         with TemporaryDirectory() as directory:
             store = _store(Path(directory))
@@ -59,7 +63,7 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
 
     def test_requires_pepper(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "pepper"):
-            ManagedDbAuthStore(lambda: sqlite3.connect(":memory:"), pepper="", placeholder="?")
+            ManagedDbAuthStore(lambda: sqlite3.connect(":memory:"), pepper="", placeholder="?", audit_lock_clause="")
 
 
 if __name__ == "__main__":
