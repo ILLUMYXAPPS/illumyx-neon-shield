@@ -49,6 +49,18 @@ jobs:
             exit 1
           fi
 
+      - name: Reject obvious credential material in application source
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Production application source must not contain common static secret
+          # assignments or well-known provider key prefixes. Tests and docs are
+          # excluded because they intentionally exercise defensive behavior.
+          if git grep -n -I -E -- '(API_KEY|API_TOKEN|ACCESS_TOKEN|CLIENT_SECRET|SESSION_SECRET|DB_PASSWORD|DATABASE_PASSWORD|PRIVATE_KEY)[[:space:]]*=[[:space:]]*["'"'"'][^"'"'"']+["'"'"']|sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}' -- '*.py' '*.dart' ':!tests/**' ':!mobile/test/**'; then
+            echo 'Potential static credential material detected in tracked application source.'
+            exit 1
+          fi
+
       - name: Check production safety invariants
         shell: bash
         run: |
