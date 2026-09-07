@@ -29,6 +29,7 @@ class StubManagedStore(ManagedAuthStore):
     def rotate_session(self, token, new_token, issued_at, expires_at): return None
     def sign_in_rate_limited(self, identity, now, window_seconds, max_sign_ins): return False
     def record_sign_in_failure(self, identity, now, window_seconds, max_sign_ins): pass
+    def reserve_sign_in_attempt(self, identity, now, window_seconds, max_sign_ins): return True
     def clear_sign_in_failures(self, identity): pass
     def last_audit_hash(self): return ""
     def add_audit(self, event_type, subject_id, device_id): return ""
@@ -65,6 +66,17 @@ class ManagedStoreServiceTests(unittest.TestCase):
         self.assertEqual(event.metadata, {"reason": "invalid_request"})
         self.assertIsNone(event.subject_hash)
         self.assertIsNone(event.device_hash)
+
+    def test_rate_limit_reservation_allows_exact_threshold(self):
+        store = AuthStore(":memory:", pepper="test-pepper")
+        now = datetime.now(timezone.utc).isoformat()
+        self.assertTrue(store.reserve_sign_in_attempt("user@example.com", now, 300, 5))
+        self.assertTrue(store.reserve_sign_in_attempt("user@example.com", now, 300, 5))
+        self.assertTrue(store.reserve_sign_in_attempt("user@example.com", now, 300, 5))
+        self.assertTrue(store.reserve_sign_in_attempt("user@example.com", now, 300, 5))
+        self.assertTrue(store.reserve_sign_in_attempt("user@example.com", now, 300, 5))
+        self.assertFalse(store.reserve_sign_in_attempt("user@example.com", now, 300, 5))
+        store.close()
 
     def test_rate_limit_survives_service_recreation(self):
         store = AuthStore(":memory:", pepper="test-pepper")

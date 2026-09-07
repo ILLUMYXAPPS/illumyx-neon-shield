@@ -56,15 +56,8 @@ class PersistentIdentityService(IdentityService):
         )
 
     def _rate_limited(self, identity: str) -> bool:
-        return self.store.sign_in_rate_limited(
-            identity,
-            datetime.now(timezone.utc).isoformat(),
-            self._RATE_WINDOW_SECONDS,
-            self.max_sign_ins,
-        )
-
-    def _failure(self, identity: str) -> None:
-        self.store.record_sign_in_failure(
+        """Atomically reserve one sign-in attempt in durable storage."""
+        return not self.store.reserve_sign_in_attempt(
             identity,
             datetime.now(timezone.utc).isoformat(),
             self._RATE_WINDOW_SECONDS,
@@ -90,7 +83,6 @@ class PersistentIdentityService(IdentityService):
             raise AuthenticationError(AuthFailure.RATE_LIMITED)
         user = self.store.find_user(identity)
         if user is None or not verify_secret(request.credential, user["credential_record"]):
-            self._failure(identity)
             self._emit_security_event("auth.failure", metadata={"reason": "invalid_credentials"})
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         subject_id = user["subject_id"]
