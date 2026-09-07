@@ -119,10 +119,7 @@ class AuthStore(ManagedAuthStore):
         """Atomically consume one live session and create its replacement."""
         try:
             self._db.execute("BEGIN IMMEDIATE")
-            old = self._db.execute(
-                "SELECT subject_id, device_hash, expires_at FROM sessions WHERE session_hash=? AND revoked=0",
-                (_hash(token, self.pepper),),
-            ).fetchone()
+            old = self._db.execute("SELECT subject_id, device_hash, expires_at FROM sessions WHERE session_hash=? AND revoked=0", (_hash(token, self.pepper),)).fetchone()
             if old is None or datetime.fromisoformat(old["expires_at"]) <= datetime.now(timezone.utc):
                 self._db.rollback()
                 return None
@@ -130,10 +127,7 @@ class AuthStore(ManagedAuthStore):
             if self._db.execute("SELECT changes()").fetchone()[0] != 1:
                 self._db.rollback()
                 return None
-            self._db.execute(
-                "INSERT INTO sessions(session_hash,subject_id,device_hash,issued_at,expires_at) VALUES(?,?,?,?,?)",
-                (_hash(new_token, self.pepper), old["subject_id"], old["device_hash"], issued_at, expires_at),
-            )
+            self._db.execute("INSERT INTO sessions(session_hash,subject_id,device_hash,issued_at,expires_at) VALUES(?,?,?,?,?)", (_hash(new_token, self.pepper), old["subject_id"], old["device_hash"], issued_at, expires_at))
             self._db.commit()
             return old
         except Exception:
@@ -161,6 +155,25 @@ class AuthStore(ManagedAuthStore):
             elif row["failure_count"] < max_sign_ins:
                 self._db.execute("UPDATE sign_in_rate_limits SET failure_count=failure_count+1 WHERE identity_hash=?", (identity_hash,))
             self._db.commit()
+        except Exception:
+            self._db.rollback()
+            raise
+
+    def reserve_sign_in_attempt(self, identity: str, now: str, window_seconds: int, max_sign_ins: int) -> bool:
+        """Atomically consume one bounded sign-in reservation and return whether it is allowed."""
+        identity_hash = _hash(identity.strip().lower(), self.pepper)
+        now_dt = datetime.fromisoformat(now)
+        try:
+            self._db.execute("BEGIN IMMEDIATE")
+            row = self._db.execute("SELECT failure_count, window_started_at FROM sign_in_rate_limits WHERE identity_hash=?", (identity_hash,)).fetchone()
+            if row is None or now_dt.timestamp() - datetime.fromisoformat(row["window_started_at"]).timestamp() >= window_seconds:
+                new_count = 1
+                self._db.execute("INSERT OR REPLACE INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) VALUES(?,?,?)", (identity_hash, new_count, now))
+            else:
+                new_count = min(int(row["failure_count"]) + 1, max_sign_ins + 1)
+                self._db.execute("UPDATE sign_in_rate_limits SET failure_count=? WHERE identity_hash=?", (new_count, identity_hash))
+            self._db.commit()
+            return new_count <= max_sign_ins
         except Exception:
             self._db.rollback()
             raise
