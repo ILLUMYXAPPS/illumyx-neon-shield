@@ -162,7 +162,7 @@ class ManagedDbAuthStore(ManagedAuthStore):
 
     def last_audit_hash(self) -> str:
         with self._cursor() as (_, cursor):
-            cursor.execute("SELECT event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1")
+            cursor.execute("SELECT event_hash FROM audit_events ORDER BY occurred_at DESC, event_hash DESC LIMIT 1")
             row = cursor.fetchone()
             return row[0] if row else "0" * 64
 
@@ -172,7 +172,7 @@ class ManagedDbAuthStore(ManagedAuthStore):
     def add_audit_fingerprint(self, event_type: str, subject_id: str | None, device_fingerprint: str) -> str:
         occurred_at = _now()
         with self._cursor() as (connection, cursor):
-            cursor.execute("SELECT event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1" + self._audit_lock_clause)
+            cursor.execute("SELECT event_hash FROM audit_events ORDER BY occurred_at DESC, event_hash DESC LIMIT 1" + self._audit_lock_clause)
             row = cursor.fetchone()
             previous_hash = row[0] if row else "0" * 64
             event_hash = hashlib.sha256(f"{event_type}|{occurred_at}|{subject_id or ''}|{device_fingerprint}|{previous_hash}".encode()).hexdigest()
