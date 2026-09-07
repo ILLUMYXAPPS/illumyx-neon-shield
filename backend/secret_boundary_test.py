@@ -8,12 +8,12 @@ from backend.secrets import MappingSecretProvider
 
 
 class SecretBoundaryTests(unittest.TestCase):
-    _TEST_VALUES = ("fixture-one", "fixture-two", "fixture-three")
+    _TEST_VALUES = ("fixture-one", "fixture-two")
 
     def _env(self):
         return {
             "NEON_AUTH_ENV": "production",
-            "NEON_AUTH_DB": "postgresql://managed.example/auth",
+            "NEON_AUTH_DB": "postgresql://managed.example/auth?sslmode=verify-full",
             "NEON_IDP_URL": "https://idp.example",
             "NEON_IDP_CLIENT_ID": "client-id",
             "NEON_MONITORING_ENDPOINT": "https://monitor.example/events",
@@ -21,7 +21,7 @@ class SecretBoundaryTests(unittest.TestCase):
 
     def _provider(self):
         return MappingSecretProvider(dict(zip(
-            ("NEON_IDP_CLIENT_SECRET", "NEON_SESSION_SECRET", "NEON_DB_PEPPER"),
+            ("NEON_IDP_CLIENT_SECRET", "NEON_DB_PEPPER"),
             self._TEST_VALUES,
         )))
 
@@ -32,8 +32,7 @@ class SecretBoundaryTests(unittest.TestCase):
     def test_empty_secret_fails_closed_without_echoing_values(self):
         provider = MappingSecretProvider({
             "NEON_IDP_CLIENT_SECRET": "",
-            "NEON_SESSION_SECRET": self._TEST_VALUES[1],
-            "NEON_DB_PEPPER": self._TEST_VALUES[2],
+            "NEON_DB_PEPPER": self._TEST_VALUES[1],
         })
         with self.assertRaisesRegex(RuntimeError, "NEON_IDP_CLIENT_SECRET") as error:
             validate_production_config(self._env(), secret_provider=provider)

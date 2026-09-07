@@ -61,7 +61,6 @@ class CompositionTests(unittest.TestCase):
     def _secret_provider(self):
         return MappingSecretProvider({
             "NEON_IDP_CLIENT_SECRET": "client-secret",
-            "NEON_SESSION_SECRET": "session-secret",
             "NEON_DB_PEPPER": "database-pepper",
         })
 
