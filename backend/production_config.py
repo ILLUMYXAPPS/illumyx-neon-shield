@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlparse
 from backend.secrets import SecretProvider
 
 _REQUIRED = ("NEON_AUTH_DB", "NEON_IDP_URL", "NEON_IDP_CLIENT_ID", "NEON_MONITORING_ENDPOINT")
-_REQUIRED_SECRETS = ("NEON_IDP_CLIENT_SECRET", "NEON_SESSION_SECRET", "NEON_DB_PEPPER")
+_REQUIRED_SECRETS = ("NEON_IDP_CLIENT_SECRET", "NEON_DB_PEPPER")
 _ALLOWED_DB_SSLMODES = {"require", "verify-ca", "verify-full"}
 
 
@@ -18,7 +18,6 @@ class ProductionConfig:
     idp_url: str
     idp_client_id: str
     idp_client_secret: str = field(repr=False)
-    session_secret: str = field(repr=False)
     database_pepper: str = field(repr=False)
     monitoring_endpoint: str = ""
 
@@ -74,7 +73,6 @@ def validate_production_config(
         idp_url,
         values["NEON_IDP_CLIENT_ID"],
         secrets["NEON_IDP_CLIENT_SECRET"],
-        secrets["NEON_SESSION_SECRET"],
         secrets["NEON_DB_PEPPER"],
         monitoring_endpoint,
     )
