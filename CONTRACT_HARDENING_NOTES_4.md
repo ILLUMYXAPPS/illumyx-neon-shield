@@ -1,1 +1,0 @@
-Production composition continues to require a managed durable adapter; this branch only makes the local adapter conform to the shared contract.
