@@ -1,20 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:illumyx_neon_shield/main.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:illumyx_neon_shield/onboarding/onboarding_screen.dart';
 
 void main() {
-  setUp(() {
-    SharedPreferences.setMockInitialValues(<String, Object>{});
-  });
-
   testWidgets('renders Neon Shield onboarding shell', (tester) async {
-    // Isolate bootstrap state so a persisted onboarding/owner value from
-    // another test cannot change the first-run screen under test.
-    SharedPreferences.setMockInitialValues(<String, Object>{});
-
-    await tester.pumpWidget(const NeonShieldApp());
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pump(const Duration(milliseconds: 500));
+    // Test the onboarding UI directly. Bootstrap/security-state behavior is
+    // covered by the security and onboarding tests; this keeps the widget
+    // smoke test independent of platform secure-storage plugins.
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: OnboardingScreen(onComplete: _noop),
+      ),
+    );
 
     expect(find.text('ILLUMYX NEON SHIELD'), findsOneWidget);
     expect(find.text('Your digital space, protected.'), findsOneWidget);
@@ -26,3 +22,5 @@ void main() {
     );
   });
 }
+
+void _noop() {}
