@@ -23,6 +23,17 @@ This checklist separates work that can safely continue before certification from
 - [ ] HTTPS production deployment verified
 - [ ] External security review completed
 
+## Production infrastructure gate
+
+- [ ] Managed production PostgreSQL provisioned and verified
+- [ ] Production database TLS, migrations, backups, and restore test verified
+- [ ] Production secret management provisioned and verified
+- [ ] HTTPS production deployment verified
+- [ ] Production monitoring and security-event delivery verified
+- [ ] Evidence recorded before Issue #36 is marked complete
+
+See `docs/PRODUCTION_INFRASTRUCTURE_READINESS.md` for the repository-side runbook and evidence requirements.
+
 ## Mobile release
 
 - [ ] Apple distribution/signing configuration verified in the release environment
