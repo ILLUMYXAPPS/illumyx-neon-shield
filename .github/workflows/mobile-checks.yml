@@ -2,6 +2,9 @@ name: Neon Shield Mobile Checks
 
 on:
   workflow_dispatch:
+  schedule:
+    # Weekly health check, independent of code changes.
+    - cron: "23 16 * * 1"
   push:
     branches:
       - main
