@@ -57,6 +57,20 @@ void main() {
     expect(await vault.decryptEntry(entry.id), clear);
   });
 
+  test('rejects ciphertext tampering through authenticated decryption', () async {
+    final entry = await vault.protectBytes(
+      originalName: 'integrity.txt',
+      bytes: utf8.encode('authenticated content'),
+    );
+    final encryptedFile = File('${tempDirectory.path}/neon_shield_vault/${entry.id}.nsvault');
+    final envelope = jsonDecode(await encryptedFile.readAsString()) as Map<String, dynamic>;
+    final ciphertext = envelope['ciphertext'] as String;
+    envelope['ciphertext'] = '${ciphertext.startsWith('A') ? 'B' : 'A'}${ciphertext.substring(1)}';
+    await encryptedFile.writeAsString(jsonEncode(envelope), flush: true);
+
+    await expectLater(vault.decryptEntry(entry.id), throwsA(anything));
+  });
+
   test('rejects empty and oversized files before writing anything', () async {
     await expectLater(
       vault.protectBytes(originalName: 'empty.txt', bytes: const []),
