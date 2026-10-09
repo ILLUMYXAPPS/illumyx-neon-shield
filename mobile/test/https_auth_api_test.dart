@@ -23,6 +23,13 @@ void main() {
     );
   });
 
+  test('rejects endpoint URLs containing user info', () {
+    expect(
+      () => HttpsAuthApi(baseUri: Uri.parse('https://user:password@example.invalid')),
+      throwsArgumentError,
+    );
+  });
+
   test('allows loopback HTTP for local development', () {
     expect(
       HttpsAuthApi(baseUri: Uri.parse('http://127.0.0.1:8080')),
@@ -68,6 +75,52 @@ void main() {
     expect(result.deviceId, session.deviceId);
   });
 
+  test('rejects a successful response with an empty session token', () async {
+    final client = MockClient((_) async => http.Response(
+          jsonEncode({
+            'session': {
+              'session_id': '',
+              'expires_at': DateTime.now().toUtc().add(const Duration(minutes: 5)).toIso8601String(),
+              'device_id': 'device-123',
+            },
+          }),
+          200,
+        ));
+    final api = HttpsAuthApi(baseUri: Uri.parse('https://example.invalid'), client: client);
+
+    await expectLater(
+      api.signIn(identity: 'user@example.com', credential: 'secret', deviceId: 'device-123'),
+      throwsA(isA<AuthServiceException>().having(
+        (error) => error.failure,
+        'failure',
+        AuthFailure.unavailable,
+      )),
+    );
+  });
+
+  test('rejects a successful response with an expired session', () async {
+    final client = MockClient((_) async => http.Response(
+          jsonEncode({
+            'session': {
+              'session_id': 'session-123',
+              'expires_at': DateTime.now().toUtc().subtract(const Duration(seconds: 1)).toIso8601String(),
+              'device_id': 'device-123',
+            },
+          }),
+          200,
+        ));
+    final api = HttpsAuthApi(baseUri: Uri.parse('https://example.invalid'), client: client);
+
+    await expectLater(
+      api.signIn(identity: 'user@example.com', credential: 'secret', deviceId: 'device-123'),
+      throwsA(isA<AuthServiceException>().having(
+        (error) => error.failure,
+        'failure',
+        AuthFailure.unavailable,
+      )),
+    );
+  });
+
   test('trusted-device check sends bearer authentication', () async {
     late http.Request request;
     final client = MockClient((incoming) async {
@@ -96,19 +149,38 @@ void main() {
       client: client,
     );
 
-    expect(
-      () => api.signIn(
+    await expectLater(
+      api.signIn(
         identity: 'user@example.com',
         credential: 'wrong',
         deviceId: session.deviceId,
       ),
-      throwsA(
-        isA<AuthServiceException>().having(
-          (error) => error.failure,
-          'failure',
-          AuthFailure.invalidCredentials,
-        ),
+      throwsA(isA<AuthServiceException>().having(
+        (error) => error.failure,
+        'failure',
+        AuthFailure.invalidCredentials,
+      )),
+    );
+  });
+
+  test('maps blocked identities to the typed auth failure', () async {
+    final client = MockClient((_) async => http.Response(
+          jsonEncode({'error': 'blocked_identity'}),
+          403,
+        ));
+    final api = HttpsAuthApi(baseUri: Uri.parse('https://example.invalid'), client: client);
+
+    await expectLater(
+      api.signIn(
+        identity: 'blocked@example.com',
+        credential: 'secret',
+        deviceId: session.deviceId,
       ),
+      throwsA(isA<AuthServiceException>().having(
+        (error) => error.failure,
+        'failure',
+        AuthFailure.blockedIdentity,
+      )),
     );
   });
 }
