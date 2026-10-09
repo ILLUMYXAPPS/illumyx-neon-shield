@@ -5,10 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'auth/auth_gate.dart';
+import 'auth/auth_service.dart';
+import 'auth/auth_session.dart';
+import 'auth/device_identity_store.dart';
+import 'auth/https_auth_api.dart';
+import 'auth/secure_auth_session_store.dart';
 import 'onboarding/onboarding_screen.dart';
 import 'protection/protection_profile.dart';
 import 'protection/protection_profile_service.dart';
 import 'security/security_service.dart';
+import 'vault/encrypted_vault_screen.dart';
 
 void main() => runApp(const NeonShieldApp());
 
@@ -35,9 +42,21 @@ class NeonShieldApp extends StatelessWidget {
 }
 
 class AppBootstrap extends StatefulWidget {
-  const AppBootstrap({super.key, this.securityServiceFactory});
+  const AppBootstrap({
+    super.key,
+    this.securityServiceFactory,
+    this.authServiceFactory,
+    this.deviceIdProvider,
+    this.allowLocalBeta = const bool.fromEnvironment(
+      'NEON_SHIELD_ALLOW_LOCAL_BETA',
+      defaultValue: false,
+    ),
+  });
 
   final SecurityService Function()? securityServiceFactory;
+  final AuthService Function()? authServiceFactory;
+  final Future<String> Function()? deviceIdProvider;
+  final bool allowLocalBeta;
 
   @override
   State<AppBootstrap> createState() => _AppBootstrapState();
@@ -47,11 +66,31 @@ class _AppBootstrapState extends State<AppBootstrap> {
   static const _onboardingKey = 'neon_shield.onboarding_complete';
   bool? _showOnboarding;
   Object? _bootstrapError;
+  String? _authConfigurationError;
+  late final AuthService? _authService;
+  late final Future<String> Function() _deviceIdProvider;
 
   @override
   void initState() {
     super.initState();
+    _deviceIdProvider = widget.deviceIdProvider ??
+        SecureDeviceIdentityStore().getOrCreate;
+    try {
+      _authService = widget.authServiceFactory?.call() ?? _configuredAuthService();
+    } catch (_) {
+      _authService = null;
+      _authConfigurationError = 'The configured authentication endpoint is invalid.';
+    }
     _loadBootstrapState();
+  }
+
+  AuthService? _configuredAuthService() {
+    const endpoint = String.fromEnvironment('NEON_SHIELD_AUTH_BASE_URL');
+    if (endpoint.trim().isEmpty) return null;
+    return ServerBackedAuthService(
+      api: HttpsAuthApi(baseUri: Uri.parse(endpoint)),
+      store: SecureAuthSessionStore(),
+    );
   }
 
   Future<void> _loadBootstrapState() async {
@@ -107,9 +146,65 @@ class _AppBootstrapState extends State<AppBootstrap> {
     if (_showOnboarding == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    return _showOnboarding!
-        ? OnboardingScreen(onComplete: _completeOnboarding)
-        : ShieldDashboard(securityServiceFactory: widget.securityServiceFactory);
+    if (_showOnboarding!) {
+      return OnboardingScreen(onComplete: _completeOnboarding);
+    }
+
+    if (_authService != null) {
+      return AuthGate(
+        authService: _authService,
+        deviceIdProvider: _deviceIdProvider,
+        dashboardBuilder: (onSignOut) => ShieldDashboard(
+          securityServiceFactory: widget.securityServiceFactory,
+          onSignOut: onSignOut,
+        ),
+      );
+    }
+
+    if (widget.allowLocalBeta) {
+      return ShieldDashboard(securityServiceFactory: widget.securityServiceFactory);
+    }
+
+    return _AuthConfigurationRequired(error: _authConfigurationError);
+  }
+}
+
+class _AuthConfigurationRequired extends StatelessWidget {
+  const _AuthConfigurationRequired({this.error});
+
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_outline_rounded, size: 64, color: Color(0xFF21E6FF)),
+                const SizedBox(height: 20),
+                const Text('Secure sign-in is not configured', textAlign: TextAlign.center, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 12),
+                Text(
+                  error ?? 'A verified HTTPS authentication endpoint is required. Dashboard access stays disabled until it is configured.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Color(0xFF9BA7C7), height: 1.45),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'For local-only development, explicitly enable NEON_SHIELD_ALLOW_LOCAL_BETA. This mode is not production authentication or file protection.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF9BA7C7), fontSize: 12, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -153,9 +248,14 @@ class _BootstrapError extends StatelessWidget {
 }
 
 class ShieldDashboard extends StatefulWidget {
-  const ShieldDashboard({super.key, this.securityServiceFactory});
+  const ShieldDashboard({
+    super.key,
+    this.securityServiceFactory,
+    this.onSignOut,
+  });
 
   final SecurityService Function()? securityServiceFactory;
+  final VoidCallback? onSignOut;
 
   @override
   State<ShieldDashboard> createState() => _ShieldDashboardState();
@@ -229,8 +329,8 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
       network = nextNetwork;
       platformStatus = nextPlatformStatus;
       securityStatus = snapshot.ownerInitialized
-          ? 'Owner initialized • ${snapshot.trustedDeviceCount} trusted device(s)'
-          : 'Owner setup required';
+          ? 'Local owner setup complete • ${snapshot.trustedDeviceCount} local device record(s); server trust is verified separately'
+          : 'Local owner setup required';
       loading = false;
     });
   }
@@ -247,7 +347,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             const Text('Protection profile', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
             const Text(
-              'Choose what the protection engine should be configured to cover. Enforcement remains server-authoritative.',
+              'Choose a saved profile preference. In this beta, selecting a profile does not scan, block threats, or protect files.',
               style: TextStyle(color: Color(0xFF9BA7C7), height: 1.4),
             ),
             const SizedBox(height: 14),
@@ -275,6 +375,11 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
     try {
       await profiles.select(chosen.key);
     } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save the profile preference. Please try again.')),
+        );
+      }
       return;
     }
 
@@ -295,6 +400,12 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
           ],
         ),
         actions: [
+          if (widget.onSignOut != null)
+            IconButton(
+              tooltip: 'Sign out',
+              onPressed: loading ? null : widget.onSignOut,
+              icon: const Icon(Icons.logout_rounded),
+            ),
           IconButton(onPressed: loading ? null : refresh, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
@@ -304,19 +415,37 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
           padding: const EdgeInsets.all(18),
           children: [
             _hero(),
+            const SizedBox(height: 12),
+            _card(
+              Icons.warning_amber_rounded,
+              'PROTECTION ENGINE',
+              'Not active in this beta',
+              'This dashboard reports local posture and saves profile preferences. It does not scan files, block threats, or provide antivirus protection.',
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              // Vault navigation does not depend on posture refresh completing.
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const EncryptedVaultScreen(),
+                ),
+              ),
+              icon: const Icon(Icons.enhanced_encryption_rounded),
+              label: const Text('Open encrypted file vault'),
+            ),
             const SizedBox(height: 18),
             _profileCard(),
             const SizedBox(height: 18),
             _commandCentre(),
             const SizedBox(height: 18),
-            _card(Icons.lock_rounded, 'SECURITY', securityStatus, 'Access-control policy is owned by the application security service.'),
+            _card(Icons.lock_rounded, 'SECURITY', securityStatus, 'Shows local setup state only. Server-side authentication and trust must be verified separately.'),
             _card(Icons.phone_iphone_rounded, 'DEVICE', device, 'Local device identification only.'),
             _card(Icons.shield_outlined, 'PLATFORM', platformStatus, 'Security capabilities follow iOS and Android permission boundaries.'),
             _card(Icons.wifi_rounded, 'NETWORK', network, 'Network information is shown only when the operating system permits access.'),
-            _card(Icons.lock_outline_rounded, 'PRIVACY', 'Local-first', 'Neon Shield does not need your passwords or remote-device access.'),
+            _card(Icons.lock_outline_rounded, 'DATA HANDLING', 'Limited local data', 'Device and network details are displayed locally. Account credentials are used for sign-in through the configured authentication service.'),
             const SizedBox(height: 12),
             const Text(
-              'Mobile beta foundation. Platform-native posture checks will be added only where Apple and Android expose supported APIs.',
+              'Beta limitation: this app currently provides a posture dashboard and local configuration. Active file protection, malware scanning, and threat blocking are not implemented here.',
               style: TextStyle(color: Color(0xFF9BA7C7), height: 1.45),
             ),
           ],
@@ -363,7 +492,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               ],
             ),
             const SizedBox(height: 5),
-            const Text('Configuration only • matching and enforcement remain authoritative outside this UI.', style: TextStyle(fontSize: 12, color: Color(0xFF9BA7C7))),
+            const Text('Saved preference only • no file scanning or enforcement is performed by this beta.', style: TextStyle(fontSize: 12, color: Color(0xFF9BA7C7))),
           ],
         ),
       );
@@ -388,13 +517,13 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             ],
           ),
           const SizedBox(height: 8),
-          const Text('A clear view of the protection state currently known to this device.', style: TextStyle(color: Color(0xFF9BA7C7), height: 1.4)),
+          const Text('A view of locally recorded setup and device information, not proof that active protection is running.', style: TextStyle(color: Color(0xFF9BA7C7), height: 1.4)),
           const SizedBox(height: 18),
           Row(
             children: [
-              Expanded(child: _metric(Icons.verified_user_rounded, snapshot.ownerInitialized ? 'READY' : 'SETUP', 'Owner state')),
+              Expanded(child: _metric(Icons.verified_user_rounded, snapshot.ownerInitialized ? 'INITIALIZED' : 'SETUP', 'Local owner state')),
               const SizedBox(width: 10),
-              Expanded(child: _metric(Icons.devices_rounded, '${snapshot.trustedDeviceCount}', 'Trusted devices')),
+              Expanded(child: _metric(Icons.devices_rounded, '${snapshot.trustedDeviceCount}', 'Local device records')),
             ],
           ),
         ],
@@ -432,7 +561,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(loading ? 'Checking…' : 'Mobile Shield Ready', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  const Text('Posture Dashboard', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
                   const Text('Secure. Smart. Neon.', style: TextStyle(color: Color(0xFFFF38D1), fontWeight: FontWeight.w600)),
                 ],

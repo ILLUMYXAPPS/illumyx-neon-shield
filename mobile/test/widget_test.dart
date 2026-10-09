@@ -19,7 +19,7 @@ void main() {
     expect(find.text('Continue'), findsOneWidget);
     expect(
       find.text(
-        'Local beta setup • Server authentication and file enforcement are not yet connected',
+        'Server sign-in requires a configured HTTPS endpoint • Local beta mode does not enforce file protection',
       ),
       findsOneWidget,
     );

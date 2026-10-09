@@ -2,7 +2,7 @@ name: Neon Shield Mobile Builds
 
 on:
   push:
-    branches: ["main", "agent/neon-shield-mobile-v1"]
+    branches: ["main", "agent/neon-shield-mobile-v1", "feat/mobile-server-auth-gate"]
     paths: ["mobile/**", ".github/workflows/mobile-build.yml", ".github/workflows/mobile-signed-release.yml"]
   pull_request:
     paths: ["mobile/**", ".github/workflows/mobile-build.yml", ".github/workflows/mobile-signed-release.yml"]
@@ -27,6 +27,38 @@ jobs:
       - name: Generate Android platform project
         working-directory: mobile
         run: flutter create --platforms=android --org com.illumyx --project-name illumyx_neon_shield .
+      - name: Set Android compile SDK required by dependencies
+        working-directory: mobile
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          candidates = (
+              Path("android/app/build.gradle.kts"),
+              Path("android/app/build.gradle"),
+          )
+          gradle_file = next((path for path in candidates if path.is_file()), None)
+          if gradle_file is None:
+              raise SystemExit("Flutter did not generate an Android app Gradle file.")
+
+          content = gradle_file.read_text()
+          replacements = (
+              ("compileSdk = flutter.compileSdkVersion", "compileSdk = 36"),
+              ("compileSdkVersion flutter.compileSdkVersion", "compileSdkVersion 36"),
+              ("compileSdkVersion = flutter.compileSdkVersion", "compileSdkVersion = 36"),
+          )
+          for old, new in replacements:
+              if old in content:
+                  content = content.replace(old, new, 1)
+                  break
+          else:
+              if not any(token in content for token in ("compileSdk = 36", "compileSdkVersion 36", "compileSdkVersion = 36")):
+                  raise SystemExit(f"Could not safely set compile SDK in {gradle_file}.")
+          
+          gradle_file.write_text(content)
+          print(f"Configured Android compile SDK 36 in {gradle_file}")
+          PY
       - name: Get dependencies
         working-directory: mobile
         run: flutter pub get

@@ -33,7 +33,7 @@ python -m unittest discover -s tests -v
 
 ## Mobile v1.0 beta
 
-The `mobile/` directory contains the Flutter application and smoke test.
+The `mobile/` directory contains the Flutter application, posture dashboard, and encrypted local file vault.
 
 ```bash
 cd mobile
@@ -49,10 +49,19 @@ must never be committed to the repository.
 
 ## Privacy and safety
 
-Neon Shield performs local, read-only checks. It does not scan remote devices,
-collect credentials, exploit systems, or transmit displayed device information
-to a remote service. Exported reports are written only to the path selected by
-the user.
+Desktop posture checks are local and read-only. Mobile sign-in sends the account
+identity, credential, and device correlation identifier to the configured HTTPS
+authentication service for authorization. Only configure an endpoint you control
+or trust; do not embed secrets in the app. The mobile encrypted file vault uses
+AES-256-GCM to encrypt copies locally before writing them to the app's private
+vault directory. Vault contents are not uploaded by the vault feature, and the
+original file is not modified or deleted. Vault filenames and basic metadata are
+stored locally for listing. The vault key is stored in platform secure storage;
+Neon Shield does not provide its own cloud-backup or key-recovery service;
+operating-system backups may include encrypted vault data. Users must keep
+separate backups of important originals. The vault is not whole-device
+protection, malware scanning, or a replacement for operating-system security.
+Exported desktop reports are written only to the path selected by the user.
 
 ## Release status
 
