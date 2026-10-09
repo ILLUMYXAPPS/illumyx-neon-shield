@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth/auth_gate.dart';
 import 'auth/auth_service.dart';
+import 'auth/auth_session.dart';
 import 'auth/device_identity_store.dart';
 import 'auth/https_auth_api.dart';
 import 'auth/secure_auth_session_store.dart';
