@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    # Sunday 4:20 pm Brisbane time (06:20 UTC), ahead of the weekly review.
+    - cron: "20 6 * * 0"
 
 permissions:
   contents: read
