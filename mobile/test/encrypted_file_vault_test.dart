@@ -107,6 +107,24 @@ void main() {
     );
   });
 
+  test('rejects invalid AES-GCM authentication-tag length', () async {
+    final entry = await vault.protectBytes(
+      originalName: 'invalid-authentication-tag.txt',
+      bytes: utf8.encode('protected content'),
+    );
+    final encryptedFile =
+        File('${tempDirectory.path}/neon_shield_vault/${entry.id}.nsvault');
+    final envelope =
+        jsonDecode(await encryptedFile.readAsString()) as Map<String, dynamic>;
+    envelope['mac'] = base64Encode(utf8.encode('too-short'));
+    await encryptedFile.writeAsString(jsonEncode(envelope), flush: true);
+
+    await expectLater(
+      vault.decryptEntry(entry.id),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
   test('rejects empty and oversized files before writing anything', () async {
     await expectLater(
       vault.protectBytes(originalName: 'empty.txt', bytes: const []),
