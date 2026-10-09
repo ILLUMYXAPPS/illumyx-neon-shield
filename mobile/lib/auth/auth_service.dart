@@ -28,6 +28,13 @@ class ServerBackedAuthService implements AuthService {
       deviceId: deviceId,
     );
 
+    // Bind the returned session to the device that initiated sign-in.
+    // A mismatched response must never be persisted or treated as trusted.
+    if (session.deviceId != deviceId) {
+      await _store.clear();
+      throw const AuthServiceException(AuthFailure.untrustedDevice);
+    }
+
     final trusted = await _api.isDeviceTrusted(session);
     if (!trusted) {
       await _store.clear();
@@ -50,6 +57,11 @@ class ServerBackedAuthService implements AuthService {
     }
 
     final refreshed = await _api.refresh(current);
+    // Refresh must not silently move a session to another device identity.
+    if (refreshed.deviceId != current.deviceId) {
+      await _store.clear();
+      throw const AuthServiceException(AuthFailure.untrustedDevice);
+    }
     final trusted = await _api.isDeviceTrusted(refreshed);
     if (!trusted) {
       await _store.clear();
