@@ -82,6 +82,9 @@ class EncryptedFileVault {
             directoryProvider ?? getApplicationDocumentsDirectory;
 
   static const int maxFileBytes = 50 * 1024 * 1024;
+  // Base64 adds roughly one third to the payload. Leave a small allowance for
+  // the JSON envelope while bounding reads of corrupted or tampered files.
+  static const int maxVaultEnvelopeBytes = 70 * 1024 * 1024;
   static const _indexKey = 'neon_shield.encrypted_vault_index_v1';
   static final _cipher = AesGcm.with256bits();
 
@@ -179,13 +182,33 @@ class EncryptedFileVault {
     final directory = await _vaultDirectory();
     final file = File('${directory.path}/$id.nsvault');
     if (!await file.exists()) throw StateError('The encrypted file is missing.');
+    if (await file.length() > maxVaultEnvelopeBytes) {
+      throw const FormatException('Encrypted file exceeds the supported vault size.');
+    }
+
     final decoded = jsonDecode(await file.readAsString());
     if (decoded is! Map<String, dynamic> || decoded['version'] != 1) {
       throw const FormatException('Unsupported encrypted-file format.');
     }
-    final nonce = base64Decode(decoded['nonce'] as String);
-    final mac = base64Decode(decoded['mac'] as String);
-    final ciphertext = base64Decode(decoded['ciphertext'] as String);
+    final nonceValue = decoded['nonce'];
+    final macValue = decoded['mac'];
+    final ciphertextValue = decoded['ciphertext'];
+    if (nonceValue is! String ||
+        macValue is! String ||
+        ciphertextValue is! String) {
+      throw const FormatException('Encrypted-file envelope is incomplete.');
+    }
+
+    final nonce = base64Decode(nonceValue);
+    final mac = base64Decode(macValue);
+    final ciphertext = base64Decode(ciphertextValue);
+    // AES-GCM uses a 96-bit nonce and a 128-bit authentication tag here.
+    // Validate the envelope before handing it to the cryptographic provider.
+    if (nonce.length != 12 || mac.length != 16 ||
+        ciphertext.isEmpty || ciphertext.length > maxFileBytes) {
+      throw const FormatException('Encrypted-file envelope has invalid lengths.');
+    }
+
     final clear = await _cipher.decrypt(
       SecretBox(ciphertext, nonce: nonce, mac: Mac(mac)),
       secretKey: SecretKey(keyBytes),
