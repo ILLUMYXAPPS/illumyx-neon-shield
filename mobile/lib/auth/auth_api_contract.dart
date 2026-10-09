@@ -32,6 +32,7 @@ enum AuthFailure {
   expiredSession,
   revokedSession,
   untrustedDevice,
+  blockedIdentity,
   rateLimited,
   unavailable,
 }
