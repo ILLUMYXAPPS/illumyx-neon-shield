@@ -23,7 +23,7 @@ void main() {
       expect(find.text('$step/5'), findsOneWidget);
     }
 
-    expect(find.text('Complete local setup'), findsOneWidget);
+    expect(find.text('Finish your local setup'), findsOneWidget);
     expect(find.text('Complete local setup'), findsOneWidget);
 
     await tester.tap(find.text('Complete local setup'));
