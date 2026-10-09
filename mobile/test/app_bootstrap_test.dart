@@ -66,6 +66,13 @@ void main() {
     final restored = createSecurityService();
     await restored.load();
     expect(restored.snapshot().ownerInitialized, isTrue);
+
+    expect(find.text('Open encrypted file vault'), findsOneWidget);
+    await tester.tap(find.text('Open encrypted file vault'));
+    await tester.pumpAndSettle();
+    expect(find.text('Encrypted File Vault'), findsOneWidget);
+    expect(find.text('Encrypt a file'), findsOneWidget);
+    expect(find.textContaining('The key is kept in platform secure storage.'), findsOneWidget);
   });
 
   testWidgets('stale completion flag cannot bypass missing owner setup',
