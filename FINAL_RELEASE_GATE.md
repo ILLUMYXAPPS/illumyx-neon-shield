@@ -12,7 +12,7 @@ A gate is marked complete only when the required evidence exists. Failed checks 
 
 | Gate | Required evidence | Status |
 | --- | --- | --- |
-| CI and automated security | Fresh CI run for the current source, including security, tests, mobile checks and builds | 🟡 Main advanced after PR #70; fresh post-merge CI still required |
+| CI and automated security | Fresh CI run for the current source, including security, tests, mobile checks and builds | 🟢 PR #87 merge commit `64c7f991b89dbd86179d8904e172f6792f520865`: post-merge security, tests, mobile checks, mobile builds and Pylint all passed; ongoing scans and release gates still apply |
 | Production HTTPS | Managed TLS, HTTPS-only transport, certificate validity/renewal evidence | ⬜ Not deployed |
 | Managed persistence | Durable production storage for identities, trusted devices, blocks, sessions and audit events | ⬜ Not deployed |
 | Production secrets | Deployment-platform secret manager configured and verified | ⬜ Not deployed |

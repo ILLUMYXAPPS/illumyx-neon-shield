@@ -19,6 +19,20 @@ class InMemoryAuthSecretStorage implements AuthSecretStorage {
   }
 }
 
+
+class _FailingWriteStorage implements AuthSecretStorage {
+  @override
+  Future<String?> read({required String key}) async => null;
+
+  @override
+  Future<void> write({required String key, required String value}) async {
+    throw StateError('secure storage unavailable');
+  }
+
+  @override
+  Future<void> delete({required String key}) async {}
+}
+
 void main() {
   test('writes and restores a session', () async {
     final storage = InMemoryAuthSecretStorage();
@@ -61,4 +75,43 @@ void main() {
 
     expect(await store.read(), isNull);
   });
+
+  test('returns null when stored session fields have wrong types', () async {
+    final storage = InMemoryAuthSecretStorage();
+    await storage.write(
+      key: 'neon_shield.auth_session',
+      value: '{"token":7,"expiresAt":"2026-12-25T05:00:00Z","deviceId":"device-123"}',
+    );
+    final store = SecureAuthSessionStore(storage: storage);
+
+    expect(await store.read(), isNull);
+  });
+
+  test('returns null when stored session expiry is not a valid date', () async {
+    final storage = InMemoryAuthSecretStorage();
+    await storage.write(
+      key: 'neon_shield.auth_session',
+      value: '{"token":"opaque-server-token","expiresAt":"not-a-date","deviceId":"device-123"}',
+    );
+    final store = SecureAuthSessionStore(storage: storage);
+
+    expect(await store.read(), isNull);
+  });
+
+  test('does not turn secure-storage write failures into success', () async {
+    final storage = _FailingWriteStorage();
+    final store = SecureAuthSessionStore(storage: storage);
+
+    await expectLater(
+      store.write(
+        AuthSession(
+          token: 'opaque-server-token',
+          expiresAt: DateTime.utc(2026, 12, 25, 5),
+          deviceId: 'device-123',
+        ),
+      ),
+      throwsStateError,
+    );
+  });
+
 }
