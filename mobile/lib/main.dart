@@ -5,6 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'auth/auth_gate.dart';
+import 'auth/auth_service.dart';
+import 'auth/device_identity_store.dart';
+import 'auth/https_auth_api.dart';
+import 'auth/secure_auth_session_store.dart';
 import 'onboarding/onboarding_screen.dart';
 import 'protection/protection_profile.dart';
 import 'protection/protection_profile_service.dart';
@@ -35,9 +40,21 @@ class NeonShieldApp extends StatelessWidget {
 }
 
 class AppBootstrap extends StatefulWidget {
-  const AppBootstrap({super.key, this.securityServiceFactory});
+  const AppBootstrap({
+    super.key,
+    this.securityServiceFactory,
+    this.authServiceFactory,
+    this.deviceIdProvider,
+    this.allowLocalBeta = const bool.fromEnvironment(
+      'NEON_SHIELD_ALLOW_LOCAL_BETA',
+      defaultValue: false,
+    ),
+  });
 
   final SecurityService Function()? securityServiceFactory;
+  final AuthService Function()? authServiceFactory;
+  final Future<String> Function()? deviceIdProvider;
+  final bool allowLocalBeta;
 
   @override
   State<AppBootstrap> createState() => _AppBootstrapState();
@@ -47,11 +64,31 @@ class _AppBootstrapState extends State<AppBootstrap> {
   static const _onboardingKey = 'neon_shield.onboarding_complete';
   bool? _showOnboarding;
   Object? _bootstrapError;
+  String? _authConfigurationError;
+  late final AuthService? _authService;
+  late final Future<String> Function() _deviceIdProvider;
 
   @override
   void initState() {
     super.initState();
+    _deviceIdProvider = widget.deviceIdProvider ??
+        SecureDeviceIdentityStore().getOrCreate;
+    try {
+      _authService = widget.authServiceFactory?.call() ?? _configuredAuthService();
+    } catch (_) {
+      _authService = null;
+      _authConfigurationError = 'The configured authentication endpoint is invalid.';
+    }
     _loadBootstrapState();
+  }
+
+  AuthService? _configuredAuthService() {
+    const endpoint = String.fromEnvironment('NEON_SHIELD_AUTH_BASE_URL');
+    if (endpoint.trim().isEmpty) return null;
+    return ServerBackedAuthService(
+      api: HttpsAuthApi(baseUri: Uri.parse(endpoint)),
+      store: SecureAuthSessionStore(),
+    );
   }
 
   Future<void> _loadBootstrapState() async {
@@ -107,9 +144,65 @@ class _AppBootstrapState extends State<AppBootstrap> {
     if (_showOnboarding == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    return _showOnboarding!
-        ? OnboardingScreen(onComplete: _completeOnboarding)
-        : ShieldDashboard(securityServiceFactory: widget.securityServiceFactory);
+    if (_showOnboarding!) {
+      return OnboardingScreen(onComplete: _completeOnboarding);
+    }
+
+    if (_authService != null) {
+      return AuthGate(
+        authService: _authService!,
+        deviceIdProvider: _deviceIdProvider,
+        dashboardBuilder: (onSignOut) => ShieldDashboard(
+          securityServiceFactory: widget.securityServiceFactory,
+          onSignOut: onSignOut,
+        ),
+      );
+    }
+
+    if (widget.allowLocalBeta) {
+      return ShieldDashboard(securityServiceFactory: widget.securityServiceFactory);
+    }
+
+    return _AuthConfigurationRequired(error: _authConfigurationError);
+  }
+}
+
+class _AuthConfigurationRequired extends StatelessWidget {
+  const _AuthConfigurationRequired({this.error});
+
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_outline_rounded, size: 64, color: Color(0xFF21E6FF)),
+                const SizedBox(height: 20),
+                const Text('Secure sign-in is not configured', textAlign: TextAlign.center, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 12),
+                Text(
+                  error ?? 'A verified HTTPS authentication endpoint is required. Dashboard access stays disabled until it is configured.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Color(0xFF9BA7C7), height: 1.45),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'For local-only development, explicitly enable NEON_SHIELD_ALLOW_LOCAL_BETA. This mode is not production authentication or file protection.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF9BA7C7), fontSize: 12, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -153,9 +246,14 @@ class _BootstrapError extends StatelessWidget {
 }
 
 class ShieldDashboard extends StatefulWidget {
-  const ShieldDashboard({super.key, this.securityServiceFactory});
+  const ShieldDashboard({
+    super.key,
+    this.securityServiceFactory,
+    this.onSignOut,
+  });
 
   final SecurityService Function()? securityServiceFactory;
+  final VoidCallback? onSignOut;
 
   @override
   State<ShieldDashboard> createState() => _ShieldDashboardState();
@@ -295,6 +393,12 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
           ],
         ),
         actions: [
+          if (widget.onSignOut != null)
+            IconButton(
+              tooltip: 'Sign out',
+              onPressed: loading ? null : widget.onSignOut,
+              icon: const Icon(Icons.logout_rounded),
+            ),
           IconButton(onPressed: loading ? null : refresh, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
