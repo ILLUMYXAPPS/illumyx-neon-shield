@@ -10,7 +10,7 @@ This checklist separates work that can safely continue before certification from
 - [x] Bootstrap failure does not grant dashboard access
 - [x] Back/forward onboarding navigation coverage
 - [x] Protection Command Centre posture summary surfaces known local security state
-- [ ] Wire profile selection to the existing protection-profile contract
+- [x] Wire profile selection to the existing protection-profile contract (UI and persistence are implemented; regression tests added)
 - [ ] Add end-to-end authentication and device-verification coverage against the HTTPS backend
 
 ## Security and backend
