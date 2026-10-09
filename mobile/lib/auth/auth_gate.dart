@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'auth_api_contract.dart';
@@ -25,6 +27,7 @@ class _AuthGateState extends State<AuthGate> {
   final _identity = TextEditingController();
   final _credential = TextEditingController();
   AuthSession? _session;
+  Timer? _expiryTimer;
   bool _checking = true;
   bool _busy = false;
   String? _error;
@@ -37,9 +40,36 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   void dispose() {
+    _expiryTimer?.cancel();
     _identity.dispose();
     _credential.dispose();
     super.dispose();
+  }
+
+  void _scheduleExpiry(AuthSession session) {
+    _expiryTimer?.cancel();
+    final remaining = session.expiresAt.toUtc().difference(DateTime.now().toUtc());
+    if (remaining <= Duration.zero) {
+      _expireSession(session);
+      return;
+    }
+    _expiryTimer = Timer(remaining, () => _expireSession(session));
+  }
+
+  void _expireSession(AuthSession session) {
+    if (!mounted || !identical(_session, session)) return;
+
+    // Lock the dashboard immediately, then best-effort revoke and clear local
+    // credentials through the service. A failed network call must not keep the
+    // expired session visible in the UI.
+    setState(() {
+      _session = null;
+      _error = 'Your session has expired. Please sign in again.';
+    });
+    widget.authService.signOut(session).catchError((Object _) {
+      // Server revocation may fail offline; the service still clears local
+      // credentials in its finally block.
+    });
   }
 
   Future<void> _restore() async {
@@ -47,10 +77,20 @@ class _AuthGateState extends State<AuthGate> {
     try {
       final restored = await widget.authService.restoreSession();
       if (!mounted) return;
+      if (restored != null && restored.isExpired) {
+        setState(() {
+          _session = null;
+          _checking = false;
+          _error = 'Your session has expired. Please sign in again.';
+        });
+        await widget.authService.signOut(restored).catchError((Object _) {});
+        return;
+      }
       setState(() {
         _session = restored;
         _checking = false;
       });
+      if (restored != null) _scheduleExpiry(restored);
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -79,11 +119,23 @@ class _AuthGateState extends State<AuthGate> {
         deviceId: deviceId,
       );
       if (!mounted) return;
+      if (session.isExpired) {
+        await widget.authService.signOut(session).catchError((Object _) {});
+        setState(() {
+          _session = null;
+          _credential.clear();
+          _busy = false;
+          _error = 'The server returned an expired session. Please try again.';
+        });
+        return;
+      }
+      _expiryTimer?.cancel();
       setState(() {
         _session = session;
         _credential.clear();
         _busy = false;
       });
+      _scheduleExpiry(session);
     } catch (error) {
       if (!mounted) return;
       final failure = error is AuthServiceException ? error.failure : AuthFailure.unavailable;
@@ -103,6 +155,7 @@ class _AuthGateState extends State<AuthGate> {
 
   Future<void> _signOut() async {
     final session = _session;
+    _expiryTimer?.cancel();
     setState(() { _busy = true; _error = null; });
     try {
       if (session != null) await widget.authService.signOut(session);
@@ -118,7 +171,16 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (_session != null) return widget.dashboardBuilder(_signOut);
+    if (_session != null && !_session!.isExpired) {
+      return widget.dashboardBuilder(_signOut);
+    }
+    if (_session != null && _session!.isExpired) {
+      // Do not render the dashboard even if the event loop has not delivered
+      // the expiry timer yet.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _session != null) _expireSession(_session!);
+      });
+    }
     if (_checking) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
