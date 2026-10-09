@@ -79,6 +79,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Your digital space, protected.'), findsOneWidget);
-    expect(find.text('ILLUMYX NEON SHIELD'), findsNothing);
+    // The dashboard also uses the product name, so assert against its unique hero copy.
+    expect(find.text('Mobile Shield Ready'), findsNothing);
   });
 }
