@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:illumyx_neon_shield/auth/auth_api_contract.dart';
 import 'package:illumyx_neon_shield/auth/auth_gate.dart';
 import 'package:illumyx_neon_shield/auth/auth_service.dart';
 import 'package:illumyx_neon_shield/auth/auth_session.dart';
