@@ -430,7 +430,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             _card(Icons.phone_iphone_rounded, 'DEVICE', device, 'Local device identification only.'),
             _card(Icons.shield_outlined, 'PLATFORM', platformStatus, 'Security capabilities follow iOS and Android permission boundaries.'),
             _card(Icons.wifi_rounded, 'NETWORK', network, 'Network information is shown only when the operating system permits access.'),
-            _card(Icons.lock_outline_rounded, 'PRIVACY', 'Local-first', 'Neon Shield does not need your passwords or remote-device access.'),
+            _card(Icons.lock_outline_rounded, 'DATA HANDLING', 'Limited local data', 'Device and network details are displayed locally. Account credentials are used for sign-in through the configured authentication service.'),
             const SizedBox(height: 12),
             const Text(
               'Beta limitation: this app currently provides a posture dashboard and local configuration. Active file protection, malware scanning, and threat blocking are not implemented here.',
