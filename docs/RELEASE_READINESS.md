@@ -11,7 +11,10 @@ This checklist separates work that can safely continue before certification from
 - [x] Back/forward onboarding navigation coverage
 - [x] Protection Command Centre posture summary surfaces known local security state
 - [x] Wire profile selection to the existing protection-profile contract (UI and persistence are implemented; regression tests added)
-- [ ] Add end-to-end authentication and device-verification coverage against the HTTPS backend
+- [x] Add a fail-closed mobile authentication gate when a valid HTTPS endpoint is configured
+- [x] Keep production dashboard access disabled when the endpoint is missing or invalid
+- [x] Require server-authorized sign-in and trusted-device verification before dashboard access
+- [ ] Add end-to-end authentication and device-verification coverage against a deployed test HTTPS backend
 
 ## Security and backend
 
