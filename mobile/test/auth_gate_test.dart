@@ -10,9 +10,9 @@ class _FakeAuthService implements AuthService {
   AuthSession? current;
   bool trusted = true;
 
-  AuthSession _newSession() => AuthSession(
+  AuthSession _newSession({Duration lifetime = const Duration(minutes: 10)}) => AuthSession(
         token: 'server-session-token',
-        expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 10)),
+        expiresAt: DateTime.now().toUtc().add(lifetime),
         deviceId: 'device-1',
       );
 
@@ -103,5 +103,32 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('AUTHENTICATED DASHBOARD'), findsOneWidget);
+  });
+
+  testWidgets('dashboard locks automatically when session expires', (tester) async {
+    final service = _FakeAuthService()
+      ..current = AuthSession(
+        token: 'short-session',
+        expiresAt: DateTime.now().toUtc().add(const Duration(seconds: 2)),
+        deviceId: 'device-1',
+      );
+
+    await tester.pumpWidget(MaterialApp(
+      home: AuthGate(
+        authService: service,
+        deviceIdProvider: () async => 'device-1',
+        dashboardBuilder: (_) => const Scaffold(body: Text('AUTHENTICATED DASHBOARD')),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('AUTHENTICATED DASHBOARD'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+
+    expect(find.text('AUTHENTICATED DASHBOARD'), findsNothing);
+    expect(find.text('Your session has expired. Please sign in again.'), findsOneWidget);
+    expect(find.text('Sign in securely'), findsOneWidget);
   });
 }
