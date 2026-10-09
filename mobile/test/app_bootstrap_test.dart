@@ -33,7 +33,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: AppBootstrap(securityServiceFactory: createSecurityService),
+        home: AppBootstrap(securityServiceFactory: createSecurityService, allowLocalBeta: true),
       ),
     );
     await tester.pumpAndSettle();
@@ -73,6 +73,7 @@ void main() {
         home: AppBootstrap(
           securityServiceFactory: () =>
               SecurityService(trustedDeviceStore: _MemoryTrustedDeviceStore()),
+          allowLocalBeta: true,
         ),
       ),
     );
