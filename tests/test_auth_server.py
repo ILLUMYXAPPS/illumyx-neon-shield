@@ -188,5 +188,51 @@ class AuthServerTests(unittest.TestCase):
         self.assertEqual(raised.exception.failure, AuthFailure.RATE_LIMITED)
 
 
+    def test_empty_identity_or_device_is_rejected_before_credential_check(self):
+        for request in (
+            SignInRequest("", "correct", "device-trusted"),
+            SignInRequest("user@example.test", "correct", ""),
+        ):
+            with self.subTest(request=request):
+                with self.assertRaises(AuthenticationError) as raised:
+                    self.service.sign_in(request)
+                self.assertEqual(
+                    raised.exception.failure, AuthFailure.INVALID_CREDENTIALS
+                )
+
+    def test_blocked_identity_cannot_resolve_existing_session(self):
+        session = self.service.sign_in(
+            SignInRequest("user@example.test", "correct", "device-trusted")
+        )
+        self.service._blocked_subjects.add("subject-123")
+
+        with self.assertRaises(AuthenticationError) as raised:
+            self.service.resolve_session(session.session_id)
+
+        self.assertEqual(raised.exception.failure, AuthFailure.BLOCKED_IDENTITY)
+        self.assertEqual(
+            self.service.audit_events()[-1].event_type, "blocked_identity_session"
+        )
+
+    def test_refreshed_session_is_the_only_active_session(self):
+        session = self.service.sign_in(
+            SignInRequest("user@example.test", "correct", "device-trusted")
+        )
+        refreshed = self.service.refresh(session)
+
+        self.assertIs(self.service.resolve_session(refreshed.session_id), refreshed)
+        with self.assertRaises(AuthenticationError) as raised:
+            self.service.resolve_session(session.session_id)
+        self.assertEqual(raised.exception.failure, AuthFailure.REVOKED_SESSION)
+
+    def test_audit_events_do_not_include_credentials_or_session_tokens(self):
+        session = self.service.sign_in(
+            SignInRequest("user@example.test", "correct", "device-trusted")
+        )
+        audit_text = repr(self.service.audit_events())
+        self.assertNotIn("correct", audit_text)
+        self.assertNotIn(session.session_id, audit_text)
+
+
 if __name__ == "__main__":
     unittest.main()
