@@ -15,6 +15,7 @@ import 'onboarding/onboarding_screen.dart';
 import 'protection/protection_profile.dart';
 import 'protection/protection_profile_service.dart';
 import 'security/security_service.dart';
+import 'vault/encrypted_vault_screen.dart';
 
 void main() => runApp(const NeonShieldApp());
 
@@ -420,6 +421,18 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               'PROTECTION ENGINE',
               'Not active in this beta',
               'This dashboard reports local posture and saves profile preferences. It does not scan files, block threats, or provide antivirus protection.',
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: loading
+                  ? null
+                  : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const EncryptedVaultScreen(),
+                        ),
+                      ),
+              icon: const Icon(Icons.enhanced_encryption_rounded),
+              label: const Text('Open encrypted file vault'),
             ),
             const SizedBox(height: 18),
             _profileCard(),
