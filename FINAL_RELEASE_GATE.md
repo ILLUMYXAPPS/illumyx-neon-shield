@@ -32,7 +32,7 @@ A gate is marked complete only when the required evidence exists. Failed checks 
 - PR #69 addressed the identified high-severity refresh-token concurrency boundary with atomic session rotation.
 - PR #70 made managed-database row locking the default for concurrency-sensitive audit/session operations.
 - Focused review found no implemented password-reset, recovery-token, OTP or identity-verification code path. These remain integration/deployment gates and must not be represented as completed until a real implementation is independently reviewed.
-- `NEON_SESSION_SECRET` remains part of the production secret contract. Its cryptographic purpose must be explicitly assigned before deployment; the project does not assume that it signs or encrypts sessions without evidence.
+- The current production secret contract requires `NEON_IDP_CLIENT_SECRET` and `NEON_DB_PEPPER` through the injected secret provider. `NEON_SESSION_SECRET` is intentionally not part of the contract because the current session design uses opaque random server-side tokens and has no separate session-signing or encryption consumer. Do not provision it until a concrete, tested cryptographic use exists.
 - Production composition fails closed when required secret, managed persistence, security-event or alert dependencies are absent.
 - Monitoring and alert routing are implemented as provider-neutral boundaries; actual delivery infrastructure remains deployment responsibility.
 
@@ -47,7 +47,6 @@ A gate is marked complete only when the required evidence exists. Failed checks 
 ## Real-device smoke-test sequence
 
 For each supported test device:
-
 1. Install the candidate build.
 2. Confirm first-run onboarding appears only when required.
 3. Complete owner setup through the intended flow.
@@ -61,7 +60,6 @@ For each supported test device:
 ## Independent review evidence pack
 
 Preserve, rather than rewrite away, the project's development history:
-
 - security and architecture documents
 - relevant commits and pull requests
 - failed CI runs and their root-cause fixes
