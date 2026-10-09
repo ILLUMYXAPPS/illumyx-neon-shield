@@ -6,8 +6,8 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    # Weekly dependency and security regression audit.
-    - cron: "41 16 * * 1"
+    # Sunday 4:20 pm Brisbane time (06:20 UTC), ahead of the weekly review.
+    - cron: "20 6 * * 0"
 
 permissions:
   contents: read
