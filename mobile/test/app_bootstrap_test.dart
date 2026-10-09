@@ -91,8 +91,12 @@ void main() {
     });
 
     await tester.pumpWidget(
-      const MaterialApp(
-        home: AppBootstrap(),
+      MaterialApp(
+        home: AppBootstrap(
+          securityServiceFactory: () => SecurityService(
+            trustedDeviceStore: _MemoryTrustedDeviceStore(),
+          ),
+        ),
       ),
     );
     await tester.pumpAndSettle();
