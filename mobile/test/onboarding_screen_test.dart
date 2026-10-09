@@ -23,10 +23,10 @@ void main() {
       expect(find.text('$step/5'), findsOneWidget);
     }
 
-    expect(find.text('Protection setup'), findsOneWidget);
-    expect(find.text('Enter Neon Shield'), findsOneWidget);
+    expect(find.text('Finish your local setup'), findsOneWidget);
+    expect(find.text('Complete local setup'), findsOneWidget);
 
-    await tester.tap(find.text('Enter Neon Shield'));
+    await tester.tap(find.text('Complete local setup'));
     await tester.pumpAndSettle();
 
     expect(completed, isTrue);
@@ -65,6 +65,6 @@ void main() {
 
     expect(find.text('5/5'), findsOneWidget);
     expect(find.text('Back'), findsOneWidget);
-    expect(find.text('Enter Neon Shield'), findsOneWidget);
+    expect(find.text('Complete local setup'), findsOneWidget);
   });
 }
