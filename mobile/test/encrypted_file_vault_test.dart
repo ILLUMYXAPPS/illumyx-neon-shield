@@ -185,7 +185,9 @@ void main() {
     );
     final encryptedFile =
         File('${tempDirectory.path}/neon_shield_vault/${entry.id}.nsvault');
-    await encryptedFile.truncate(EncryptedFileVault.maxVaultEnvelopeBytes + 1);
+    final handle = await encryptedFile.open(mode: FileMode.write);
+    await handle.truncate(EncryptedFileVault.maxVaultEnvelopeBytes + 1);
+    await handle.close();
 
     await expectLater(
       vault.decryptEntry(entry.id),
