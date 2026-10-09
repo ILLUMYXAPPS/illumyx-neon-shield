@@ -57,7 +57,8 @@ AES-256-GCM to encrypt copies locally before writing them to the app's private
 vault directory. Vault contents are not uploaded by the vault feature, and the
 original file is not modified or deleted. Vault filenames and basic metadata are
 stored locally for listing. The vault key is stored in platform secure storage;
-there is no cloud backup or key recovery in this beta, so users must keep
+Neon Shield does not provide its own cloud-backup or key-recovery service;
+operating-system backups may include encrypted vault data. Users must keep
 separate backups of important originals. The vault is not whole-device
 protection, malware scanning, or a replacement for operating-system security.
 Exported desktop reports are written only to the path selected by the user.
