@@ -145,13 +145,13 @@ class _AppBootstrapState extends State<AppBootstrap> {
     if (_showOnboarding == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    if (_showOnboarding) {
+    if (_showOnboarding!) {
       return OnboardingScreen(onComplete: _completeOnboarding);
     }
 
     if (_authService != null) {
       return AuthGate(
-        authService: _authService!,
+        authService: _authService,
         deviceIdProvider: _deviceIdProvider,
         dashboardBuilder: (onSignOut) => ShieldDashboard(
           securityServiceFactory: widget.securityServiceFactory,
