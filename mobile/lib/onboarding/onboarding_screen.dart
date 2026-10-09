@@ -39,7 +39,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     ),
     _OnboardingStep(
       icon: Icons.tune_rounded,
-      title: 'Complete local setup',
+      title: 'Finish your local setup',
       body: 'Finish setting up the Neon Shield mobile beta dashboard.',
       detail: 'This saves local setup state only. It does not authenticate your account or enforce file protection.',
     ),
