@@ -58,4 +58,6 @@ Before prerelease approval, the implementation must demonstrate:
 7. Automated tests for login, expiry, revocation, device trust, blocked identities, phone policy, and abuse controls.
 8. Independent security review of the production configuration.
 
+The current mobile integration findings and the required verification sequence are tracked in `docs/MOBILE_AUTH_INTEGRATION_AUDIT.md`.
+
 This document is an architecture gate only. It does not claim that production authentication is deployed.

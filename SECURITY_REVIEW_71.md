@@ -15,7 +15,7 @@ The server-authoritative service validates session tokens, expiry, blocked ident
 Production requires an injected secret provider, managed persistence store, security-event sink and security-alert sink. Production configuration requires PostgreSQL and explicit TLS plus HTTPS identity-provider and monitoring endpoints. No development persistence fallback is permitted when production mode is active.
 
 ### Secrets
-The repository does not contain production secret values. Secret names are resolved through the injected provider and secret-bearing configuration fields are excluded from dataclass repr output. `NEON_SESSION_SECRET` remains part of the production secret contract; its current application-level cryptographic purpose should be explicitly assigned before deployment rather than silently assuming it signs or encrypts sessions.
+The repository does not contain production secret values. The current production secret contract requires `NEON_IDP_CLIENT_SECRET` and `NEON_DB_PEPPER` through the injected secret provider. `NEON_SESSION_SECRET` is intentionally not part of that contract because the current session design uses opaque random server-side tokens and has no separate session-signing or encryption consumer. Do not provision it unless a concrete, tested cryptographic use is introduced and reviewed.
 
 ### Audit trail
 Audit records are chained by SHA-256 hashes. Managed DB audit reads use the production-safe row-locking default introduced by PR #70. Production deployment still needs a database-level verification strategy for concurrent writers and an operational integrity-check procedure.
