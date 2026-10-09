@@ -20,7 +20,9 @@ class _MemoryTrustedDeviceStore implements TrustedDeviceStore {
 
 void main() {
   setUp(() {
-    SharedPreferences.setMockInitialValues(<String, Object>{});
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'neon_shield.owner_initialized': false,
+    });
   });
 
   testWidgets('fresh install completes local setup and opens the dashboard',
@@ -63,6 +65,7 @@ void main() {
       (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'neon_shield.onboarding_complete': true,
+      'neon_shield.owner_initialized': false,
     });
 
     await tester.pumpWidget(
