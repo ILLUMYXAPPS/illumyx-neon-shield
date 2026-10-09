@@ -18,7 +18,9 @@ void main() {
     expect(find.text('1/5'), findsOneWidget);
     expect(find.text('Continue'), findsOneWidget);
     expect(
-      find.text('Privacy-first setup • Security boundaries remain enforced'),
+      find.text(
+        'Local beta setup • Server authentication and file enforcement are not yet connected',
+      ),
       findsOneWidget,
     );
   });
