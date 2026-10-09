@@ -56,7 +56,14 @@ void main() {
       find.textContaining('It does not scan files, block threats, or provide antivirus protection.'),
       findsOneWidget,
     );
+    await tester.scrollUntilVisible(
+      find.text('Local device records'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Local device records'), findsOneWidget);
+    await tester.drag(find.byType(ListView).first, const Offset(0, 1200));
+    await tester.pumpAndSettle();
     expect(
       (await SharedPreferences.getInstance())
           .getBool('neon_shield.onboarding_complete'),
