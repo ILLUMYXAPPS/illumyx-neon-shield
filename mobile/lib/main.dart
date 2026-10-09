@@ -562,7 +562,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(loading ? 'Checking posture…' : 'Posture Dashboard', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  const Text('Posture Dashboard', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
                   const Text('Secure. Smart. Neon.', style: TextStyle(color: Color(0xFFFF38D1), fontWeight: FontWeight.w600)),
                 ],
