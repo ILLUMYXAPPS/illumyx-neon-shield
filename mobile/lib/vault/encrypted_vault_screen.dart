@@ -182,7 +182,7 @@ class _EncryptedVaultScreenState extends State<EncryptedVaultScreen> {
                 ),
                 SizedBox(height: 10),
                 Text(
-                  'Beta limits: 50 MB per file, files are read into memory, and there is no cloud backup or key recovery. Keep a separate backup of important originals.',
+                  'Beta limits: 50 MB per file and files are read into memory. Neon Shield has no cloud-backup or key-recovery service; operating-system backups may include encrypted vault data. Keep a separate backup of important originals.',
                   style: TextStyle(color: Color(0xFFFFD27A), height: 1.4, fontSize: 12),
                 ),
               ],
