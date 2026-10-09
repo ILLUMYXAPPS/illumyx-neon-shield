@@ -8,6 +8,9 @@ on:
   schedule:
     # Weekly dependency and security regression audit.
     - cron: "41 16 * * 1"
+  schedule:
+    # Weekly dependency and security regression audit.
+    - cron: "41 16 * * 1"
 
 permissions:
   contents: read
