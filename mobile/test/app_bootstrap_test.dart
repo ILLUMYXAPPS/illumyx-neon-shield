@@ -83,4 +83,22 @@ void main() {
     // The dashboard also uses the product name, so assert against its unique hero copy.
     expect(find.text('Mobile Shield Ready'), findsNothing);
   });
+  testWidgets('dashboard stays locked when server auth is not configured',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'neon_shield.onboarding_complete': true,
+      'neon_shield.owner_initialized': true,
+    });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: AppBootstrap(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Secure sign-in is not configured'), findsOneWidget);
+    expect(find.text('Mobile Shield Ready'), findsNothing);
+  });
+
 }
