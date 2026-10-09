@@ -145,7 +145,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
     if (_showOnboarding == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    if (_showOnboarding!) {
+    if (_showOnboarding) {
       return OnboardingScreen(onComplete: _completeOnboarding);
     }
 
