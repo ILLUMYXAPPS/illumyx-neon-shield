@@ -24,6 +24,7 @@ The repository contains a meaningful authentication foundation and unit tests, b
 - `AppBootstrap` and the dashboard currently use local `SharedPreferences` onboarding state and `SecurityService`.
 - `mobile/lib/onboarding/onboarding_screen.dart` describes account and device-verification steps but does not collect credentials or perform server sign-in.
 - The mobile API base URL, production endpoint configuration, and owner credential/recovery flow are not defined in the reviewed app entry point.
+- The mobile `AuthApiContract.signIn` and `HttpsAuthApi.signIn` currently send identity, credential, and device ID only. If phone identity is required by the server's authorization policy, its collection, privacy treatment, and transport must be explicitly designed before integration; do not silently infer it from other fields.
 - Existing tests are unit/contract tests with fake APIs or mock HTTP responses. They do not prove integration with a running backend, real TLS configuration, production persistence, or real-device platform storage.
 
 ## Safety decision
