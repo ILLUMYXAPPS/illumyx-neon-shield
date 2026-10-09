@@ -424,13 +424,12 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             ),
             const SizedBox(height: 8),
             FilledButton.icon(
-              onPressed: loading
-                  ? null
-                  : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const EncryptedVaultScreen(),
-                        ),
-                      ),
+              // Vault navigation does not depend on posture refresh completing.
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const EncryptedVaultScreen(),
+                ),
+              ),
               icon: const Icon(Icons.enhanced_encryption_rounded),
               label: const Text('Open encrypted file vault'),
             ),
