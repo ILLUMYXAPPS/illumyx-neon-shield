@@ -328,8 +328,8 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
       network = nextNetwork;
       platformStatus = nextPlatformStatus;
       securityStatus = snapshot.ownerInitialized
-          ? 'Owner initialized • ${snapshot.trustedDeviceCount} trusted device(s)'
-          : 'Owner setup required';
+          ? 'Local owner setup complete • ${snapshot.trustedDeviceCount} local device record(s); server trust is verified separately'
+          : 'Local owner setup required';
       loading = false;
     });
   }
@@ -346,7 +346,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             const Text('Protection profile', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
             const Text(
-              'Choose what the protection engine should be configured to cover. Enforcement remains server-authoritative.',
+              'Choose a saved profile preference. In this beta, selecting a profile does not scan, block threats, or protect files.',
               style: TextStyle(color: Color(0xFF9BA7C7), height: 1.4),
             ),
             const SizedBox(height: 14),
@@ -374,6 +374,11 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
     try {
       await profiles.select(chosen.key);
     } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save the profile preference. Please try again.')),
+        );
+      }
       return;
     }
 
@@ -409,19 +414,26 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
           padding: const EdgeInsets.all(18),
           children: [
             _hero(),
+            const SizedBox(height: 12),
+            _card(
+              Icons.warning_amber_rounded,
+              'PROTECTION ENGINE',
+              'Not active in this beta',
+              'This dashboard reports local posture and saves profile preferences. It does not scan files, block threats, or provide antivirus protection.',
+            ),
             const SizedBox(height: 18),
             _profileCard(),
             const SizedBox(height: 18),
             _commandCentre(),
             const SizedBox(height: 18),
-            _card(Icons.lock_rounded, 'SECURITY', securityStatus, 'Access-control policy is owned by the application security service.'),
+            _card(Icons.lock_rounded, 'SECURITY', securityStatus, 'Shows local setup state only. Server-side authentication and trust must be verified separately.'),
             _card(Icons.phone_iphone_rounded, 'DEVICE', device, 'Local device identification only.'),
             _card(Icons.shield_outlined, 'PLATFORM', platformStatus, 'Security capabilities follow iOS and Android permission boundaries.'),
             _card(Icons.wifi_rounded, 'NETWORK', network, 'Network information is shown only when the operating system permits access.'),
             _card(Icons.lock_outline_rounded, 'PRIVACY', 'Local-first', 'Neon Shield does not need your passwords or remote-device access.'),
             const SizedBox(height: 12),
             const Text(
-              'Mobile beta foundation. Platform-native posture checks will be added only where Apple and Android expose supported APIs.',
+              'Beta limitation: this app currently provides a posture dashboard and local configuration. Active file protection, malware scanning, and threat blocking are not implemented here.',
               style: TextStyle(color: Color(0xFF9BA7C7), height: 1.45),
             ),
           ],
@@ -468,7 +480,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               ],
             ),
             const SizedBox(height: 5),
-            const Text('Configuration only • matching and enforcement remain authoritative outside this UI.', style: TextStyle(fontSize: 12, color: Color(0xFF9BA7C7))),
+            const Text('Saved preference only • no file scanning or enforcement is performed by this beta.', style: TextStyle(fontSize: 12, color: Color(0xFF9BA7C7))),
           ],
         ),
       );
@@ -493,13 +505,13 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             ],
           ),
           const SizedBox(height: 8),
-          const Text('A clear view of the protection state currently known to this device.', style: TextStyle(color: Color(0xFF9BA7C7), height: 1.4)),
+          const Text('A view of locally recorded setup and device information, not proof that active protection is running.', style: TextStyle(color: Color(0xFF9BA7C7), height: 1.4)),
           const SizedBox(height: 18),
           Row(
             children: [
-              Expanded(child: _metric(Icons.verified_user_rounded, snapshot.ownerInitialized ? 'READY' : 'SETUP', 'Owner state')),
+              Expanded(child: _metric(Icons.verified_user_rounded, snapshot.ownerInitialized ? 'INITIALIZED' : 'SETUP', 'Local owner state')),
               const SizedBox(width: 10),
-              Expanded(child: _metric(Icons.devices_rounded, '${snapshot.trustedDeviceCount}', 'Trusted devices')),
+              Expanded(child: _metric(Icons.devices_rounded, '${snapshot.trustedDeviceCount}', 'Local device records')),
             ],
           ),
         ],
@@ -537,7 +549,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(loading ? 'Checking…' : 'Mobile Shield Ready', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  Text(loading ? 'Checking posture…' : 'Posture Dashboard', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
                   const Text('Secure. Smart. Neon.', style: TextStyle(color: Color(0xFFFF38D1), fontWeight: FontWeight.w600)),
                 ],
