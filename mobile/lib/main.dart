@@ -35,7 +35,9 @@ class NeonShieldApp extends StatelessWidget {
 }
 
 class AppBootstrap extends StatefulWidget {
-  const AppBootstrap({super.key});
+  const AppBootstrap({super.key, this.securityServiceFactory});
+
+  final SecurityService Function()? securityServiceFactory;
 
   @override
   State<AppBootstrap> createState() => _AppBootstrapState();
@@ -55,13 +57,15 @@ class _AppBootstrapState extends State<AppBootstrap> {
   Future<void> _loadBootstrapState() async {
     try {
       final preferences = await SharedPreferences.getInstance();
-      final security = SecurityService();
+      final security = _createSecurityService();
       await security.load();
       final completed = preferences.getBool(_onboardingKey) ?? false;
       if (!mounted) return;
       final ownerReady = security.snapshot().ownerInitialized;
       setState(() {
-        _showOnboarding = !completed && !ownerReady;
+        // Local setup must never be skipped because a stale completion flag
+        // exists without the corresponding initialized security state.
+        _showOnboarding = !completed || !ownerReady;
         _bootstrapError = null;
       });
     } catch (error) {
@@ -73,19 +77,18 @@ class _AppBootstrapState extends State<AppBootstrap> {
     }
   }
 
+  SecurityService _createSecurityService() =>
+      widget.securityServiceFactory?.call() ?? SecurityService();
+
   Future<void> _completeOnboarding() async {
     try {
       final preferences = await SharedPreferences.getInstance();
-      final security = SecurityService();
+      final security = _createSecurityService();
       await security.load();
       if (!security.snapshot().ownerInitialized) {
-        if (!mounted) return;
-        setState(() {
-          _bootstrapError = StateError(
-            'Owner initialization is required before protected dashboard access.',
-          );
-        });
-        return;
+        // This initializes local beta setup only. It is not server sign-in,
+        // device attestation, or proof of remote authorization.
+        await security.initializeOwner();
       }
       await preferences.setBool(_onboardingKey, true);
       if (!mounted) return;
@@ -106,7 +109,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
     }
     return _showOnboarding!
         ? OnboardingScreen(onComplete: _completeOnboarding)
-        : const ShieldDashboard();
+        : ShieldDashboard(securityServiceFactory: widget.securityServiceFactory);
   }
 }
 
@@ -150,14 +153,16 @@ class _BootstrapError extends StatelessWidget {
 }
 
 class ShieldDashboard extends StatefulWidget {
-  const ShieldDashboard({super.key});
+  const ShieldDashboard({super.key, this.securityServiceFactory});
+
+  final SecurityService Function()? securityServiceFactory;
 
   @override
   State<ShieldDashboard> createState() => _ShieldDashboardState();
 }
 
 class _ShieldDashboardState extends State<ShieldDashboard> {
-  final SecurityService security = SecurityService();
+  late final SecurityService security;
   final ProtectionProfileService profiles = ProtectionProfileService();
 
   bool loading = true;
@@ -170,6 +175,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
   @override
   void initState() {
     super.initState();
+    security = widget.securityServiceFactory?.call() ?? SecurityService();
     refresh();
   }
 
