@@ -198,8 +198,9 @@ class EncryptedFileVault {
       throw ArgumentError.value(id, 'id', 'Invalid vault entry identifier.');
     }
     final entries = await listEntries();
-    final target = entries.where((entry) => entry.id == id).firstOrNull;
-    if (target == null) throw StateError('That file is not listed in the vault.');
+    if (!entries.any((entry) => entry.id == id)) {
+      throw StateError('That file is not listed in the vault.');
+    }
     final directory = await _vaultDirectory();
     final file = File('${directory.path}/$id.nsvault');
     if (await file.exists()) await file.delete();
