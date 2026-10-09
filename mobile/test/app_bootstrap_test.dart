@@ -50,6 +50,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('ILLUMYX NEON SHIELD'), findsOneWidget);
+    expect(find.text('Posture Dashboard'), findsOneWidget);
+    expect(find.text('Not active in this beta'), findsOneWidget);
+    expect(
+      find.textContaining('It does not scan files, block threats, or provide antivirus protection.'),
+      findsOneWidget,
+    );
+    expect(find.text('Local device records'), findsOneWidget);
     expect(
       (await SharedPreferences.getInstance())
           .getBool('neon_shield.onboarding_complete'),
