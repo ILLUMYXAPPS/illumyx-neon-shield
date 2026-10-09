@@ -203,14 +203,19 @@ class EncryptedFileVault {
     }
     final directory = await _vaultDirectory();
     final file = File('${directory.path}/$id.nsvault');
-    if (await file.exists()) await file.delete();
     final preferences = await SharedPreferences.getInstance();
     final updated = entries.where((entry) => entry.id != id).toList();
-    final saved = await preferences.setString(
-      _indexKey,
-      jsonEncode(updated.map((entry) => entry.toJson()).toList()),
-    );
+    final previousIndex = jsonEncode(entries.map((entry) => entry.toJson()).toList());
+    final updatedIndex = jsonEncode(updated.map((entry) => entry.toJson()).toList());
+    final saved = await preferences.setString(_indexKey, updatedIndex);
     if (!saved) throw StateError('The vault index could not be updated.');
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (_) {
+      // Restore the visible entry if deleting the encrypted file failed.
+      await preferences.setString(_indexKey, previousIndex);
+      rethrow;
+    }
   }
 
   Future<SecretKey> _loadOrCreateKey() async {
