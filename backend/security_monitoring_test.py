@@ -46,6 +46,21 @@ class SecurityMonitoringTests(unittest.TestCase):
         self.assertEqual(severity_for_event("auth.failure"), SecuritySeverity.WARNING)
         self.assertEqual(severity_for_event("session.refreshed"), SecuritySeverity.INFO)
 
+    def test_unknown_auth_event_is_visible_as_warning(self) -> None:
+        self.assertEqual(severity_for_event("auth.new_security_condition"), SecuritySeverity.WARNING)
+
+        events = RecordingEventSink()
+        alerts = RecordingAlertSink()
+        ProductionSecurityMonitor(events, alert_sink=alerts).emit(self._event("auth.new_security_condition"))
+
+        self.assertEqual(len(events.events), 1)
+        self.assertEqual(len(alerts.alerts), 1)
+        self.assertEqual(alerts.alerts[0].severity, SecuritySeverity.WARNING)
+
+    def test_unsupported_event_namespace_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unsupported security event name"):
+            severity_for_event("database.failure")
+
     def test_monitor_forwards_event_and_routes_alert(self) -> None:
         events = RecordingEventSink()
         alerts = RecordingAlertSink()
@@ -77,13 +92,25 @@ class SecurityMonitoringTests(unittest.TestCase):
                 )
             )
 
-        with self.assertRaisesRegex(ValueError, "not allowlisted"):
+        with self.assertRaisesRegex(ValueError, "allowlisted"):
             validate_security_event(
                 SecurityEvent(
                     "auth.failure",
                     "2026-09-07T00:00:00+00:00",
                     metadata={"password": "never-log-this"},
                 )
+            )
+
+    def test_rejects_malformed_telemetry_types(self) -> None:
+        with self.assertRaisesRegex(ValueError, "event name"):
+            validate_security_event(SecurityEvent(None, "2026-09-07T00:00:00+00:00"))
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            validate_security_event(
+                SecurityEvent("auth.failure", "2026-09-07T00:00:00+00:00", subject_hash=123)
+            )
+        with self.assertRaisesRegex(ValueError, "metadata must be a dictionary"):
+            validate_security_event(
+                SecurityEvent("auth.failure", "2026-09-07T00:00:00+00:00", metadata=["password"])
             )
 
     def test_delivery_failures_propagate(self) -> None:
