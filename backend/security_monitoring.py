@@ -65,6 +65,8 @@ _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 
 def severity_for_event(name: str) -> SecuritySeverity:
     """Return severity; unknown names fail toward warning, never silent info."""
+    if not isinstance(name, str):
+        raise ValueError("unsupported security event name")
     if name in _CRITICAL_EVENTS:
         return SecuritySeverity.CRITICAL
     if name in _WARNING_EVENTS:
@@ -72,7 +74,7 @@ def severity_for_event(name: str) -> SecuritySeverity:
     if name in _INFO_EVENTS:
         return SecuritySeverity.INFO
     # New or misspelled auth/session events should be visible until classified.
-    if isinstance(name, str) and (name.startswith("auth.") or name.startswith("session.")):
+    if name.startswith("auth.") or name.startswith("session."):
         return SecuritySeverity.WARNING
     raise ValueError("unsupported security event name")
 
