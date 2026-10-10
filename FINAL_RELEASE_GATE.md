@@ -24,7 +24,7 @@ A gate is marked complete only when the required evidence exists. Failed checks 
 | Monitoring and alerting | Authentication, abuse, service, database and audit-integrity alerts verified | ⬜ Not deployed |
 | Real-device smoke test | Supported iPhone/iPad test plan executed on available release builds | ⬜ Pending device execution |
 | Release signing | Android/iOS signing validation and store-upload readiness | 🟡 Pipeline hardened, final signing evidence pending |
-| Independent security review | Independent scope, findings, remediation and retest evidence | 🟢 Identity/authentication review completed in PR #69; additional application review recorded after PR #70 |
+| Independent security review | Independent third-party scope, findings, remediation and retest evidence | ⬜ Pending. Earlier PR-level reviews are useful engineering evidence but are not a substitute for an independent third-party assessment. |
 | Store/release readiness | Store metadata, privacy/support material and production configuration verified | ⬜ Pending final release preparation |
 
 ## Current mobile integration audit (2026-10-10)
