@@ -7,6 +7,7 @@ No provider, credentials, network client, or secret material is embedded.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 import re
@@ -89,8 +90,8 @@ def validate_security_event(event: SecurityEvent) -> None:
         if value is not None and (not isinstance(value, str) or not _HASH_RE.fullmatch(value)):
             raise ValueError(f"{field_name} must be a lowercase SHA-256 hex digest")
     if event.metadata is not None:
-        if not isinstance(event.metadata, dict):
-            raise ValueError("metadata must be a dictionary")
+        if not isinstance(event.metadata, Mapping):
+            raise ValueError("metadata must be a mapping")
         for key, value in event.metadata.items():
             if not isinstance(key, str) or key not in _ALLOWED_METADATA_KEYS:
                 raise ValueError("metadata key is not allowlisted")
