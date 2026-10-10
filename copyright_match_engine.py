@@ -6,6 +6,7 @@ not make legal infringement determinations or contact third parties.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Iterable
 
 
@@ -28,7 +29,14 @@ _WEIGHTS = {"audio": 0.50, "lyrics": 0.25, "artwork": 0.15, "metadata": 0.10}
 
 
 def _clamp(value: float) -> float:
-    return max(0.0, min(100.0, float(value)))
+    """Clamp finite numeric evidence and reject invalid/non-finite inputs."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("evidence values must be finite numbers") from exc
+    if not math.isfinite(number):
+        raise ValueError("evidence values must be finite numbers")
+    return max(0.0, min(100.0, number))
 
 
 def assess_match(evidence: MatchEvidence) -> MatchAssessment:
@@ -41,7 +49,8 @@ def assess_match(evidence: MatchEvidence) -> MatchAssessment:
     score = round(sum(values[key] * weight for key, weight in _WEIGHTS.items()), 1)
 
     if score >= 90:
-        level = "CRITICAL"
+        # This is a review-priority label, not a security incident or legal finding.
+        level = "REVIEW_REQUIRED"
     elif score >= 75:
         level = "HIGH"
     elif score >= 50:
