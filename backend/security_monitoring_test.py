@@ -108,7 +108,7 @@ class SecurityMonitoringTests(unittest.TestCase):
             validate_security_event(
                 SecurityEvent("auth.failure", "2026-09-07T00:00:00+00:00", subject_hash=123)
             )
-        with self.assertRaisesRegex(ValueError, "metadata must be a dictionary"):
+        with self.assertRaisesRegex(ValueError, "metadata must be a mapping"):
             validate_security_event(
                 SecurityEvent("auth.failure", "2026-09-07T00:00:00+00:00", metadata=["password"])
             )
