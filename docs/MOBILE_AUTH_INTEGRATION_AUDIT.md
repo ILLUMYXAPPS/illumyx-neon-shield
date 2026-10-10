@@ -1,48 +1,41 @@
 # Mobile Authentication Integration Audit
 
-**Audit date:** 2026-10-09  
-**Scope:** Repository-side review of the Flutter app entry point, onboarding, mobile auth abstractions, HTTPS adapter, secure session storage, and existing unit tests.  
-**Environment:** Source review only. No production environment or non-production backend credentials were supplied, so no live backend integration test was attempted.
+**Audit refresh:** 2026-10-10  
+**Scope:** Repository-side review of the Flutter app entry point, onboarding, auth gate, service, HTTPS adapter, secure session storage, tests, and release gates.  
+**Environment:** Source and GitHub Actions review only. No live backend credentials, deployed non-production endpoint, or physical device was available for end-to-end testing.
 
 ## Summary
 
-The repository contains a meaningful authentication foundation and unit tests, but the main Flutter app does not yet construct or use the server-backed authentication service. The app currently loads local owner/trusted-device state through `SecurityService` and enters the dashboard based on local onboarding and owner-initialization state. That local posture must not be represented as a server-authenticated session.
+The previous integration-gap finding is now partially resolved in the current `main` source: `mobile/lib/main.dart` constructs `ServerBackedAuthService` when `NEON_SHIELD_AUTH_BASE_URL` is supplied, using `HttpsAuthApi` and `SecureAuthSessionStore`, and places `AuthGate` between onboarding and the dashboard. Missing endpoint configuration fails closed unless the explicit local-beta flag is enabled.
 
-## What exists
+This is meaningful application wiring, but it is **not evidence of a working deployed authentication system**. The configured backend, account/owner enrollment and recovery flow, trusted-device policy, production secrets/persistence, and live end-to-end behavior remain unverified.
 
-- `mobile/lib/auth/auth_api_contract.dart`: provider-neutral sign-in, refresh, revoke, and trusted-device contract.
-- `mobile/lib/auth/https_auth_api.dart`: HTTPS API adapter. Non-loopback plaintext HTTP is rejected.
-- `mobile/lib/auth/auth_service.dart`: server-backed session lifecycle orchestration, including trusted-device checks before persisting or restoring a session.
-- `mobile/lib/auth/secure_auth_session_store.dart`: platform secure-storage adapter for the session material.
-- `mobile/test/auth_service_test.dart`: unit tests for sign-in, untrusted devices, refresh, expiry, revoke failure, and session restoration.
-- `mobile/test/https_auth_api_test.dart`: unit tests for HTTPS enforcement, request shape, bearer auth, and typed credential failures.
-- `mobile/test/secure_auth_session_store_test.dart`: secure-session persistence tests, including malformed stored data.
+## Verified in source
 
-## Integration gap confirmed
+- `AppBootstrap` reads `NEON_SHIELD_AUTH_BASE_URL` at build time and constructs the server-backed auth service.
+- The default production path does not show the dashboard if no auth service is configured; local-beta dashboard access requires explicit `NEON_SHIELD_ALLOW_LOCAL_BETA`.
+- `AuthGate` restores a stored session through the service, supports sign-in/sign-out, and locks the dashboard when a session expires or cannot be verified.
+- `HttpsAuthApi` and the auth service have separate unit tests, and platform secure storage is abstracted behind `SecureAuthSessionStore`.
+- The dashboard labels local setup/device records as local state and explicitly discloses that active malware scanning, threat blocking, and broader file protection are not implemented.
+- The current `main` version of `ServerBackedAuthService` does not yet compare the session's returned device ID with the initiating device ID during sign-in or ensure that refresh preserves the current device binding. PR #94 proposes that defense-in-depth and has passing reported CI checks, but remains unmerged and has no submitted reviews.
 
-- `mobile/lib/main.dart` does not import or construct `ServerBackedAuthService`, `HttpsAuthApi`, or `SecureAuthSessionStore`.
-- `AppBootstrap` and the dashboard currently use local `SharedPreferences` onboarding state and `SecurityService`.
-- `mobile/lib/onboarding/onboarding_screen.dart` describes account and device-verification steps but does not collect credentials or perform server sign-in.
-- The mobile API base URL, production endpoint configuration, and owner credential/recovery flow are not defined in the reviewed app entry point.
-- The mobile `AuthApiContract.signIn` and `HttpsAuthApi.signIn` currently send identity, credential, and device ID only. If phone identity is required by the server's authorization policy, its collection, privacy treatment, and transport must be explicitly designed before integration; do not silently infer it from other fields.
-- Existing tests are unit/contract tests with fake APIs or mock HTTP responses. They do not prove integration with a running backend, real TLS configuration, production persistence, or real-device platform storage.
+## Remaining gaps
 
-## Safety decision
+- No live non-production backend or end-to-end run has verified TLS, real credentials, server-side trusted-device enforcement, blocked identities, refresh rotation, revocation, expiry, or server outage behavior.
+- The production HTTPS endpoint, managed database, secret provider, durable security-event delivery, and monitoring/alert routing are not deployed and verified.
+- Owner enrollment, recovery/re-enrollment, and any required phone-identity policy need an explicit server-backed design. The client must not infer server trust from a local device identifier or onboarding flag.
+- Real iOS and Android device checks, secure-storage behavior, platform signing, store readiness, and independent review of the completed integration remain open.
 
-Do not wire the auth service directly into the dashboard yet. First define the intended owner/account setup flow, non-production endpoint configuration, device identifier lifecycle, recovery/re-enrollment behavior, and UI states for unavailable, expired, revoked, and untrusted sessions. Local owner flags or device IDs must never be treated as server-issued authentication proof.
+## Required next steps
 
-## Required next implementation and verification sequence
+1. Review PR #94's device-binding change and obtain the repository-required approvals before considering merge. Do not bypass branch protection.
+2. Configure a disposable non-production HTTPS backend and test account without embedding secrets in source or build arguments.
+3. Execute end-to-end cases for successful and failed sign-in, trusted/untrusted devices, blocked identity policy, refresh rotation, expiry, revocation, and backend outage.
+4. Verify owner enrollment and recovery/re-enrollment behavior once implemented.
+5. Run fresh mobile analysis, all Flutter tests, Python/security regressions, and mobile builds against the candidate source.
+6. Test critical flows on supported physical iOS and Android devices and record device/OS/build evidence.
+7. Obtain independent security review and preserve findings, remediation, and retest evidence.
 
-1. Agree the owner identity and credential setup/recovery flow without putting credentials into onboarding preferences or logs.
-2. Add an explicit environment configuration boundary for the non-production HTTPS API endpoint. Production must reject missing or non-HTTPS endpoints; do not add a silent production fallback.
-3. Define how a stable device identifier is generated, stored, rotated, and revoked without relying on a client-provided trusted flag.
-4. Integrate `ServerBackedAuthService` into bootstrap through dependency injection, with explicit unauthenticated, loading, authenticated, expired, revoked, untrusted-device, and unavailable states. A backend outage must not create an authenticated state.
-5. Add integration tests against a disposable non-production backend for successful sign-in, invalid credentials, untrusted device, refresh rotation, expiry, revocation, blocked identity/phone policy, and server unavailability.
-6. Add tests for owner setup and recovery/re-enrollment, once that flow is implemented.
-7. Run Flutter formatting, analysis, all mobile unit tests, security regression tests, and mobile builds after implementation.
-8. Test secure storage and critical flows on real supported iOS and Android devices. Record device/OS/build and evidence; an unsigned iOS build is not a signed release.
-9. Obtain independent review of the completed flow and production configuration before any production-readiness gate is marked complete.
+## Release decision
 
-## Release gate
-
-**Status: Open.** The existing unit tests are valuable and should remain. End-to-end mobile authentication and device-verification are not complete until the integration above is implemented and evidenced.
+**Status: Open.** Source-level authentication wiring is present, but live authentication, production infrastructure, device verification, signing, and operational evidence are not. Green pull-request checks are useful evidence of code health, not proof of production readiness.
