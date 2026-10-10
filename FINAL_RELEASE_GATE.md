@@ -12,20 +12,27 @@ A gate is marked complete only when the required evidence exists. Failed checks 
 
 | Gate | Required evidence | Status |
 | --- | --- | --- |
-| CI and automated security | Fresh CI run for the current source, including security, tests, mobile checks and builds | 🟢 PR #87 merge commit `64c7f991b89dbd86179d8904e172f6792f520865`: post-merge security, tests, mobile checks, mobile builds and Pylint all passed; ongoing scans and release gates still apply |
+| CI and automated security | Fresh CI run for the current source, including security, tests, mobile checks and builds | 🟡 PR #93 and #94 reported passing secret scan, security gate, tests, mobile checks, mobile builds and CodeQL on their PR heads; they are not proof of a fresh post-merge main run. Recheck after merge and scheduled workflows. |
 | Production HTTPS | Managed TLS, HTTPS-only transport, certificate validity/renewal evidence | ⬜ Not deployed |
 | Managed persistence | Durable production storage for identities, trusted devices, blocks, sessions and audit events | ⬜ Not deployed |
 | Production secrets | Deployment-platform secret manager configured and verified | ⬜ Not deployed |
 | Production authentication | Server-authoritative authentication exercised against a non-production test account | ⬜ Not deployed |
 | Trusted-device enforcement | Removal/revocation blocks subsequent session use or refresh | ⬜ Not verified in production-like environment |
 | Block enforcement | Blocked identity and blocked phone checks verified end-to-end | ⬜ Not verified in production-like environment |
-| Session security | Expiry, revocation and refresh rotation verified end-to-end | 🟢 Application-level atomic refresh rotation reviewed and regression-tested; production-like verification remains open |
+| Session security | Expiry, revocation and refresh rotation verified end-to-end | 🟡 Application-level refresh handling has regression coverage; device-binding consistency is proposed in open PR #94 (CI reported green, review/merge pending). Production-like verification remains open. |
 | Security audit trail | Durable events, safe correlation data and audit-chain integrity verification | ⬜ Not deployed |
 | Monitoring and alerting | Authentication, abuse, service, database and audit-integrity alerts verified | ⬜ Not deployed |
 | Real-device smoke test | Supported iPhone/iPad test plan executed on available release builds | ⬜ Pending device execution |
 | Release signing | Android/iOS signing validation and store-upload readiness | 🟡 Pipeline hardened, final signing evidence pending |
 | Independent security review | Independent scope, findings, remediation and retest evidence | 🟢 Identity/authentication review completed in PR #69; additional application review recorded after PR #70 |
 | Store/release readiness | Store metadata, privacy/support material and production configuration verified | ⬜ Pending final release preparation |
+
+## Current mobile integration audit (2026-10-10)
+
+- The current `mobile/lib/main.dart` now constructs `ServerBackedAuthService` when `NEON_SHIELD_AUTH_BASE_URL` is configured and routes dashboard access through `AuthGate`. Missing configuration fails closed by default; explicit local-beta mode remains a development-only exception.
+- The previous `docs/MOBILE_AUTH_INTEGRATION_AUDIT.md` description that the app entry point does not wire server-backed authentication was stale. Source-level wiring exists, but no live backend/end-to-end proof is available, so production authentication remains open.
+- PR #93 (vault regression tests) and PR #94 (auth session device binding) have reported green PR checks, but both remain open and have no submitted reviews. Do not merge around required reviews or branch protection.
+- Weekly mobile/security workflows are configured; successful scheduled executions have not yet been confirmed.
 
 ## Application-level review notes
 
