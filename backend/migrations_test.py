@@ -68,6 +68,20 @@ class MigrationRunnerTests(unittest.TestCase):
                 connection.close()
             self.assertEqual(head, ("actual-tip",))
 
+    def test_ambiguous_audit_tip_is_not_backfilled(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "ambiguous.sqlite3"
+            connection = sqlite3.connect(path)
+            connection.execute("CREATE TABLE audit_events (event_hash TEXT PRIMARY KEY, event_type TEXT NOT NULL, occurred_at TEXT NOT NULL, subject_id TEXT, device_fingerprint TEXT NOT NULL, previous_hash TEXT NOT NULL)")
+            connection.executemany("INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?)", [("a", "test", "2026-01-01", None, "device", "0" * 64), ("b", "test", "2026-01-02", None, "device", "0" * 64)])
+            connection.commit()
+            connection.close()
+            MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS).apply_pending()
+            connection = sqlite3.connect(path)
+            head = connection.execute("SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()
+            connection.close()
+            self.assertIsNone(head)
+
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "migrations.sqlite3"
