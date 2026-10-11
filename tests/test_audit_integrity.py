@@ -1,4 +1,5 @@
 import hashlib
+import sqlite3
 import unittest
 
 from backend.audit_integrity import GENESIS_HASH, verify_audit_chain
@@ -31,6 +32,27 @@ class AuditIntegrityTests(unittest.TestCase):
         result = verify_audit_chain([first, second])
         self.assertTrue(result.valid)
         self.assertEqual(result.event_count, 2)
+
+    def test_sqlite_row_records_are_supported(self):
+        record = make_record("session_issued", "2026-10-11T00:00:00+00:00", None, "device-hash", GENESIS_HASH)
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.execute(
+            "CREATE TABLE audit_events (event_hash TEXT, event_type TEXT, occurred_at TEXT, "
+            "subject_id TEXT, device_fingerprint TEXT, previous_hash TEXT)"
+        )
+        db.execute(
+            "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?)",
+            tuple(record[field] for field in (
+                "event_hash", "event_type", "occurred_at", "subject_id",
+                "device_fingerprint", "previous_hash"
+            )),
+        )
+        rows = db.execute("SELECT * FROM audit_events ORDER BY rowid").fetchall()
+        result = verify_audit_chain(rows)
+        db.close()
+        self.assertTrue(result.valid)
+        self.assertEqual(result.event_count, 1)
 
     def test_changed_event_content_fails(self):
         record = make_record("session_issued", "2026-10-11T00:00:00+00:00", "user-1", "device-hash", GENESIS_HASH)
