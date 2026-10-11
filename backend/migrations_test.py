@@ -48,7 +48,11 @@ class MigrationRunnerTests(unittest.TestCase):
                 )
                 connection.execute(
                     "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?)",
-                    ("existing-hash", "test", "2026-01-01T00:00:00+00:00", None, "device", "0" * 64),
+                    ("older-event", "test", "2026-01-02T00:00:00+00:00", None, "device", "0" * 64),
+                )
+                connection.execute(
+                    "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?)",
+                    ("actual-tip", "test", "2026-01-01T00:00:00+00:00", None, "device", "older-event"),
                 )
                 connection.commit()
             finally:
@@ -62,7 +66,7 @@ class MigrationRunnerTests(unittest.TestCase):
                 ).fetchone()
             finally:
                 connection.close()
-            self.assertEqual(head, ("existing-hash",))
+            self.assertEqual(head, ("actual-tip",))
 
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:
