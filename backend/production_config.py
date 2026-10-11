@@ -57,7 +57,7 @@ def _require_database_tls(value: str) -> None:
     except ValueError as exc:
         raise RuntimeError("NEON_AUTH_DB must be a valid PostgreSQL connection URL") from exc
     if parsed.scheme not in {"postgres", "postgresql"} or not parsed.netloc or not hostname:
-        raise RuntimeError("NEON_AUTH_DB must use a valid PostgreSQL connection URL")
+        raise RuntimeError("NEON_AUTH_DB must use a PostgreSQL connection URL with a valid host and port")
     if len(sslmodes) != 1 or sslmodes[0].lower() not in _ALLOWED_DB_SSLMODES:
         raise RuntimeError(
             "NEON_AUTH_DB must explicitly require TLS with sslmode=require, verify-ca, or verify-full"
