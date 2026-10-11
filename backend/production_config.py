@@ -23,8 +23,8 @@ class ProductionConfig:
     database_url: str
     database_user: str
     database_password: str = field(repr=False)
-    idp_url: str = ""
-    idp_client_id: str = ""
+    idp_url: str
+    idp_client_id: str
     idp_client_secret: str = field(repr=False)
     database_pepper: str = field(repr=False)
     monitoring_endpoint: str = ""
