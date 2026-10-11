@@ -23,9 +23,22 @@ class ProductionConfig:
 
 
 def _require_https(name: str, value: str) -> None:
-    parsed = urlparse(value)
-    if parsed.scheme != "https" or not parsed.netloc:
+    if not value or value != value.strip() or any(ord(char) < 32 for char in value):
+        raise RuntimeError(f"{name} must be an absolute HTTPS URL without surrounding whitespace or control characters")
+    try:
+        parsed = urlparse(value)
+        # Accessing hostname/port also forces urllib to reject malformed bracketed
+        # hosts and invalid ports rather than accepting a superficially parsed URL.
+        hostname = parsed.hostname
+        _ = parsed.port
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a valid absolute HTTPS URL") from exc
+    if parsed.scheme != "https" or not parsed.netloc or not hostname:
         raise RuntimeError(f"{name} must be an absolute HTTPS URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise RuntimeError(f"{name} must not contain embedded credentials")
+    if parsed.fragment:
+        raise RuntimeError(f"{name} must not contain a URL fragment")
 
 
 def _reject_local_database(value: str) -> None:
@@ -36,10 +49,15 @@ def _reject_local_database(value: str) -> None:
 
 def _require_database_tls(value: str) -> None:
     """Require explicit TLS for the PostgreSQL production connection."""
-    parsed = urlparse(value)
-    if parsed.scheme not in {"postgres", "postgresql"}:
-        raise RuntimeError("NEON_AUTH_DB must use a PostgreSQL connection URL")
-    sslmodes = parse_qs(parsed.query).get("sslmode", [])
+    try:
+        parsed = urlparse(value)
+        sslmodes = parse_qs(parsed.query).get("sslmode", [])
+        hostname = parsed.hostname
+        _ = parsed.port
+    except ValueError as exc:
+        raise RuntimeError("NEON_AUTH_DB must be a valid PostgreSQL connection URL") from exc
+    if parsed.scheme not in {"postgres", "postgresql"} or not parsed.netloc or not hostname:
+        raise RuntimeError("NEON_AUTH_DB must use a valid PostgreSQL connection URL")
     if len(sslmodes) != 1 or sslmodes[0].lower() not in _ALLOWED_DB_SSLMODES:
         raise RuntimeError(
             "NEON_AUTH_DB must explicitly require TLS with sslmode=require, verify-ca, or verify-full"
@@ -67,11 +85,14 @@ def validate_production_config(
     _require_database_tls(database_url)
     _require_https("NEON_IDP_URL", idp_url)
     _require_https("NEON_MONITORING_ENDPOINT", monitoring_endpoint)
+    client_id = values["NEON_IDP_CLIENT_ID"]
+    if not client_id.strip() or client_id != client_id.strip():
+        raise RuntimeError("NEON_IDP_CLIENT_ID must be non-empty and must not have surrounding whitespace")
     secrets = {name: secret_provider.get_required(name) for name in _REQUIRED_SECRETS}
     return ProductionConfig(
         database_url,
         idp_url,
-        values["NEON_IDP_CLIENT_ID"],
+        client_id,
         secrets["NEON_IDP_CLIENT_SECRET"],
         secrets["NEON_DB_PEPPER"],
         monitoring_endpoint,
