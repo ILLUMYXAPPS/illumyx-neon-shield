@@ -52,6 +52,12 @@ class ProductionConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "must use a PostgreSQL connection URL"):
             validate_production_config(env, secret_provider=self._provider())
 
+    def test_database_url_requires_database_name(self):
+        env = self._env()
+        env["NEON_AUTH_DB"] = "postgresql://managed.example/?sslmode=verify-full"
+        with self.assertRaisesRegex(RuntimeError, "must include a database name"):
+            validate_production_config(env, secret_provider=self._provider())
+
     def test_database_url_embedded_credentials_are_rejected(self):
         env = self._env()
         env["NEON_AUTH_DB"] = "postgresql://user:password@managed.example/auth?sslmode=verify-full"

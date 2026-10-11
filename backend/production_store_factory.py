@@ -34,6 +34,8 @@ def _validate_config(config: ProductionConfig) -> None:
         raise RuntimeError("production database URL is malformed") from exc
     if parsed.scheme not in {"postgres", "postgresql"} or not hostname or not parsed.netloc:
         raise RuntimeError("production store requires a PostgreSQL URL with a valid host")
+    if parsed.path in {"", "/"}:
+        raise RuntimeError("production database URL must include a database name")
     if parsed.username is not None or parsed.password is not None or parsed.fragment:
         raise RuntimeError("production database URL must not contain credentials or a fragment")
     if len(sslmodes) != 1 or sslmodes[0].lower() not in _ALLOWED_SSLMODES:

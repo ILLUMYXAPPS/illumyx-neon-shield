@@ -25,8 +25,8 @@ class ProductionConfig:
     database_password: str = field(repr=False)
     idp_url: str = ""
     idp_client_id: str = ""
-    idp_client_secret: str = field(default="", repr=False)
-    database_pepper: str = field(default="", repr=False)
+    idp_client_secret: str = field(repr=False)
+    database_pepper: str = field(repr=False)
     monitoring_endpoint: str = ""
 
 
@@ -66,6 +66,8 @@ def _require_database_tls(value: str) -> None:
         raise RuntimeError("NEON_AUTH_DB must be a valid PostgreSQL connection URL") from exc
     if parsed.scheme not in {"postgres", "postgresql"} or not parsed.netloc or not hostname:
         raise RuntimeError("NEON_AUTH_DB must use a PostgreSQL connection URL with a valid host and port")
+    if parsed.path in {"", "/"}:
+        raise RuntimeError("NEON_AUTH_DB must include a database name in the connection URL")
     if parsed.username is not None or parsed.password is not None:
         raise RuntimeError("NEON_AUTH_DB must not contain embedded credentials; use NEON_DB_USER and NEON_DB_PASSWORD")
     if parsed.fragment:
