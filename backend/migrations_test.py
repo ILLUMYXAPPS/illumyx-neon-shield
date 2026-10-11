@@ -11,27 +11,58 @@ from backend.production_migrations import PRODUCTION_MIGRATIONS
 
 
 class MigrationRunnerTests(unittest.TestCase):
-    def test_production_migrations_are_contiguous_and_create_rate_limit_state(self) -> None:
-        self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3])
+    def test_production_migrations_are_contiguous_and_create_audit_head(self) -> None:
+        self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3, 4])
         with TemporaryDirectory() as directory:
             path = Path(directory) / "production-migrations.sqlite3"
             runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
-            self.assertEqual(runner.apply_pending(), 3)
-            self.assertEqual(runner.apply_pending(), 3)
+            self.assertEqual(runner.apply_pending(), 4)
+            self.assertEqual(runner.apply_pending(), 4)
             connection = sqlite3.connect(path)
             try:
                 table = connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='sign_in_rate_limits'"
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_chain_head'"
                 ).fetchone()
+                head = connection.execute(
+                    "SELECT chain_id, last_event_hash FROM audit_chain_head"
+                ).fetchall()
                 versions = connection.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version").fetchall()
             finally:
                 connection.close()
             self.assertIsNotNone(table)
+            self.assertEqual(head, [(1, "0" * 64)])
             self.assertEqual(versions, [
                 (1, "create_auth_tables"),
                 (2, "create_auth_indexes"),
                 (3, "create_sign_in_rate_limits"),
+                (4, "create_serialized_audit_chain_head"),
             ])
+
+    def test_migration_backfills_existing_audit_chain_head(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "existing-audit.sqlite3"
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute(
+                    "CREATE TABLE audit_events (event_hash TEXT PRIMARY KEY, event_type TEXT NOT NULL, occurred_at TEXT NOT NULL, subject_id TEXT, device_fingerprint TEXT NOT NULL, previous_hash TEXT NOT NULL)"
+                )
+                connection.execute(
+                    "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?)",
+                    ("existing-hash", "test", "2026-01-01T00:00:00+00:00", None, "device", "0" * 64),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
+            self.assertEqual(runner.apply_pending(), 4)
+            connection = sqlite3.connect(path)
+            try:
+                head = connection.execute(
+                    "SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1"
+                ).fetchone()
+            finally:
+                connection.close()
+            self.assertEqual(head, ("existing-hash",))
 
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:
