@@ -216,41 +216,77 @@ class ManagedDbAuthStore(ManagedAuthStore):
                 close_connection()
 
     def reserve_sign_in_attempt(self, identity: str, now: str, window_seconds: int, max_sign_ins: int) -> bool:
-        """Atomically consume one bounded sign-in reservation and return whether it is allowed."""
+        """Atomically consume one bounded sign-in reservation.
+
+        The insert uses ON CONFLICT DO NOTHING for the concurrent first-use race.
+        Unexpected database failures propagate immediately; retries are bounded
+        and only occur when another transaction wins that first-use race.
+        """
         identity_hash = _hash(identity.strip().lower(), self._pepper)
         now_dt = datetime.fromisoformat(now)
-        connection = self._connection_factory()
-        cursor = connection.cursor()
-        try:
-            cursor.execute(self._sql("SELECT failure_count, window_started_at FROM sign_in_rate_limits WHERE identity_hash=?" + self._audit_lock_clause), (identity_hash,))
-            row = cursor.fetchone()
-            if row is None:
-                new_count = 1
-                try:
-                    cursor.execute(self._sql("INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) VALUES(?,?,?)"), (identity_hash, new_count, now))
-                except Exception:
-                    connection.rollback()
-                    connection.close()
-                    return self.reserve_sign_in_attempt(identity, now, window_seconds, max_sign_ins)
-            elif now_dt.timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
-                new_count = 1
-                cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=1,window_started_at=? WHERE identity_hash=?"), (now, identity_hash))
-            else:
-                new_count = min(int(row[0]) + 1, max_sign_ins + 1)
-                cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=? WHERE identity_hash=?"), (new_count, identity_hash))
-            connection.commit()
-            return new_count <= max_sign_ins
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            close = getattr(cursor, "close", None)
-            if close is not None:
-                close()
-            close_connection = getattr(connection, "close", None)
-            if close_connection is not None:
-                close_connection()
 
+        for attempt in range(3):
+            connection = self._connection_factory()
+            cursor = connection.cursor()
+            try:
+                cursor.execute(
+                    self._sql(
+                        "SELECT failure_count, window_started_at FROM sign_in_rate_limits "
+                        "WHERE identity_hash=?" + self._audit_lock_clause
+                    ),
+                    (identity_hash,),
+                )
+                row = cursor.fetchone()
+
+                if row is None:
+                    cursor.execute(
+                        self._sql(
+                            "INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) "
+                            "VALUES(?,?,?) ON CONFLICT(identity_hash) DO NOTHING"
+                        ),
+                        (identity_hash, 1, now),
+                    )
+                    if getattr(cursor, "rowcount", 1) != 1:
+                        connection.rollback()
+                        if attempt < 2:
+                            continue
+                        raise RuntimeError(
+                            "could not reserve sign-in attempt after concurrent first-use conflicts"
+                        )
+                    new_count = 1
+                elif now_dt.timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
+                    new_count = 1
+                    cursor.execute(
+                        self._sql(
+                            "UPDATE sign_in_rate_limits SET failure_count=1,window_started_at=? "
+                            "WHERE identity_hash=?"
+                        ),
+                        (now, identity_hash),
+                    )
+                else:
+                    new_count = min(int(row[0]) + 1, max_sign_ins + 1)
+                    cursor.execute(
+                        self._sql(
+                            "UPDATE sign_in_rate_limits SET failure_count=? WHERE identity_hash=?"
+                        ),
+                        (new_count, identity_hash),
+                    )
+
+                connection.commit()
+                return new_count <= max_sign_ins
+            except Exception:
+                connection.rollback()
+                raise
+            finally:
+                close = getattr(cursor, "close", None)
+                if close is not None:
+                    close()
+                close_connection = getattr(connection, "close", None)
+                if close_connection is not None:
+                    close_connection()
+
+        raise RuntimeError("could not reserve sign-in attempt")
+ 
     def clear_sign_in_failures(self, identity: str) -> None:
         with self._cursor() as (connection, cursor):
             cursor.execute(self._sql("DELETE FROM sign_in_rate_limits WHERE identity_hash=?"), (_hash(identity.strip().lower(), self._pepper),))
