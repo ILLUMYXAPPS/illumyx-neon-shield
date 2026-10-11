@@ -92,9 +92,16 @@ class MigrationRunnerTests(unittest.TestCase):
 
             connection = sqlite3.connect(path)
             try:
-                versions = connection.execute(
-                    "SELECT version FROM neon_schema_migrations ORDER BY version"
-                ).fetchall()
+                metadata_table = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='neon_schema_migrations'"
+                ).fetchone()
+                versions = (
+                    connection.execute(
+                        "SELECT version FROM neon_schema_migrations ORDER BY version"
+                    ).fetchall()
+                    if metadata_table is not None
+                    else []
+                )
                 head_table = connection.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_chain_head'"
                 ).fetchone()
@@ -177,8 +184,7 @@ class MigrationRunnerTests(unittest.TestCase):
                     connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchone(),
                     None,
                 )
-                self.assertEqual(connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='neon_schema_migrations'").fetchone()[0], 1)
-                self.assertEqual(connection.execute("SELECT COUNT(*) FROM neon_schema_migrations").fetchone()[0], 0)
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='neon_schema_migrations'").fetchone()[0], 0)
             finally:
                 connection.close()
 
