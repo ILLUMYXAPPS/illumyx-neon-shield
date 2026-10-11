@@ -13,6 +13,7 @@ class ProductionConfigTests(unittest.TestCase):
         return {
             "NEON_AUTH_ENV": "production",
             "NEON_AUTH_DB": "postgresql://managed.example/auth?sslmode=verify-full",
+            "NEON_DB_USER": "neon_service",
             "NEON_IDP_URL": "https://idp.example",
             "NEON_IDP_CLIENT_ID": "client-id",
             "NEON_MONITORING_ENDPOINT": "https://monitor.example/events",
@@ -21,13 +22,16 @@ class ProductionConfigTests(unittest.TestCase):
     def _provider(self):
         return MappingSecretProvider({
             "NEON_IDP_CLIENT_SECRET": "idp-test-value",
+            "NEON_DB_PASSWORD": "db-password-test-value",
             "NEON_DB_PEPPER": "pepper-test-value",
         })
 
     def test_production_config_resolves_secrets_through_provider(self):
         config = validate_production_config(self._env(), secret_provider=self._provider())
         self.assertEqual(config.idp_client_secret, "idp-test-value")
+        self.assertEqual(config.database_password, "db-password-test-value")
         self.assertEqual(config.database_pepper, "pepper-test-value")
+        self.assertEqual(config.database_user, "neon_service")
         self.assertNotIn("session_secret", {item.name for item in fields(config)})
 
     def test_database_tls_is_required(self):
@@ -48,9 +52,36 @@ class ProductionConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "must use a PostgreSQL connection URL"):
             validate_production_config(env, secret_provider=self._provider())
 
+    def test_database_url_requires_database_name(self):
+        env = self._env()
+        env["NEON_AUTH_DB"] = "postgresql://managed.example/?sslmode=verify-full"
+        with self.assertRaisesRegex(RuntimeError, "must include a database name"):
+            validate_production_config(env, secret_provider=self._provider())
+
+    def test_database_url_embedded_credentials_are_rejected(self):
+        env = self._env()
+        env["NEON_AUTH_DB"] = "postgresql://user:password@managed.example/auth?sslmode=verify-full"
+        with self.assertRaisesRegex(RuntimeError, "must not contain embedded credentials"):
+            validate_production_config(env, secret_provider=self._provider())
+
+    def test_database_url_control_characters_are_rejected(self):
+        env = self._env()
+        env["NEON_AUTH_DB"] = "postgresql://managed.example/auth?sslmode=verify-full\n"
+        with self.assertRaisesRegex(RuntimeError, "valid PostgreSQL connection URL"):
+            validate_production_config(env, secret_provider=self._provider())
+
+    def test_database_user_must_be_trimmed(self):
+        env = self._env()
+        env["NEON_DB_USER"] = " neon_service "
+        with self.assertRaisesRegex(RuntimeError, "NEON_DB_USER"):
+            validate_production_config(env, secret_provider=self._provider())
+
     def test_missing_secret_fails_closed(self):
-        provider = MappingSecretProvider({"NEON_IDP_CLIENT_SECRET": "idp-test-value"})
-        with self.assertRaisesRegex(RuntimeError, "NEON_DB_PEPPER"):
+        provider = MappingSecretProvider({
+            "NEON_IDP_CLIENT_SECRET": "idp-test-value",
+            "NEON_DB_PEPPER": "pepper-test-value",
+        })
+        with self.assertRaisesRegex(RuntimeError, "NEON_DB_PASSWORD"):
             validate_production_config(self._env(), secret_provider=provider)
 
 

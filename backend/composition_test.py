@@ -8,6 +8,7 @@ from unittest.mock import patch
 from backend.composition import build_service
 from backend.managed_store import ManagedAuthStore
 from backend.observability import SecurityEvent, SecurityEventSink
+from backend.production_config import ProductionConfig
 from backend.security_monitoring import SecurityAlert, SecurityAlertSink, ProductionSecurityMonitor
 from backend.secrets import MappingSecretProvider
 
@@ -57,40 +58,86 @@ class CompositionTests(unittest.TestCase):
         return {
             "NEON_AUTH_ENV": "production",
             "NEON_AUTH_DB": "postgresql://db.example/auth?sslmode=verify-full",
+            "NEON_DB_USER": "neon_service",
             "NEON_IDP_URL": "https://idp.example",
             "NEON_IDP_CLIENT_ID": "client-id",
             "NEON_MONITORING_ENDPOINT": "https://monitoring.example/events",
         }
 
     def _secret_provider(self) -> MappingSecretProvider:
-        return MappingSecretProvider({"NEON_IDP_CLIENT_SECRET": "client-secret", "NEON_DB_PEPPER": "db-pepper"})
+        return MappingSecretProvider({
+            "NEON_IDP_CLIENT_SECRET": "client-secret",
+            "NEON_DB_PASSWORD": "db-password",
+            "NEON_DB_PEPPER": "db-pepper",
+        })
 
-    def test_production_requires_managed_store_injection(self):
+    def _factory(self, captured: list[ProductionConfig] | None = None):
+        def factory(config: ProductionConfig) -> ManagedAuthStore:
+            if captured is not None:
+                captured.append(config)
+            return StubManagedStore()
+        return factory
+
+    def test_production_defaults_to_concrete_postgres_factory(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
-            with self.assertRaisesRegex(RuntimeError, "ManagedAuthStore"):
-                build_service(secret_provider=self._secret_provider())
+            with patch("backend.composition.build_managed_db_store", return_value=StubManagedStore()) as factory:
+                service = build_service(
+                    security_event_sink=RecordingSink(),
+                    security_alert_sink=RecordingAlertSink(),
+                    secret_provider=self._secret_provider(),
+                )
+        factory.assert_called_once()
+        config = factory.call_args.args[0]
+        self.assertEqual(config.database_url, self._production_environment()["NEON_AUTH_DB"])
+        self.assertEqual(config.database_user, "neon_service")
+        self.assertEqual(config.database_password, "db-password")
+        self.assertEqual(config.database_pepper, "db-pepper")
+        self.assertIsInstance(service.security_event_sink, ProductionSecurityMonitor)
+
+    def test_custom_factory_receives_validated_config(self):
+        with patch.dict(os.environ, self._production_environment(), clear=True):
+            captured: list[ProductionConfig] = []
+            build_service(
+                managed_store_factory=self._factory(captured),
+                security_event_sink=RecordingSink(),
+                security_alert_sink=RecordingAlertSink(),
+                secret_provider=self._secret_provider(),
+            )
+            self.assertEqual(len(captured), 1)
+            self.assertEqual(captured[0].database_url, self._production_environment()["NEON_AUTH_DB"])
+            self.assertEqual(captured[0].database_password, "db-password")
+            self.assertEqual(captured[0].database_pepper, "db-pepper")
 
     def test_production_requires_observability_sink_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
             with self.assertRaisesRegex(RuntimeError, "SecurityEventSink"):
-                build_service(managed_store=StubManagedStore(), secret_provider=self._secret_provider())
+                build_service(secret_provider=self._secret_provider())
 
     def test_production_requires_alert_sink_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
             with self.assertRaisesRegex(RuntimeError, "SecurityAlertSink"):
-                build_service(managed_store=StubManagedStore(), security_event_sink=RecordingSink(), secret_provider=self._secret_provider())
+                build_service(
+                    security_event_sink=RecordingSink(),
+                    secret_provider=self._secret_provider(),
+                )
 
     def test_production_requires_secret_provider_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
             with self.assertRaisesRegex(RuntimeError, "SecretProvider"):
-                build_service(managed_store=StubManagedStore(), security_event_sink=RecordingSink(), security_alert_sink=RecordingAlertSink())
+                build_service(
+                    security_event_sink=RecordingSink(),
+                    security_alert_sink=RecordingAlertSink(),
+                )
 
-    def test_production_wraps_monitoring_boundary(self):
+    def test_production_rejects_factory_returning_non_managed_store(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
-            sink = RecordingSink()
-            alerts = RecordingAlertSink()
-            service = build_service(managed_store=StubManagedStore(), security_event_sink=sink, security_alert_sink=alerts, secret_provider=self._secret_provider())
-            self.assertIsInstance(service.security_event_sink, ProductionSecurityMonitor)
+            with self.assertRaisesRegex(RuntimeError, "invalid store"):
+                build_service(
+                    managed_store_factory=lambda config: object(),
+                    security_event_sink=RecordingSink(),
+                    security_alert_sink=RecordingAlertSink(),
+                    secret_provider=self._secret_provider(),
+                )
 
 
 if __name__ == "__main__":
