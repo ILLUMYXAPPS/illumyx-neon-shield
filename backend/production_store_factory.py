@@ -4,9 +4,9 @@ from __future__ import annotations
 from importlib import import_module
 from urllib.parse import parse_qs, urlparse
 
-from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
 from backend.production_config import ProductionConfig
+from backend.serialized_audit_store import SerializedAuditManagedDbAuthStore
 
 _ALLOWED_SSLMODES = {"require", "verify-ca", "verify-full"}
 _CONNECT_TIMEOUT_SECONDS = 10
@@ -67,7 +67,7 @@ def build_managed_db_store(config: ProductionConfig) -> ManagedAuthStore:
             application_name=_APPLICATION_NAME,
         )
 
-    store = ManagedDbAuthStore(
+    store = SerializedAuditManagedDbAuthStore(
         connect,
         pepper=config.database_pepper,
         placeholder="%s",

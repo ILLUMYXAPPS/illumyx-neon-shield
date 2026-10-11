@@ -10,6 +10,7 @@ from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
 from backend.production_config import ProductionConfig
 from backend.production_store_factory import build_managed_db_store
+from backend.serialized_audit_store import SerializedAuditManagedDbAuthStore
 
 
 class ProductionStoreFactoryTests(unittest.TestCase):
@@ -28,6 +29,7 @@ class ProductionStoreFactoryTests(unittest.TestCase):
     def test_constructs_managed_store_with_production_pepper_without_connecting(self):
         store = build_managed_db_store(self._config())
         self.assertIsInstance(store, ManagedDbAuthStore)
+        self.assertIsInstance(store, SerializedAuditManagedDbAuthStore)
         self.assertIsInstance(store, ManagedAuthStore)
         self.assertEqual(store._pepper, "db-pepper-test-value")
         self.assertEqual(store._placeholder, "%s")
