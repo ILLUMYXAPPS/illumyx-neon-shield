@@ -1,38 +1,33 @@
 # Managed database adapter
 
-`backend/managed_db_store.py` is the first concrete implementation behind `ManagedAuthStore`.
+`backend/managed_db_store.py` implements the production `ManagedAuthStore` contract. `backend/production_store_factory.py` now supplies the default PostgreSQL connection wiring for production composition.
 
-## What it does
+## Integrated behavior
 
-- persists users, trusted devices, blocked phones, sessions and audit-chain events in a durable SQL database;
-- hashes identities, device identifiers and session tokens before persistence;
-- hashes credentials with the existing PBKDF2 implementation;
-- fails closed when the deployment-supplied authentication pepper is missing;
-- accepts an injected DB-API connection factory, so the application does not select a cloud provider or embed credentials;
-- supports DB-API placeholder styles used by common drivers;
-- allows a deployment-specific row-lock clause for serialized audit-chain writes.
+- Validates a PostgreSQL connection URL with an explicit TLS mode and no embedded credentials.
+- Resolves database password, database pepper, and identity-provider secret through the injected `SecretProvider`.
+- Supplies the separate database user and password to psycopg rather than storing credentials in the URL.
+- Passes `NEON_DB_PEPPER` directly into `ManagedDbAuthStore(pepper=...)`.
+- Uses DB-API `%s` placeholders and PostgreSQL `FOR UPDATE` row locking for serialized audit-chain writes.
+- Applies a 10-second connection timeout and sets a recognizable application name.
+- Opens connections lazily and closes them through the existing store adapter.
 
-## Production requirements
+Install the production driver dependency with `python -m pip install -r backend/requirements-production.txt`.
 
-This adapter does **not** provision a database or credentials. A production deployment must provide:
+## Required production configuration
 
-1. a managed durable database;
-2. TLS-protected database connections;
-3. a connection pool or equivalent safe connection lifecycle;
-4. database credentials and `NEON_DB_PEPPER` from a deployment secret manager;
-5. versioned schema migrations and rollback procedures;
-6. backups, encryption at rest, retention and access controls;
-7. a transaction/row-lock strategy that serializes audit-chain writes. PostgreSQL-style deployments should supply `audit_lock_clause=" FOR UPDATE"`;
-8. monitoring and alerting for connection failures, transaction failures and authentication-store errors.
+- `NEON_AUTH_ENV=production`
+- `NEON_AUTH_DB`: PostgreSQL URL containing host/database and an explicit `sslmode` of `require`, `verify-ca`, or `verify-full`; no embedded username/password.
+- `NEON_DB_USER`: non-secret database role name with least-privilege permissions.
+- `NEON_DB_PASSWORD`: database password provided by the injected secret provider.
+- `NEON_DB_PEPPER`: separate high-entropy pepper provided by the injected secret provider.
+- `NEON_IDP_URL`, `NEON_IDP_CLIENT_ID`, `NEON_IDP_CLIENT_SECRET`: identity-provider configuration.
+- `NEON_MONITORING_ENDPOINT`: HTTPS monitoring destination. Real event and alert sink implementations must still be injected.
 
-The production configuration contract uses `NEON_DB_PEPPER` for the managed database adapter. `NEON_AUTH_PEPPER` is a separate, optional setting used by the SQLite development/integration `AuthStore`; it is not the managed-production secret name. Production configuration also requires `NEON_IDP_CLIENT_SECRET`, resolved through the injected `SecretProvider`.
+Prefer `sslmode=verify-full` where supported. The factory does not log connection details or secrets.
 
-The adapter intentionally has no production fallback to SQLite. The existing SQLite `AuthStore` remains the development/integration implementation. Production composition must continue to inject `ManagedDbAuthStore` or another `ManagedAuthStore` implementation.
+## Deployment boundaries still open
 
-## Provider neutrality
+This code does **not** provision a database, create credentials, run migrations, create a connection pool, or prove a live database connection. The adapter currently opens and closes one DB-API connection per operation. Before production release, still provide a managed PostgreSQL instance, least-privilege role, versioned schema migration process, backup/restore evidence, operational monitoring, and external security review.
 
-No cloud provider is selected by this change. The connection factory is the deployment seam. A later infrastructure change can supply a managed PostgreSQL-compatible driver, another supported DB-API implementation, or a platform-specific adapter without changing `PersistentIdentityService`.
-
-## Validation boundary
-
-The included tests use SQLite only as a disposable test harness for the adapter's DB-API behavior. They do not represent production infrastructure and must not be interpreted as production deployment evidence.
+The production store intentionally does not fall back to SQLite. SQLite remains the development/integration implementation. Tests that use SQLite are a disposable DB-API compatibility harness, not production evidence.

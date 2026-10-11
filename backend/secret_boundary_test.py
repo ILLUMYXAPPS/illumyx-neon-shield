@@ -8,12 +8,13 @@ from backend.secrets import EnvironmentSecretProvider, MappingSecretProvider
 
 
 class SecretBoundaryTests(unittest.TestCase):
-    _TEST_VALUES = ("fixture-one", "fixture-two")
+    _TEST_VALUES = ("fixture-one", "fixture-two", "fixture-three")
 
     def _env(self):
         return {
             "NEON_AUTH_ENV": "production",
             "NEON_AUTH_DB": "postgresql://managed.example/auth?sslmode=verify-full",
+            "NEON_DB_USER": "neon_service",
             "NEON_IDP_URL": "https://idp.example",
             "NEON_IDP_CLIENT_ID": "client-id",
             "NEON_MONITORING_ENDPOINT": "https://monitor.example/events",
@@ -21,7 +22,7 @@ class SecretBoundaryTests(unittest.TestCase):
 
     def _provider(self):
         return MappingSecretProvider(dict(zip(
-            ("NEON_IDP_CLIENT_SECRET", "NEON_DB_PEPPER"),
+            ("NEON_IDP_CLIENT_SECRET", "NEON_DB_PASSWORD", "NEON_DB_PEPPER"),
             self._TEST_VALUES,
         )))
 
@@ -32,7 +33,8 @@ class SecretBoundaryTests(unittest.TestCase):
     def test_empty_secret_fails_closed_without_echoing_values(self):
         provider = MappingSecretProvider({
             "NEON_IDP_CLIENT_SECRET": "",
-            "NEON_DB_PEPPER": self._TEST_VALUES[1],
+            "NEON_DB_PASSWORD": self._TEST_VALUES[1],
+            "NEON_DB_PEPPER": self._TEST_VALUES[2],
         })
         with self.assertRaisesRegex(RuntimeError, "NEON_IDP_CLIENT_SECRET") as error:
             validate_production_config(self._env(), secret_provider=provider)
@@ -40,11 +42,12 @@ class SecretBoundaryTests(unittest.TestCase):
             self.assertNotIn(value, str(error.exception))
 
     def test_whitespace_only_secrets_fail_closed_without_echoing_values(self):
-        for name in ("NEON_IDP_CLIENT_SECRET", "NEON_DB_PEPPER"):
+        for name in ("NEON_IDP_CLIENT_SECRET", "NEON_DB_PASSWORD", "NEON_DB_PEPPER"):
             with self.subTest(name=name):
                 provider = MappingSecretProvider({
                     "NEON_IDP_CLIENT_SECRET": self._TEST_VALUES[0],
-                    "NEON_DB_PEPPER": self._TEST_VALUES[1],
+                    "NEON_DB_PASSWORD": self._TEST_VALUES[1],
+                    "NEON_DB_PEPPER": self._TEST_VALUES[2],
                     name: " \t\n ",
                 })
                 with self.assertRaisesRegex(RuntimeError, name) as error:

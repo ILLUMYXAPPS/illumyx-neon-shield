@@ -1,0 +1,3 @@
+# Install alongside the repository's normal requirements for production PostgreSQL.
+# Keep psycopg's binary wheel for predictable deployment without system libpq.
+psycopg[binary]>=3.2,<4
