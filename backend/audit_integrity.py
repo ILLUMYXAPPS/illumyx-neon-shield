@@ -47,16 +47,21 @@ def _canonical_hash(record: Mapping[str, Any]) -> str:
 def verify_audit_chain(records: Iterable[Mapping[str, Any]]) -> AuditIntegrityResult:
     """Verify linkage and content hashes without exposing record contents.
 
-    The first record must link to GENESIS_HASH. Every subsequent record must
-    link to the preceding record's event_hash, and its own hash must match the
-    canonical fields. A malformed record fails closed.
+    Supports ordinary mappings and row objects exposing a keys() method (for
+    example sqlite3.Row). The first record must link to GENESIS_HASH. Every
+    subsequent record must link to the preceding event_hash, and its own hash
+    must match the canonical fields. A malformed record fails closed.
     """
     previous_hash = GENESIS_HASH
     count = 0
 
     try:
-        for index, record in enumerate(records):
-            if not isinstance(record, Mapping):
+        for index, source_record in enumerate(records):
+            if isinstance(source_record, Mapping):
+                record = source_record
+            elif callable(getattr(source_record, "keys", None)):
+                record = dict(source_record)
+            else:
                 return AuditIntegrityResult(False, count, index, "malformed_record")
 
             if any(field not in record for field in _REQUIRED_FIELDS):
@@ -64,8 +69,13 @@ def verify_audit_chain(records: Iterable[Mapping[str, Any]]) -> AuditIntegrityRe
 
             if not all(
                 isinstance(record[field], str)
-                for field in ("event_hash", "event_type", "occurred_at",
-                              "device_fingerprint", "previous_hash")
+                for field in (
+                    "event_hash",
+                    "event_type",
+                    "occurred_at",
+                    "device_fingerprint",
+                    "previous_hash",
+                )
             ):
                 return AuditIntegrityResult(False, count, index, "invalid_field_type")
 
