@@ -3,6 +3,7 @@ import sqlite3
 import unittest
 
 from backend.audit_integrity import GENESIS_HASH, verify_audit_chain
+from backend.store import AuthStore
 
 
 def make_record(event_type, occurred_at, subject_id, device_fingerprint, previous_hash):
@@ -53,6 +54,30 @@ class AuditIntegrityTests(unittest.TestCase):
         db.close()
         self.assertTrue(result.valid)
         self.assertEqual(result.event_count, 1)
+
+    def test_store_integration_verifies_real_audit_rows(self):
+        store = AuthStore(":memory:", pepper="test-pepper")
+        try:
+            store.add_audit_fingerprint("session_issued", "subject-1", "a" * 64)
+            store.add_audit_fingerprint("session_revoked", "subject-1", "a" * 64)
+            result = store.verify_audit_integrity()
+            self.assertTrue(result.valid)
+            self.assertEqual(result.event_count, 2)
+        finally:
+            store.close()
+
+    def test_store_integration_detects_tampered_audit_row(self):
+        store = AuthStore(":memory:", pepper="test-pepper")
+        try:
+            store.add_audit_fingerprint("session_issued", "subject-1", "a" * 64)
+            store._db.execute("UPDATE audit_events SET event_type = 'session_revoked'")
+            store._db.commit()
+            result = store.verify_audit_integrity()
+            self.assertFalse(result.valid)
+            self.assertEqual(result.invalid_index, 0)
+            self.assertEqual(result.reason, "event_hash_mismatch")
+        finally:
+            store.close()
 
     def test_changed_event_content_fails(self):
         record = make_record("session_issued", "2026-10-11T00:00:00+00:00", "user-1", "device-hash", GENESIS_HASH)
