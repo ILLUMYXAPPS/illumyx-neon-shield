@@ -89,6 +89,9 @@ class MigrationRunner:
         connection = self._connection_factory()
         cursor = connection.cursor()
         try:
+            # Start the transaction before creating migration metadata so a failed
+            # first migration rolls back the metadata table as well as schema changes.
+            cursor.execute("BEGIN")
             self._create_metadata_table(cursor)
             cursor.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version")
             applied = tuple((int(version), name) for version, name in cursor.fetchall())
