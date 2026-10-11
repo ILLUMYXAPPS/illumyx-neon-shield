@@ -9,6 +9,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from backend.audit_integrity import AuditIntegrityResult, verify_audit_chain
 from backend.managed_store import ManagedAuthStore
 
 
@@ -196,3 +197,16 @@ class AuthStore(ManagedAuthStore):
         self._db.execute("INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)", (event_hash, event_type, occurred_at, subject_id, device_fingerprint, previous_hash))
         self._db.commit()
         return event_hash
+
+    def verify_audit_integrity(self) -> AuditIntegrityResult:
+        """Verify the complete SQLite audit chain in insertion order.
+
+        This read-only adapter method is intended for development/integration.
+        Production adapters must provide their own consistent-snapshot semantics
+        before exposing equivalent verification as a release control.
+        """
+        records = self._db.execute(
+            "SELECT event_hash, event_type, occurred_at, subject_id, "
+            "device_fingerprint, previous_hash FROM audit_events ORDER BY rowid ASC"
+        ).fetchall()
+        return verify_audit_chain(records)
