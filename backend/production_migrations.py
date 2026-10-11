@@ -36,7 +36,7 @@ PRODUCTION_MIGRATIONS = (
         "create_serialized_audit_chain_head",
         (
             "CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK (chain_id = 1), last_event_hash TEXT NOT NULL)",
-            "INSERT INTO audit_chain_head (chain_id, last_event_hash) VALUES (1, '" + "0" * 64 + "') ON CONFLICT (chain_id) DO NOTHING",
+            "INSERT INTO audit_chain_head (chain_id, last_event_hash) VALUES (1, COALESCE((SELECT event_hash FROM audit_events ORDER BY occurred_at DESC, event_hash DESC LIMIT 1), '" + "0" * 64 + "')) ON CONFLICT (chain_id) DO NOTHING",
         ),
     ),
 )
