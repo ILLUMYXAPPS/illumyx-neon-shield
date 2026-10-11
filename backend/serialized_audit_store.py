@@ -3,10 +3,7 @@ from __future__ import annotations
 
 import hashlib
 
-from backend.managed_db_store import ManagedDbAuthStore
-
-
-_ZERO_HASH = "0" * 64
+from backend.managed_db_store import ManagedDbAuthStore, _now
 
 
 class SerializedAuditManagedDbAuthStore(ManagedDbAuthStore):
@@ -29,7 +26,7 @@ class SerializedAuditManagedDbAuthStore(ManagedDbAuthStore):
     def add_audit_fingerprint(
         self, event_type: str, subject_id: str | None, device_fingerprint: str
     ) -> str:
-        occurred_at = __import__("backend.managed_db_store", fromlist=["_now"])._now()
+        occurred_at = _now()
         with self._cursor() as (connection, cursor):
             cursor.execute(
                 "SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1"
