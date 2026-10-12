@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -73,6 +74,30 @@ void main() {
     });
     expect(result.token, session.token);
     expect(result.deviceId, session.deviceId);
+  });
+
+
+  test('maps a stalled authentication request to unavailable after timeout', () async {
+    final pending = Completer<http.Response>();
+    final client = MockClient((_) => pending.future);
+    final api = HttpsAuthApi(
+      baseUri: Uri.parse('https://example.invalid'),
+      client: client,
+      requestTimeout: const Duration(milliseconds: 10),
+    );
+
+    await expectLater(
+      api.signIn(
+        identity: 'user@example.com',
+        credential: 'secret',
+        deviceId: session.deviceId,
+      ),
+      throwsA(isA<AuthServiceException>().having(
+        (error) => error.failure,
+        'failure',
+        AuthFailure.unavailable,
+      )),
+    );
   });
 
   test('rejects a successful response with an empty session token', () async {

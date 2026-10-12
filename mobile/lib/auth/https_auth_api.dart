@@ -11,12 +11,30 @@ import 'auth_session.dart';
 /// The caller must provide an HTTPS base URL in production. Plain HTTP is
 /// rejected except for loopback hosts used by local development/tests.
 class HttpsAuthApi implements AuthApiContract {
-  HttpsAuthApi({required Uri baseUri, http.Client? client})
-      : _baseUri = _validateBaseUri(baseUri),
-        _client = client ?? http.Client();
+  HttpsAuthApi({
+    required Uri baseUri,
+    http.Client? client,
+    Duration requestTimeout = const Duration(seconds: 15),
+  })  : _baseUri = _validateBaseUri(baseUri),
+        _client = client ?? http.Client(),
+        _requestTimeout = requestTimeout {
+    if (requestTimeout <= Duration.zero) {
+      throw ArgumentError.value(requestTimeout, 'requestTimeout', 'Must be positive');
+    }
+  }
 
   final Uri _baseUri;
   final http.Client _client;
+  final Duration _requestTimeout;
+
+  /// Fails closed if the backend does not answer within the configured window.
+  /// A timed-out request is surfaced as an unavailable service, never as auth.
+  Future<http.Response> _send(Future<http.Response> request) {
+    return request.timeout(
+      _requestTimeout,
+      onTimeout: () => throw const AuthServiceException(AuthFailure.unavailable),
+    );
+  }
 
   static Uri _validateBaseUri(Uri uri) {
     final isLoopback = uri.host == '127.0.0.1' ||
@@ -39,7 +57,7 @@ class HttpsAuthApi implements AuthApiContract {
     required String credential,
     required String deviceId,
   }) async {
-    final response = await _client.post(
+    final response = await _send(_client.post(
       _endpoint('/v1/auth/sign-in'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -47,25 +65,25 @@ class HttpsAuthApi implements AuthApiContract {
         'credential': credential,
         'device_id': deviceId,
       }),
-    );
+    ));
     return _sessionFromResponse(response);
   }
 
   @override
   Future<AuthSession> refresh(AuthSession session) async {
-    final response = await _client.post(
+    final response = await _send(_client.post(
       _endpoint('/v1/auth/refresh'),
       headers: _authHeaders(session),
-    );
+    ));
     return _sessionFromResponse(response);
   }
 
   @override
   Future<void> revoke(AuthSession session) async {
-    final response = await _client.post(
+    final response = await _send(_client.post(
       _endpoint('/v1/auth/logout'),
       headers: _authHeaders(session),
-    );
+    ));
     if (response.statusCode != 204 && response.statusCode != 200) {
       throw _failure(response);
     }
@@ -73,10 +91,10 @@ class HttpsAuthApi implements AuthApiContract {
 
   @override
   Future<bool> isDeviceTrusted(AuthSession session) async {
-    final response = await _client.post(
+    final response = await _send(_client.post(
       _endpoint('/v1/auth/trusted-device'),
       headers: _authHeaders(session),
-    );
+    ));
     if (response.statusCode != 200) throw _failure(response);
     final data = _decodeObject(response.body);
     final trusted = data['trusted'];
