@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
@@ -65,8 +66,8 @@ def make_handler(service):
         server_version = "NeonShieldAuth"
 
         def setup(self) -> None:
-            # Bound both request-header/body reads so slow clients cannot occupy a
-            # request thread indefinitely by trickling or withholding the body.
+            # Bound idle socket reads. The request body also has a total deadline
+            # so sending one byte periodically cannot hold a thread indefinitely.
             self.request.settimeout(_REQUEST_READ_TIMEOUT_SECONDS)
             super().setup()
 
@@ -90,7 +91,22 @@ def make_handler(service):
             if content_type != "application/json":
                 raise ValueError("application/json required")
             length = _parse_content_length(self.headers.get("Content-Length"))
-            raw_body = self.rfile.read(length) if length else b""
+            deadline = time.monotonic() + _REQUEST_READ_TIMEOUT_SECONDS
+            remaining = length
+            chunks = []
+            while remaining:
+                time_left = deadline - time.monotonic()
+                if time_left <= 0:
+                    raise socket.timeout("request body deadline exceeded")
+                self.connection.settimeout(time_left)
+                # read1 performs at most one underlying read, letting us recompute
+                # the total deadline between partial body reads.
+                chunk = self.rfile.read1(min(4096, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            raw_body = b"".join(chunks)
             if len(raw_body) != length:
                 raise ValueError("incomplete request body")
             value = json.loads(raw_body or b"{}")
