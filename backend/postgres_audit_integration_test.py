@@ -66,9 +66,6 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
                 (_SENTINEL,),
             )
 
-    def tearDown(self) -> None:
-        self.store.close()
-
     def _events_and_head(self):
         with self.connection_factory() as connection:
             rows = connection.execute(
