@@ -1,12 +1,17 @@
 """Regression tests for bounded HTTP request parsing and JSON field validation."""
 from __future__ import annotations
 
+import socket
+import threading
 import unittest
+from http.server import ThreadingHTTPServer
+from unittest.mock import patch
 
 from backend.http_api import (
     _MAX_REQUEST_BYTES,
     _parse_content_length,
     _sign_in_request,
+    make_handler,
 )
 
 
@@ -75,6 +80,32 @@ class HttpBoundaryValidationTests(unittest.TestCase):
             with self.subTest(payload_keys=tuple(payload)):
                 with self.assertRaises(ValueError):
                     _sign_in_request(payload)
+
+    def test_slow_request_body_times_out_and_closes_connection(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(object()))
+        server.daemon_threads = True
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+
+        with patch("backend.http_api._REQUEST_READ_TIMEOUT_SECONDS", 0.2):
+            server_thread.start()
+            try:
+                with socket.create_connection(server.server_address, timeout=2) as client:
+                    client.settimeout(2)
+                    client.sendall(
+                        b"POST /v1/auth/sign-in HTTP/1.1\r\n"
+                        b"Host: localhost\r\n"
+                        b"Content-Type: application/json\r\n"
+                        b"Content-Length: 100\r\n"
+                        b"\r\n"
+                    )
+                    response = client.recv(4096)
+                self.assertIn(b"408 Request Timeout", response)
+                self.assertIn(b"Connection: close", response)
+                self.assertIn(b"request_timeout", response)
+            finally:
+                server.shutdown()
+                server.server_close()
+                server_thread.join(timeout=2)
 
 
 if __name__ == "__main__":
