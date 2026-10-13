@@ -5,6 +5,8 @@ import socket
 import threading
 import time
 import unittest
+import urllib.error
+import urllib.request
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 
@@ -137,6 +139,65 @@ class HttpBoundaryValidationTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 server_thread.join(timeout=2)
+
+
+class HealthEndpointContractTests(unittest.TestCase):
+    def _get(self, path, readiness_check_marker="missing"):
+        readiness_check = None if readiness_check_marker == "missing" else readiness_check_marker
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            make_handler(object(), readiness_check=readiness_check),
+        )
+        server.daemon_threads = True
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}{path}",
+                method="GET",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=2) as response:
+                    return response.status, response.read()
+            except urllib.error.HTTPError as error:
+                return error.code, error.read()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_liveness_is_independent_of_dependency_readiness(self):
+        status, body = self._get("/livez", lambda: False)
+        self.assertEqual(status, 200)
+        self.assertIn(b'"status":"ok"', body)
+
+    def test_legacy_health_endpoint_remains_a_liveness_check(self):
+        status, _ = self._get("/health", lambda: False)
+        self.assertEqual(status, 200)
+
+    def test_readiness_fails_closed_when_no_probe_is_wired(self):
+        status, body = self._get("/readyz")
+        self.assertEqual(status, 503)
+        self.assertEqual(body, b'{"status":"not_ready"}')
+
+    def test_readiness_returns_success_only_when_probe_returns_true(self):
+        status, body = self._get("/readyz", lambda: True)
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b'{"status":"ready"}')
+
+    def test_readiness_returns_unavailable_when_probe_reports_false(self):
+        status, body = self._get("/readyz", lambda: False)
+        self.assertEqual(status, 503)
+        self.assertEqual(body, b'{"status":"not_ready"}')
+
+    def test_readiness_probe_exception_fails_closed_without_leaking_details(self):
+        def broken_probe():
+            raise RuntimeError("private database connection details")
+
+        status, body = self._get("/readyz", broken_probe)
+        self.assertEqual(status, 503)
+        self.assertNotIn(b"private database connection details", body)
+        self.assertEqual(body, b'{"status":"not_ready"}')
 
 
 if __name__ == "__main__":
