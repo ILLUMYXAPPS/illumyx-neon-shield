@@ -42,7 +42,8 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
                 application_name="neon-shield-audit-integration-test",
             )
 
-        cls.connection_factory = connect
+        # Prevent Python's descriptor protocol from binding the test instance.
+        cls.connection_factory = staticmethod(connect)
 
     @classmethod
     def tearDownClass(cls) -> None:
