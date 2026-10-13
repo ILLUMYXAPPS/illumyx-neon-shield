@@ -61,7 +61,13 @@ def _session_json(session):
     }
 
 
-def make_handler(service):
+def make_handler(service, *, readiness_check=None):
+    """Build a handler with separate liveness and fail-closed readiness.
+
+    readiness_check must be a bounded, deployment-supplied dependency probe.
+    No probe is assumed to exist: readiness returns unavailable until one is
+    explicitly wired. Probe exceptions are intentionally not exposed to clients.
+    """
     class Handler(BaseHTTPRequestHandler):
         server_version = "NeonShieldAuth"
 
@@ -122,10 +128,24 @@ def make_handler(service):
             return service.resolve_session(token.strip())
 
         def do_GET(self) -> None:
-            if self.path == "/health":
+            if self.path in {"/health", "/livez"}:
+                # Backward-compatible /health remains a process liveness check.
                 self._json(200, {"status": "ok", "service": "neon-shield-auth"})
-            else:
-                self._json(404, {"error": "not_found"})
+                return
+            if self.path == "/readyz":
+                if readiness_check is None:
+                    self._json(503, {"status": "not_ready"})
+                    return
+                try:
+                    ready = readiness_check()
+                except Exception:
+                    ready = False
+                if ready is True:
+                    self._json(200, {"status": "ready"})
+                else:
+                    self._json(503, {"status": "not_ready"})
+                return
+            self._json(404, {"error": "not_found"})
 
         def do_POST(self) -> None:
             try:
