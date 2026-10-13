@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
@@ -9,6 +10,7 @@ from auth_server_contract import AuthFailure, SignInRequest
 
 
 _MAX_REQUEST_BYTES = 32_768
+_REQUEST_READ_TIMEOUT_SECONDS = 10
 _MAX_IDENTITY_LENGTH = 320
 _MAX_CREDENTIAL_LENGTH = 4_096
 _MAX_DEVICE_ID_LENGTH = 512
@@ -62,12 +64,20 @@ def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
         server_version = "NeonShieldAuth"
 
+        def setup(self) -> None:
+            # Bound both request-header/body reads so slow clients cannot occupy a
+            # request thread indefinitely by trickling or withholding the body.
+            self.request.settimeout(_REQUEST_READ_TIMEOUT_SECONDS)
+            super().setup()
+
         def _json(self, status: int, payload: dict | None = None) -> None:
             body = b"" if status == 204 else json.dumps(payload or {}, separators=(",", ":")).encode()
             self.send_response(status)
             if status != 204:
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
+            if self.close_connection:
+                self.send_header("Connection", "close")
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
@@ -126,6 +136,13 @@ def make_handler(service):
                     self._json(204)
                     return
                 self._json(200, {"trusted": service.is_device_trusted(session)})
+            except socket.timeout:
+                self.close_connection = True
+                try:
+                    self._json(408, {"error": "request_timeout"})
+                except OSError:
+                    # A disconnected client should not trigger another failure path.
+                    pass
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
             except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
