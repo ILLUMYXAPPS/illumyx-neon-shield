@@ -110,11 +110,29 @@ class HttpBoundaryValidationTests(unittest.TestCase):
 
                     sender = threading.Thread(target=trickle_body, daemon=True)
                     sender.start()
-                    response = client.recv(4096)
+                    response = bytearray()
+                    while b"\r\n\r\n" not in response:
+                        chunk = client.recv(4096)
+                        if not chunk:
+                            break
+                        response.extend(chunk)
+                    header_end = response.find(b"\r\n\r\n") + 4
+                    headers = bytes(response[:header_end])
+                    body = bytearray(response[header_end:])
+                    content_length = next(
+                        int(line.split(b":", 1)[1].strip())
+                        for line in headers.split(b"\r\n")
+                        if line.lower().startswith(b"content-length:")
+                    )
+                    while len(body) < content_length:
+                        chunk = client.recv(4096)
+                        if not chunk:
+                            break
+                        body.extend(chunk)
                     sender.join(timeout=1)
-                self.assertIn(b"408 Request Timeout", response)
-                self.assertIn(b"Connection: close", response)
-                self.assertIn(b"request_timeout", response)
+                self.assertIn(b"408 Request Timeout", headers)
+                self.assertIn(b"Connection: close", headers)
+                self.assertIn(b"request_timeout", body)
             finally:
                 server.shutdown()
                 server.server_close()
