@@ -54,7 +54,12 @@ def run_migrations(
         config = validate_production_config(env, secret_provider=provider)
 
     connect = connection_factory or _connection_factory(config)
-    runner = MigrationRunner(\n        connect,\n        PRODUCTION_MIGRATIONS,\n        placeholder="%s",\n        lock_statement="SELECT pg_advisory_xact_lock(1180194898, 1)",\n    )
+    runner = MigrationRunner(
+        connect,
+        PRODUCTION_MIGRATIONS,
+        placeholder="%s",
+        lock_statement="SELECT pg_advisory_xact_lock(1180194898, 1)",
+    )
     expected_version = max((migration.version for migration in PRODUCTION_MIGRATIONS), default=0)
     applied_version = runner.apply_pending()
     if applied_version != expected_version:
