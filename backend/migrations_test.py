@@ -110,6 +110,43 @@ class MigrationRunnerTests(unittest.TestCase):
             self.assertEqual(versions, [])
             self.assertIsNone(head_table)
 
+    def test_disconnected_cycle_is_rejected_even_with_one_apparent_tip(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "disconnected-cycle.sqlite3"
+            connection = sqlite3.connect(path)
+            connection.execute(
+                "CREATE TABLE audit_events (event_hash TEXT PRIMARY KEY, event_type TEXT NOT NULL, "
+                "occurred_at TEXT NOT NULL, subject_id TEXT, device_fingerprint TEXT NOT NULL, previous_hash TEXT NOT NULL)"
+            )
+            connection.executemany(
+                "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    ("rooted", "test", "2026-01-01", None, "device", "0" * 64),
+                    ("tip", "test", "2026-01-02", None, "device", "rooted"),
+                    ("cycle-a", "test", "2026-01-03", None, "device", "cycle-b"),
+                    ("cycle-b", "test", "2026-01-04", None, "device", "cycle-a"),
+                ],
+            )
+            connection.commit()
+            connection.close()
+
+            runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
+            with self.assertRaises(sqlite3.IntegrityError):
+                runner.apply_pending()
+
+            connection = sqlite3.connect(path)
+            try:
+                metadata_table = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='neon_schema_migrations'"
+                ).fetchone()
+                self.assertIsNone(metadata_table)
+                head_table = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_chain_head'"
+                ).fetchone()
+                self.assertIsNone(head_table)
+            finally:
+                connection.close()
+
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "migrations.sqlite3"
