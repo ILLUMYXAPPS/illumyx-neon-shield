@@ -68,19 +68,47 @@ class MigrationRunnerTests(unittest.TestCase):
                 connection.close()
             self.assertEqual(head, ("actual-tip",))
 
-    def test_ambiguous_audit_tip_is_not_backfilled(self) -> None:
+    def test_ambiguous_audit_tip_fails_and_rolls_back_migration(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "ambiguous.sqlite3"
             connection = sqlite3.connect(path)
-            connection.execute("CREATE TABLE audit_events (event_hash TEXT PRIMARY KEY, event_type TEXT NOT NULL, occurred_at TEXT NOT NULL, subject_id TEXT, device_fingerprint TEXT NOT NULL, previous_hash TEXT NOT NULL)")
-            connection.executemany("INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?)", [("a", "test", "2026-01-01", None, "device", "0" * 64), ("b", "test", "2026-01-02", None, "device", "0" * 64)])
+            connection.execute(
+                "CREATE TABLE audit_events (event_hash TEXT PRIMARY KEY, event_type TEXT NOT NULL, "
+                "occurred_at TEXT NOT NULL, subject_id TEXT, device_fingerprint TEXT NOT NULL, previous_hash TEXT NOT NULL)"
+            )
+            connection.executemany(
+                "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    ("a", "test", "2026-01-01", None, "device", "0" * 64),
+                    ("b", "test", "2026-01-02", None, "device", "0" * 64),
+                ],
+            )
             connection.commit()
             connection.close()
-            MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS).apply_pending()
+
+            runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
+            with self.assertRaises(sqlite3.IntegrityError):
+                runner.apply_pending()
+
             connection = sqlite3.connect(path)
-            head = connection.execute("SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()
-            connection.close()
-            self.assertIsNone(head)
+            try:
+                metadata_table = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='neon_schema_migrations'"
+                ).fetchone()
+                versions = (
+                    connection.execute(
+                        "SELECT version FROM neon_schema_migrations ORDER BY version"
+                    ).fetchall()
+                    if metadata_table is not None
+                    else []
+                )
+                head_table = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_chain_head'"
+                ).fetchone()
+            finally:
+                connection.close()
+            self.assertEqual(versions, [])
+            self.assertIsNone(head_table)
 
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:
@@ -156,8 +184,7 @@ class MigrationRunnerTests(unittest.TestCase):
                     connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchone(),
                     None,
                 )
-                self.assertEqual(connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='neon_schema_migrations'").fetchone()[0], 1)
-                self.assertEqual(connection.execute("SELECT COUNT(*) FROM neon_schema_migrations").fetchone()[0], 0)
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='neon_schema_migrations'").fetchone()[0], 0)
             finally:
                 connection.close()
 

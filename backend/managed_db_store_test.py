@@ -89,6 +89,41 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
             self.assertNotEqual(first, second)
             self.assertEqual(store.last_audit_hash(), second)
 
+    def test_rate_limit_insert_failure_is_not_recursively_retried(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "managed-test.sqlite3"
+            store = ManagedDbAuthStore(
+                lambda: sqlite3.connect(path),
+                pepper="test-pepper",
+                placeholder="?",
+                audit_lock_clause="",
+            )
+            store.migrate()
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute(
+                    "CREATE TRIGGER fail_rate_limit_insert "
+                    "BEFORE INSERT ON sign_in_rate_limits "
+                    "BEGIN SELECT RAISE(ABORT, 'forced insert failure'); END"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            now = datetime.now(timezone.utc).isoformat()
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "forced insert failure"):
+                store.reserve_sign_in_attempt("user@example.com", now, 300, 5)
+
+            connection = sqlite3.connect(path)
+            try:
+                count = connection.execute(
+                    "SELECT COUNT(*) FROM sign_in_rate_limits"
+                ).fetchone()[0]
+            finally:
+                connection.close()
+            self.assertEqual(count, 0)
+            store.close()
+
     def test_requires_pepper(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "pepper"):
             ManagedDbAuthStore(lambda: sqlite3.connect(":memory:"), pepper="", placeholder="?", audit_lock_clause="")

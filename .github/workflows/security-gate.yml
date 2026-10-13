@@ -51,11 +51,15 @@ jobs:
         run: >-
           python -m unittest discover -s tests -v
 
-      - name: Run monitoring hardening tests
+      - name: Run backend regression and monitoring tests
         run: >-
           python -m unittest -v
+          backend.migrations_test
+          backend.managed_db_store_test
+          backend.http_api_test
           backend.observability_test
           backend.composition_test
+          backend.production_store_factory_test
           backend.security_monitoring_test
 
       - name: Reject obvious private-key material

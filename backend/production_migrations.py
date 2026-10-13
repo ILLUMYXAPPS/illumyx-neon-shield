@@ -37,12 +37,13 @@ PRODUCTION_MIGRATIONS = (
         (
             "CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK (chain_id = 1), last_event_hash TEXT NOT NULL)",
             "INSERT INTO audit_chain_head (chain_id, last_event_hash) "
-            "SELECT 1, CASE WHEN NOT EXISTS (SELECT 1 FROM audit_events) THEN '" + "0" * 64 + "' "
-            "ELSE (SELECT e.event_hash FROM audit_events e WHERE NOT EXISTS "
-            "(SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash) LIMIT 1) END "
-            "WHERE NOT EXISTS (SELECT 1 FROM audit_events) OR "
-            "(SELECT COUNT(*) FROM audit_events e WHERE NOT EXISTS "
+            "SELECT 1, CASE "
+            "WHEN NOT EXISTS (SELECT 1 FROM audit_events) THEN '" + "0" * 64 + "' "
+            "WHEN (SELECT COUNT(*) FROM audit_events e WHERE NOT EXISTS "
             "(SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash)) = 1 "
+            "THEN (SELECT e.event_hash FROM audit_events e WHERE NOT EXISTS "
+            "(SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash) LIMIT 1) "
+            "ELSE NULL END "
             "ON CONFLICT (chain_id) DO NOTHING",
         ),
     ),
