@@ -104,6 +104,20 @@ class PersistentIdentityService(IdentityService):
         self.store.save_session(token, subject_id, request.device_id, now.isoformat(), session.expires_at.isoformat())
         self.store.add_audit("session_issued", subject_id, request.device_id)
         self._emit_security_event("auth.success", subject_id=subject_id, device_hash=self._observability_hash(request.device_id), metadata={"event": "session_issued"})
+        persisted_session = self.store.get_session(token)
+        if persisted_session is None:
+            # Do not return a session whose persisted device identity cannot be
+            # confirmed. The client and refresh responses must use the same
+            # server-stored device fingerprint, never alternate raw/hash forms.
+            self.store.revoke_session(token)
+            raise RuntimeError("persisted session could not be read after sign-in")
+        session = ServerSession(
+            token,
+            subject_id,
+            persisted_session["device_hash"],
+            now,
+            session.expires_at,
+        )
         self._clear_failures(identity)
         return session
 
