@@ -18,7 +18,9 @@ except ImportError:  # pragma: no cover - exercised only when optional dependenc
     psycopg = None
 
 from backend.migrations import MigrationRunner
+from backend.production_config import ProductionConfig
 from backend.production_migrations import PRODUCTION_MIGRATIONS
+from backend.run_production_migrations import run_migrations
 from backend.serialized_audit_store import SerializedAuditManagedDbAuthStore
 
 _DSN = os.environ.get("NEON_SHIELD_TEST_DATABASE_URL")
@@ -97,6 +99,22 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
 
         self.assertEqual(reached, set(by_hash), "orphaned events or gaps detected")
         self.assertEqual(head, current, "durable audit-chain head does not match the final event")
+
+    def test_deployment_entrypoint_verifies_real_postgres_schema(self) -> None:
+        config = ProductionConfig(
+            database_url="postgresql://test.invalid/neon_shield_test?sslmode=verify-full",
+            database_user="neon_test",
+            database_password="integration-placeholder",
+            idp_url="https://idp.invalid",
+            idp_client_id="integration-test-client",
+            idp_client_secret="integration-placeholder",
+            database_pepper="integration-test-pepper",
+            monitoring_endpoint="https://monitor.invalid/events",
+        )
+        # The injected connector targets this isolated disposable schema; the
+        # placeholder configuration is never used to open a real connection.
+        self.assertEqual(run_migrations(config=config, connection_factory=self.connection_factory), 4)
+        self.assertEqual(self.runner.current_version(), 4)
 
     def test_concurrent_appends_from_independent_connections_form_one_chain(self) -> None:
         workers = 12
