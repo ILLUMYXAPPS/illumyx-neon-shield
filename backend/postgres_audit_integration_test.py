@@ -18,7 +18,7 @@ except ImportError:  # pragma: no cover - exercised only when optional dependenc
     psycopg = None
 
 from backend.migrations import MigrationRunner
-from backend.production_config import ProductionConfig
+from backend.production_config import MigrationConfig
 from backend.production_migrations import PRODUCTION_MIGRATIONS
 from backend.run_production_migrations import run_migrations
 from backend.serialized_audit_store import SerializedAuditManagedDbAuthStore
@@ -101,15 +101,10 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
         self.assertEqual(head, current, "durable audit-chain head does not match the final event")
 
     def test_deployment_entrypoint_verifies_real_postgres_schema(self) -> None:
-        config = ProductionConfig(
+        config = MigrationConfig(
             database_url="postgresql://test.invalid/neon_shield_test?sslmode=verify-full",
             database_user="neon_test",
             database_password="integration-placeholder",
-            idp_url="https://idp.invalid",
-            idp_client_id="integration-test-client",
-            idp_client_secret="integration-placeholder",
-            database_pepper="integration-test-pepper",
-            monitoring_endpoint="https://monitor.invalid/events",
         )
         # The injected connector targets this isolated disposable schema; the
         # placeholder configuration is never used to open a real connection.
@@ -129,15 +124,10 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
                 application_name="neon-shield-migration-integration-test",
             )
 
-        config = ProductionConfig(
+        config = MigrationConfig(
             database_url="postgresql://test.invalid/neon_shield_test?sslmode=verify-full",
             database_user="neon_test",
             database_password="integration-placeholder",
-            idp_url="https://idp.invalid",
-            idp_client_id="integration-test-client",
-            idp_client_secret="integration-placeholder",
-            database_pepper="integration-test-pepper",
-            monitoring_endpoint="https://monitor.invalid/events",
         )
         try:
             with ThreadPoolExecutor(max_workers=8) as pool:
