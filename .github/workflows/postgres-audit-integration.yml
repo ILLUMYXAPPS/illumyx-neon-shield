@@ -54,7 +54,12 @@ jobs:
           python -m compileall -q
           backend/migrations.py
           backend/production_migrations.py
+          backend/migrations.py
+          backend/run_production_migrations.py
+          backend/run_production_migrations_test.py
           backend/serialized_audit_store.py
           backend/postgres_audit_integration_test.py
+      - name: Run migration command unit tests
+        run: python -m unittest backend.run_production_migrations_test -v
       - name: Run real PostgreSQL migration, concurrency, and rollback tests
         run: python -m unittest backend.postgres_audit_integration_test -v

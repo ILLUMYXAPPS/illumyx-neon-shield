@@ -25,12 +25,16 @@ class MigrationRunner:
         migrations: tuple[Migration, ...],
         *,
         placeholder: str = "?",
+        lock_statement: str | None = None,
     ) -> None:
         if placeholder not in {"%s", "?", ":1"}:
             raise ValueError("unsupported DB-API placeholder")
         self._connection_factory = connection_factory
         self._migrations = self._validate_migrations(migrations)
         self._placeholder = placeholder
+        if lock_statement is not None and not lock_statement.startswith("SELECT pg_advisory_xact_lock("):
+            raise ValueError("unsupported migration lock statement")
+        self._lock_statement = lock_statement
 
     @staticmethod
     def _validate_migrations(migrations: tuple[Migration, ...]) -> tuple[Migration, ...]:
@@ -92,6 +96,10 @@ class MigrationRunner:
             # Start the transaction before creating migration metadata so a failed
             # first migration rolls back the metadata table as well as schema changes.
             cursor.execute("BEGIN")
+            # PostgreSQL transaction-scoped advisory lock serializes competing
+            # deployment jobs before either inspects or changes migration state.
+            if self._lock_statement is not None:
+                cursor.execute(self._lock_statement)
             self._create_metadata_table(cursor)
             cursor.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version")
             applied = tuple((int(version), name) for version, name in cursor.fetchall())
