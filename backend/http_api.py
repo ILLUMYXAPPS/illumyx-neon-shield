@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import socket
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
@@ -9,6 +11,7 @@ from auth_server_contract import AuthFailure, SignInRequest
 
 
 _MAX_REQUEST_BYTES = 32_768
+_REQUEST_READ_TIMEOUT_SECONDS = 10
 _MAX_IDENTITY_LENGTH = 320
 _MAX_CREDENTIAL_LENGTH = 4_096
 _MAX_DEVICE_ID_LENGTH = 512
@@ -62,12 +65,20 @@ def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
         server_version = "NeonShieldAuth"
 
+        def setup(self) -> None:
+            # Bound idle socket reads. The request body also has a total deadline
+            # so sending one byte periodically cannot hold a thread indefinitely.
+            self.request.settimeout(_REQUEST_READ_TIMEOUT_SECONDS)
+            super().setup()
+
         def _json(self, status: int, payload: dict | None = None) -> None:
             body = b"" if status == 204 else json.dumps(payload or {}, separators=(",", ":")).encode()
             self.send_response(status)
             if status != 204:
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
+            if self.close_connection:
+                self.send_header("Connection", "close")
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
@@ -80,7 +91,22 @@ def make_handler(service):
             if content_type != "application/json":
                 raise ValueError("application/json required")
             length = _parse_content_length(self.headers.get("Content-Length"))
-            raw_body = self.rfile.read(length) if length else b""
+            deadline = time.monotonic() + _REQUEST_READ_TIMEOUT_SECONDS
+            remaining = length
+            chunks = []
+            while remaining:
+                time_left = deadline - time.monotonic()
+                if time_left <= 0:
+                    raise socket.timeout("request body deadline exceeded")
+                self.connection.settimeout(time_left)
+                # read1 performs at most one underlying read, letting us recompute
+                # the total deadline between partial body reads.
+                chunk = self.rfile.read1(min(4096, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            raw_body = b"".join(chunks)
             if len(raw_body) != length:
                 raise ValueError("incomplete request body")
             value = json.loads(raw_body or b"{}")
@@ -126,6 +152,13 @@ def make_handler(service):
                     self._json(204)
                     return
                 self._json(200, {"trusted": service.is_device_trusted(session)})
+            except socket.timeout:
+                self.close_connection = True
+                try:
+                    self._json(408, {"error": "request_timeout"})
+                except OSError:
+                    # A disconnected client should not trigger another failure path.
+                    pass
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
             except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
