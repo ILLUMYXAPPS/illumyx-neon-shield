@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import socket
 import threading
+import time
 import unittest
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
@@ -81,12 +82,12 @@ class HttpBoundaryValidationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     _sign_in_request(payload)
 
-    def test_slow_request_body_times_out_and_closes_connection(self):
+    def test_trickled_request_body_hits_total_deadline_and_closes_connection(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(object()))
         server.daemon_threads = True
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
 
-        with patch("backend.http_api._REQUEST_READ_TIMEOUT_SECONDS", 0.2):
+        with patch("backend.http_api._REQUEST_READ_TIMEOUT_SECONDS", 0.35):
             server_thread.start()
             try:
                 with socket.create_connection(server.server_address, timeout=2) as client:
@@ -98,7 +99,19 @@ class HttpBoundaryValidationTests(unittest.TestCase):
                         b"Content-Length: 100\r\n"
                         b"\r\n"
                     )
+
+                    def trickle_body():
+                        for _ in range(20):
+                            try:
+                                client.sendall(b"x")
+                            except OSError:
+                                return
+                            time.sleep(0.08)
+
+                    sender = threading.Thread(target=trickle_body, daemon=True)
+                    sender.start()
                     response = client.recv(4096)
+                    sender.join(timeout=1)
                 self.assertIn(b"408 Request Timeout", response)
                 self.assertIn(b"Connection: close", response)
                 self.assertIn(b"request_timeout", response)
