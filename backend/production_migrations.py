@@ -4,6 +4,8 @@ from __future__ import annotations
 from backend.migrations import Migration
 
 
+_SENTINEL_HASH = "0" * 64
+
 PRODUCTION_MIGRATIONS = (
     Migration(
         1,
@@ -36,14 +38,27 @@ PRODUCTION_MIGRATIONS = (
         "create_serialized_audit_chain_head",
         (
             "CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK (chain_id = 1), last_event_hash TEXT NOT NULL)",
+            "WITH RECURSIVE reachable(event_hash) AS ("
+            "SELECT event_hash FROM audit_events WHERE previous_hash = '" + _SENTINEL_HASH + "' "
+            "UNION "
+            "SELECT child.event_hash FROM audit_events child "
+            "JOIN reachable parent ON child.previous_hash = parent.event_hash"
+            "), stats AS ("
+            "SELECT "
+            "(SELECT COUNT(*) FROM audit_events) AS total_count, "
+            "(SELECT COUNT(*) FROM reachable) AS reachable_count, "
+            "(SELECT COUNT(*) FROM audit_events WHERE previous_hash = '" + _SENTINEL_HASH + "') AS root_count, "
+            "(SELECT COUNT(*) FROM audit_events e WHERE NOT EXISTS "
+            "(SELECT 1 FROM audit_events child WHERE child.previous_hash = e.event_hash)) AS tip_count"
+            ") "
             "INSERT INTO audit_chain_head (chain_id, last_event_hash) "
             "SELECT 1, CASE "
-            "WHEN NOT EXISTS (SELECT 1 FROM audit_events) THEN '" + "0" * 64 + "' "
-            "WHEN (SELECT COUNT(*) FROM audit_events e WHERE NOT EXISTS "
-            "(SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash)) = 1 "
+            "WHEN total_count = 0 THEN '" + _SENTINEL_HASH + "' "
+            "WHEN reachable_count = total_count AND root_count = 1 AND tip_count = 1 "
             "THEN (SELECT e.event_hash FROM audit_events e WHERE NOT EXISTS "
-            "(SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash) LIMIT 1) "
+            "(SELECT 1 FROM audit_events child WHERE child.previous_hash = e.event_hash) LIMIT 1) "
             "ELSE NULL END "
+            "FROM stats WHERE true "
             "ON CONFLICT (chain_id) DO NOTHING",
         ),
     ),
