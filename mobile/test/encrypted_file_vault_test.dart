@@ -140,6 +140,49 @@ void main() {
     expect(await vault.listEntries(), isEmpty);
   });
 
+  test('rejects oversized declared streams before reading or creating a key', () async {
+    var streamListenedTo = false;
+    Stream<List<int>> chunks() async* {
+      streamListenedTo = true;
+      yield [1];
+    }
+
+    await expectLater(
+      vault.protectStream(
+        originalName: 'too-large.bin',
+        chunks: chunks(),
+        expectedSize: EncryptedFileVault.maxFileBytes + 1,
+      ),
+      throwsArgumentError,
+    );
+
+    expect(streamListenedTo, isFalse);
+    expect(keyStore.key, isNull);
+    expect(await vault.listEntries(), isEmpty);
+  });
+
+  test('stops an oversized stream at the configured limit', () async {
+    var chunksYielded = 0;
+    Stream<List<int>> oversizedChunks() async* {
+      for (var i = 0; i < 51; i++) {
+        chunksYielded++;
+        yield List<int>.filled(1024 * 1024, 7);
+      }
+    }
+
+    await expectLater(
+      vault.protectStream(
+        originalName: 'stream-too-large.bin',
+        chunks: oversizedChunks(),
+      ),
+      throwsArgumentError,
+    );
+
+    expect(chunksYielded, 51);
+    expect(keyStore.key, isNull);
+    expect(await vault.listEntries(), isEmpty);
+  });
+
   test('refuses to silently replace a missing key for existing vault entries', () async {
     final entry = await vault.protectBytes(
       originalName: 'notes.txt',
