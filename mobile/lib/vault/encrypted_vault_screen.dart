@@ -53,27 +53,32 @@ class _EncryptedVaultScreenState extends State<EncryptedVaultScreen> {
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.any,
       allowMultiple: false,
-      withData: true,
+      withData: false,
+      withReadStream: true,
     );
     if (picked == null || picked.files.isEmpty || !mounted) return;
     final file = picked.files.single;
-    final bytes = file.bytes;
-    if (bytes == null) {
-      _showMessage('This platform could not read the selected file. Try another file.');
-      return;
-    }
-    if (bytes.isEmpty) {
+    if (file.size == 0) {
       _showMessage('Empty files cannot be added to the vault.');
       return;
     }
-    if (bytes.length > EncryptedFileVault.maxFileBytes) {
+    if (file.size > EncryptedFileVault.maxFileBytes) {
       _showMessage('Choose a file no larger than 50 MB for this beta.');
+      return;
+    }
+    final readStream = file.readStream;
+    if (readStream == null) {
+      _showMessage('This platform could not stream the selected file safely. Try another file.');
       return;
     }
 
     setState(() => _busy = true);
     try {
-      final entry = await _vault.protectBytes(originalName: file.name, bytes: bytes);
+      final entry = await _vault.protectStream(
+        originalName: file.name,
+        chunks: readStream,
+        expectedSize: file.size,
+      );
       await _refresh();
       if (mounted) {
         _showMessage('${entry.name} encrypted into the local vault. Your original file was not changed.');
