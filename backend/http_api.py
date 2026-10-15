@@ -44,7 +44,11 @@ def make_handler(service):
             if self.headers.get("Transfer-Encoding") is not None:
                 raise ValueError("transfer encoding is unsupported")
 
-            raw_length = self.headers.get("Content-Length", "0")
+            content_lengths = self.headers.get_all("Content-Length", [])
+            if len(content_lengths) > 1:
+                raise ValueError("duplicate content length")
+
+            raw_length = content_lengths[0] if content_lengths else "0"
             try:
                 length = int(raw_length)
             except (TypeError, ValueError) as exc:
