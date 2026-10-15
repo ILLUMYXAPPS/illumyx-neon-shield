@@ -177,8 +177,14 @@ class EncryptedFileVault {
     );
     final directory = await _vaultDirectory();
     final encryptedFile = File('${directory.path}/$id.nsvault');
-    await encryptedFile.writeAsString(envelope, flush: true);
+    final temporaryFile = File('${directory.path}/$id.nsvault.tmp');
+
+    // Write to a temporary file first so a failed write cannot leave a
+    // truncated file that looks like a completed vault entry.
     try {
+      await temporaryFile.writeAsString(envelope, flush: true);
+      await temporaryFile.rename(encryptedFile.path);
+
       final existing = await listEntries();
       final preferences = await SharedPreferences.getInstance();
       final updated = [...existing, entry];
@@ -188,7 +194,15 @@ class EncryptedFileVault {
       );
       if (!saved) throw StateError('Could not save the vault index.');
     } catch (_) {
-      if (await encryptedFile.exists()) await encryptedFile.delete();
+      // Clean up both paths. Cleanup is best-effort so it never masks the
+      // original write/index error that caused this operation to fail.
+      for (final file in [temporaryFile, encryptedFile]) {
+        try {
+          if (await file.exists()) await file.delete();
+        } catch (_) {
+          // Keep the original exception; a later vault audit can detect residue.
+        }
+      }
       rethrow;
     }
     return entry;
