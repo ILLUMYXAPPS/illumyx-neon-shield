@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'auth/auth_endpoint_config.dart';
 import 'auth/auth_gate.dart';
 import 'auth/auth_service.dart';
 import 'auth/auth_session.dart';
@@ -86,9 +87,10 @@ class _AppBootstrapState extends State<AppBootstrap> {
 
   AuthService? _configuredAuthService() {
     const endpoint = String.fromEnvironment('NEON_SHIELD_AUTH_BASE_URL');
-    if (endpoint.trim().isEmpty) return null;
+    final baseUri = parseProductionAuthEndpoint(endpoint);
+    if (baseUri == null) return null;
     return ServerBackedAuthService(
-      api: HttpsAuthApi(baseUri: Uri.parse(endpoint)),
+      api: HttpsAuthApi(baseUri: baseUri),
       store: SecureAuthSessionStore(),
     );
   }
