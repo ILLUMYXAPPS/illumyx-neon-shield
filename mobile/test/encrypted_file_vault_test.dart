@@ -270,6 +270,32 @@ void main() {
     expect(await vault.listEntries(), isEmpty);
   });
 
+  test('cleans up encrypted and temporary files when index update fails', () async {
+    // A valid existing key lets encryption proceed, while a corrupt index
+    // forces the post-write index read to fail and exercises rollback cleanup.
+    keyStore.key = base64Encode(List<int>.filled(32, 1));
+    SharedPreferences.setMockInitialValues({
+      'neon_shield.encrypted_vault_index_v1': 'not-valid-json',
+    });
+
+    await expectLater(
+      vault.protectBytes(
+        originalName: 'index-failure.txt',
+        bytes: utf8.encode('must not leave an orphaned encrypted file'),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    final vaultDirectory = Directory('${tempDirectory.path}/neon_shield_vault');
+    final remainingFiles = await vaultDirectory.list().toList();
+    expect(
+      remainingFiles.where(
+        (file) => file.path.endsWith('.nsvault') || file.path.endsWith('.nsvault.tmp'),
+      ),
+      isEmpty,
+    );
+  });
+
   test('rejects unknown entry identifiers', () async {
     await expectLater(
       vault.decryptEntry('not-a-vault-id'),
