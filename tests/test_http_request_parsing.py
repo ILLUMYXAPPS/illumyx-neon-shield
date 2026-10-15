@@ -14,7 +14,9 @@ class HttpRequestBodyParsingTests(unittest.TestCase):
         handler = object.__new__(self.handler_class)
         handler.headers = Message()
         for name, value in headers.items():
-            handler.headers[name] = value
+            values = value if isinstance(value, list) else [value]
+            for item in values:
+                handler.headers[name] = item
         handler.rfile = BytesIO(body)
         return handler._body()
 
@@ -30,6 +32,13 @@ class HttpRequestBodyParsingTests(unittest.TestCase):
     def test_negative_content_length_is_rejected(self):
         with self.assertRaises(ValueError):
             self.parse_body({"Content-Length": "-1"}, b"ignored")
+
+    def test_duplicate_content_length_headers_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "duplicate content length"):
+            self.parse_body(
+                {"Content-Length": ["2", "3"]},
+                b"{} ",
+            )
 
     def test_non_numeric_content_length_is_rejected(self):
         with self.assertRaises(ValueError):
