@@ -177,4 +177,40 @@ void main() {
       throwsArgumentError,
     );
   });
+
+  test('rejects an oversized vault envelope before reading it', () async {
+    final entry = await vault.protectBytes(
+      originalName: 'oversized-envelope.txt',
+      bytes: utf8.encode('protected content'),
+    );
+    final encryptedFile =
+        File('${tempDirectory.path}/neon_shield_vault/${entry.id}.nsvault');
+    final handle = await encryptedFile.open(mode: FileMode.write);
+    await handle.truncate(EncryptedFileVault.maxVaultEnvelopeBytes + 1);
+    await handle.close();
+
+    await expectLater(
+      vault.decryptEntry(entry.id),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
+  test('rejects an envelope with a missing authentication tag', () async {
+    final entry = await vault.protectBytes(
+      originalName: 'missing-tag.txt',
+      bytes: utf8.encode('protected content'),
+    );
+    final encryptedFile =
+        File('${tempDirectory.path}/neon_shield_vault/${entry.id}.nsvault');
+    final envelope =
+        jsonDecode(await encryptedFile.readAsString()) as Map<String, dynamic>;
+    envelope.remove('mac');
+    await encryptedFile.writeAsString(jsonEncode(envelope), flush: true);
+
+    await expectLater(
+      vault.decryptEntry(entry.id),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
 }
