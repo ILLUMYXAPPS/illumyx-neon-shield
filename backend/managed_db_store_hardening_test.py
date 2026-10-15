@@ -122,6 +122,35 @@ class ManagedDbHardeningTests(unittest.TestCase):
                 ).fetchone()
             self.assertEqual(row[0], 4)
 
+    def test_concurrent_first_sign_in_failures_are_not_lost(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "failure-limit.sqlite3"
+
+            def make_store() -> ManagedDbAuthStore:
+                return ManagedDbAuthStore(
+                    lambda: sqlite3.connect(path, timeout=15),
+                    pepper="test-pepper",
+                    placeholder="?",
+                    audit_lock_clause="",
+                )
+
+            make_store().migrate()
+            now = "2026-10-15T00:00:00+00:00"
+
+            def record(_: int) -> None:
+                make_store().record_sign_in_failure(
+                    "user@example.com", now, 300, 3
+                )
+
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                list(executor.map(record, range(12)))
+
+            with sqlite3.connect(path) as connection:
+                row = connection.execute(
+                    "SELECT failure_count FROM sign_in_rate_limits"
+                ).fetchone()
+            self.assertEqual(row[0], 3)
+
 
 if __name__ == "__main__":
     unittest.main()
