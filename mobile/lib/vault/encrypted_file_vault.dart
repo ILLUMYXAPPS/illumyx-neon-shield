@@ -294,6 +294,24 @@ class EncryptedFileVault {
     if ((await listEntries()).isNotEmpty) {
       throw StateError('The vault key is missing. Refusing to replace it because existing files would become unrecoverable.');
     }
+
+    // A crash can occur after the encrypted file is renamed into place but
+    // before the index is saved. Never generate a replacement key while
+    // encrypted files or temporary write remnants may still need the old key.
+    final directory = await _vaultDirectory();
+    final hasVaultResidue = await directory
+        .list()
+        .any((entity) =>
+            entity is File &&
+            (entity.path.endsWith('.nsvault') ||
+                entity.path.endsWith('.nsvault.tmp')));
+    if (hasVaultResidue) {
+      throw StateError(
+        'The vault key is missing while encrypted vault files remain. '
+        'Refusing to create a replacement key to protect recoverability.',
+      );
+    }
+
     final key = await _cipher.newSecretKey();
     await _keyStore.writeKey(base64Encode(await key.extractBytes()));
     return key;
