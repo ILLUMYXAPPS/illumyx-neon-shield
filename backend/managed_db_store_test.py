@@ -123,8 +123,14 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
             for event_hash, previous_hash in rows:
                 if previous_hash != "0" * 64:
                     self.assertIn(previous_hash, by_hash)
-            self.assertEqual(store.last_audit_hash(), next(event_hash for event_hash, _ in rows if event_hash == store.last_audit_hash()))
-            self.assertEqual(sum(1 for _, previous_hash in rows if previous_hash == store.last_audit_hash()), 0)
+            head = store.last_audit_hash()
+            self.assertIn(head, by_hash)
+            child_counts = {}
+            for _, previous_hash in rows:
+                if previous_hash != "0" * 64:
+                    child_counts[previous_hash] = child_counts.get(previous_hash, 0) + 1
+            self.assertEqual(set(child_counts), set(by_hash) - {head})
+            self.assertTrue(all(count == 1 for count in child_counts.values()))
 
     def test_requires_pepper(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "pepper"):
