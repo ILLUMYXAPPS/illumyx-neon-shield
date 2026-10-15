@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -89,6 +90,37 @@ class ManagedDbHardeningTests(unittest.TestCase):
         self.assertEqual(factory_calls, 1)
         self.assertTrue(connection.rolled_back)
         self.assertTrue(connection.closed)
+
+
+    def test_concurrent_first_sign_in_reservations_are_serialized(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "rate-limit.sqlite3"
+
+            def make_store() -> ManagedDbAuthStore:
+                return ManagedDbAuthStore(
+                    lambda: sqlite3.connect(path, timeout=15),
+                    pepper="test-pepper",
+                    placeholder="?",
+                    audit_lock_clause="",
+                )
+
+            make_store().migrate()
+            now = "2026-10-15T00:00:00+00:00"
+
+            def reserve(_: int) -> bool:
+                return make_store().reserve_sign_in_attempt(
+                    "user@example.com", now, 300, 3
+                )
+
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                outcomes = list(executor.map(reserve, range(12)))
+
+            self.assertEqual(sum(outcomes), 3)
+            with sqlite3.connect(path) as connection:
+                row = connection.execute(
+                    "SELECT failure_count FROM sign_in_rate_limits"
+                ).fetchone()
+            self.assertEqual(row[0], 4)
 
 
 if __name__ == "__main__":
