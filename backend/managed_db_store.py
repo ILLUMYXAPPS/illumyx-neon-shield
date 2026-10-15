@@ -226,12 +226,11 @@ class ManagedDbAuthStore(ManagedAuthStore):
             row = cursor.fetchone()
             if row is None:
                 new_count = 1
-                try:
-                    cursor.execute(self._sql("INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) VALUES(?,?,?)"), (identity_hash, new_count, now))
-                except Exception:
-                    connection.rollback()
-                    connection.close()
-                    return self.reserve_sign_in_attempt(identity, now, window_seconds, max_sign_ins)
+                # Do not recursively retry arbitrary database errors here. The insert
+                # can fail because of an outage, schema problem, permission error, or a
+                # uniqueness race. Retrying every exception can recurse without bound
+                # during an outage. Fail closed and let the caller handle the DB error.
+                cursor.execute(self._sql("INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) VALUES(?,?,?)"), (identity_hash, new_count, now))
             elif now_dt.timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
                 new_count = 1
                 cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=1,window_started_at=? WHERE identity_hash=?"), (now, identity_hash))
