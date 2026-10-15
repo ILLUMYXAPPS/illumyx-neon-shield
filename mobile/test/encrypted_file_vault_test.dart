@@ -161,6 +161,62 @@ void main() {
     expect(await vault.listEntries(), isEmpty);
   });
 
+  test('rejects an oversized actual stream when declared size is understated', () async {
+    Stream<List<int>> oversizedChunks() async* {
+      for (var i = 0; i < 51; i++) {
+        yield List<int>.filled(1024 * 1024, 7);
+      }
+    }
+
+    await expectLater(
+      vault.protectStream(
+        originalName: 'understated-size.bin',
+        chunks: oversizedChunks(),
+        expectedSize: 1,
+      ),
+      throwsArgumentError,
+    );
+
+    expect(keyStore.key, isNull);
+    expect(await vault.listEntries(), isEmpty);
+  });
+
+  test('accepts a stream exactly at the configured size limit', () async {
+    Stream<List<int>> exactLimitChunks() async* {
+      for (var i = 0; i < 50; i++) {
+        yield List<int>.filled(1024 * 1024, 7);
+      }
+    }
+
+    final entry = await vault.protectStream(
+      originalName: 'exact-limit.bin',
+      chunks: exactLimitChunks(),
+      expectedSize: EncryptedFileVault.maxFileBytes,
+    );
+
+    expect(entry.sizeBytes, EncryptedFileVault.maxFileBytes);
+    expect(keyStore.key, isNotNull);
+    expect(await vault.listEntries(), hasLength(1));
+  });
+
+  test('a stream failure does not create a key or vault entry', () async {
+    Stream<List<int>> failingChunks() async* {
+      yield [1, 2, 3];
+      throw StateError('simulated read failure');
+    }
+
+    await expectLater(
+      vault.protectStream(
+        originalName: 'read-failure.bin',
+        chunks: failingChunks(),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(keyStore.key, isNull);
+    expect(await vault.listEntries(), isEmpty);
+  });
+
   test('stops an oversized stream at the configured limit', () async {
     var chunksYielded = 0;
     Stream<List<int>> oversizedChunks() async* {
