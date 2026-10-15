@@ -239,6 +239,70 @@ void main() {
     expect(await vault.listEntries(), isEmpty);
   });
 
+
+  test('recovers a valid orphaned encrypted file without deleting it', () async {
+    final original = utf8.encode('recover this encrypted copy safely');
+    final created = await vault.protectBytes(
+      originalName: 'original-note.txt',
+      bytes: original,
+    );
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('neon_shield.encrypted_vault_index_v1', '[]');
+
+    final recovered = await vault.recoverOrphanedEntry(
+      id: created.id,
+      recoveredName: 'recovered-note.txt',
+    );
+
+    expect(recovered.id, created.id);
+    expect(recovered.name, 'recovered-note.txt');
+    expect(await vault.listEntries(), hasLength(1));
+    expect(await vault.decryptEntry(created.id), orderedEquals(original));
+
+    final vaultDirectory = Directory('${tempDirectory.path}/neon_shield_vault');
+    expect(await File('${vaultDirectory.path}/${created.id}.nsvault').exists(), isTrue);
+  });
+
+  test('does not register an orphan when the encryption key is missing', () async {
+    final created = await vault.protectBytes(
+      originalName: 'orphan.txt',
+      bytes: utf8.encode('keep encrypted data untouched'),
+    );
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('neon_shield.encrypted_vault_index_v1', '[]');
+    keyStore.key = null;
+
+    await expectLater(
+      vault.recoverOrphanedEntry(
+        id: created.id,
+        recoveredName: 'recovered.txt',
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(await vault.listEntries(), isEmpty);
+    final vaultDirectory = Directory('${tempDirectory.path}/neon_shield_vault');
+    expect(await File('${vaultDirectory.path}/${created.id}.nsvault').exists(), isTrue);
+  });
+
+  test('refuses to create a replacement key when orphaned encrypted files remain', () async {
+    final vaultDirectory = Directory('${tempDirectory.path}/neon_shield_vault');
+    await vaultDirectory.create(recursive: true);
+    final orphan = File('${vaultDirectory.path}/orphaned-entry.nsvault');
+    await orphan.writeAsString('encrypted payload from an interrupted save');
+
+    await expectLater(
+      vault.protectBytes(
+        originalName: 'new-file.txt',
+        bytes: utf8.encode('must not overwrite recoverability'),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(keyStore.key, isNull);
+    expect(await orphan.exists(), isTrue);
+    expect(await vault.listEntries(), isEmpty);
+  });
+
   test('refuses to silently replace a missing key for existing vault entries', () async {
     final entry = await vault.protectBytes(
       originalName: 'notes.txt',
@@ -268,6 +332,32 @@ void main() {
 
     expect(await encryptedFile.exists(), isFalse);
     expect(await vault.listEntries(), isEmpty);
+  });
+
+  test('cleans up encrypted and temporary files when index update fails', () async {
+    // A valid existing key lets encryption proceed, while a corrupt index
+    // forces the post-write index read to fail and exercises rollback cleanup.
+    keyStore.key = base64Encode(List<int>.filled(32, 1));
+    SharedPreferences.setMockInitialValues({
+      'neon_shield.encrypted_vault_index_v1': 'not-valid-json',
+    });
+
+    await expectLater(
+      vault.protectBytes(
+        originalName: 'index-failure.txt',
+        bytes: utf8.encode('must not leave an orphaned encrypted file'),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    final vaultDirectory = Directory('${tempDirectory.path}/neon_shield_vault');
+    final remainingFiles = await vaultDirectory.list().toList();
+    expect(
+      remainingFiles.where(
+        (file) => file.path.endsWith('.nsvault') || file.path.endsWith('.nsvault.tmp'),
+      ),
+      isEmpty,
+    );
   });
 
   test('rejects unknown entry identifiers', () async {
