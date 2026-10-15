@@ -148,10 +148,15 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
                 self.assertEqual(len(rows), 8)
                 self.assertEqual(sum(1 for row in rows if row["previous_hash"] == "0" * 64), 1)
                 hashes_in_chain = {row["event_hash"] for row in rows}
-                self.assertEqual(stores[0].last_audit_hash(), next(row["event_hash"] for row in rows if row["event_hash"] == stores[0].last_audit_hash()))
+                head = stores[0].last_audit_hash()
+                self.assertIn(head, hashes_in_chain)
+                child_counts = {}
                 for row in rows:
                     if row["previous_hash"] != "0" * 64:
                         self.assertIn(row["previous_hash"], hashes_in_chain)
+                        child_counts[row["previous_hash"]] = child_counts.get(row["previous_hash"], 0) + 1
+                self.assertEqual(set(child_counts), hashes_in_chain - {head})
+                self.assertTrue(all(count == 1 for count in child_counts.values()))
             finally:
                 for store in stores:
                     store.close()
