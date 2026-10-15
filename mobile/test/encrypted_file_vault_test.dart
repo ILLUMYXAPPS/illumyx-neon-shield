@@ -239,6 +239,51 @@ void main() {
     expect(await vault.listEntries(), isEmpty);
   });
 
+
+  test('recovers a valid orphaned encrypted file without deleting it', () async {
+    final original = utf8.encode('recover this encrypted copy safely');
+    final created = await vault.protectBytes(
+      originalName: 'original-note.txt',
+      bytes: original,
+    );
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('neon_shield.encrypted_vault_index_v1', '[]');
+
+    final recovered = await vault.recoverOrphanedEntry(
+      id: created.id,
+      recoveredName: 'recovered-note.txt',
+    );
+
+    expect(recovered.id, created.id);
+    expect(recovered.name, 'recovered-note.txt');
+    expect(await vault.listEntries(), hasLength(1));
+    expect(await vault.decryptEntry(created.id), orderedEquals(original));
+
+    final vaultDirectory = Directory('${tempDirectory.path}/neon_shield_vault');
+    expect(await File('${vaultDirectory.path}/${created.id}.nsvault').exists(), isTrue);
+  });
+
+  test('does not register an orphan when the encryption key is missing', () async {
+    final created = await vault.protectBytes(
+      originalName: 'orphan.txt',
+      bytes: utf8.encode('keep encrypted data untouched'),
+    );
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('neon_shield.encrypted_vault_index_v1', '[]');
+    keyStore.key = null;
+
+    await expectLater(
+      vault.recoverOrphanedEntry(
+        id: created.id,
+        recoveredName: 'recovered.txt',
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(await vault.listEntries(), isEmpty);
+    final vaultDirectory = Directory('${tempDirectory.path}/neon_shield_vault');
+    expect(await File('${vaultDirectory.path}/${created.id}.nsvault').exists(), isTrue);
+  });
+
   test('refuses to create a replacement key when orphaned encrypted files remain', () async {
     final vaultDirectory = Directory('${tempDirectory.path}/neon_shield_vault');
     await vaultDirectory.create(recursive: true);

@@ -259,6 +259,79 @@ class EncryptedFileVault {
     return Uint8List.fromList(clear);
   }
 
+
+  /// Re-registers an encrypted file left behind if the app stopped after the
+  /// atomic rename but before saving the index. The caller must supply a name;
+  /// the encrypted envelope intentionally does not contain original metadata.
+  /// This never deletes or overwrites the encrypted file.
+  Future<VaultEntry> recoverOrphanedEntry({
+    required String id,
+    required String recoveredName,
+  }) async {
+    if (!RegExp(r'^[a-f0-9]{32}$').hasMatch(id)) {
+      throw ArgumentError.value(id, 'id', 'Invalid vault entry identifier.');
+    }
+    final entries = await listEntries();
+    if (entries.any((entry) => entry.id == id)) {
+      throw StateError('That file is already listed in the vault.');
+    }
+
+    final safeName = _safeName(recoveredName);
+    final encodedKey = await _keyStore.readKey();
+    if (encodedKey == null) {
+      throw StateError('The vault key is missing. Recovery is not possible without it.');
+    }
+    final keyBytes = base64Decode(encodedKey);
+    if (keyBytes.length != 32) throw StateError('The vault key is invalid.');
+
+    final directory = await _vaultDirectory();
+    final file = File('${directory.path}/$id.nsvault');
+    if (!await file.exists()) throw StateError('The orphaned encrypted file was not found.');
+    if (await file.length() > maxVaultEnvelopeBytes) {
+      throw const FormatException('Encrypted file exceeds the supported vault size.');
+    }
+
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! Map<String, dynamic> || decoded['version'] != 1) {
+      throw const FormatException('Unsupported encrypted-file format.');
+    }
+    final nonceValue = decoded['nonce'];
+    final macValue = decoded['mac'];
+    final ciphertextValue = decoded['ciphertext'];
+    if (nonceValue is! String || macValue is! String || ciphertextValue is! String) {
+      throw const FormatException('Encrypted-file envelope is incomplete.');
+    }
+    final nonce = base64Decode(nonceValue);
+    final mac = base64Decode(macValue);
+    final ciphertext = base64Decode(ciphertextValue);
+    if (nonce.length != 12 || mac.length != 16 ||
+        ciphertext.isEmpty || ciphertext.length > maxFileBytes) {
+      throw const FormatException('Encrypted-file envelope has invalid lengths.');
+    }
+
+    // Authenticate/decrypt before registering metadata. A damaged or tampered
+    // file must not be presented as successfully recovered.
+    await _cipher.decrypt(
+      SecretBox(ciphertext, nonce: nonce, mac: Mac(mac)),
+      secretKey: SecretKey(keyBytes),
+    );
+
+    final entry = VaultEntry(
+      id: id,
+      name: safeName,
+      sizeBytes: ciphertext.length,
+      createdAt: DateTime.now().toUtc(),
+    );
+    final preferences = await SharedPreferences.getInstance();
+    final updated = [...entries, entry];
+    final saved = await preferences.setString(
+      _indexKey,
+      jsonEncode(updated.map((item) => item.toJson()).toList()),
+    );
+    if (!saved) throw StateError('The vault index could not be updated.');
+    return entry;
+  }
+
   Future<void> removeEncryptedCopy(String id) async {
     if (!RegExp(r'^[a-f0-9]{32}$').hasMatch(id)) {
       throw ArgumentError.value(id, 'id', 'Invalid vault entry identifier.');
