@@ -192,17 +192,48 @@ class ManagedDbAuthStore(ManagedAuthStore):
             return int(row[0]) >= max_sign_ins
 
     def record_sign_in_failure(self, identity: str, now: str, window_seconds: int, max_sign_ins: int) -> None:
+        """Record a failed sign-in without losing concurrent first-use failures."""
         identity_hash = _hash(identity.strip().lower(), self._pepper)
         now_dt = datetime.fromisoformat(now)
         connection = self._connection_factory()
         cursor = connection.cursor()
         try:
-            cursor.execute(self._sql("SELECT failure_count, window_started_at FROM sign_in_rate_limits WHERE identity_hash=?" + self._audit_lock_clause), (identity_hash,))
+            # Create a stable row first so simultaneous failures for a new identity
+            # serialize on its unique key instead of resetting each other to one.
+            cursor.execute(
+                self._sql(
+                    "INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) "
+                    "VALUES(?,?,?) ON CONFLICT(identity_hash) DO NOTHING"
+                ),
+                (identity_hash, 0, now),
+            )
+            cursor.execute(
+                self._sql(
+                    "SELECT failure_count, window_started_at FROM sign_in_rate_limits "
+                    "WHERE identity_hash=?" + self._audit_lock_clause
+                ),
+                (identity_hash,),
+            )
             row = cursor.fetchone()
-            if row is None or now_dt.timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
-                cursor.execute(self._sql("INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) VALUES(?,?,?) ON CONFLICT(identity_hash) DO UPDATE SET failure_count=1,window_started_at=excluded.window_started_at"), (identity_hash, 1, now))
+            if row is None:
+                raise RuntimeError("sign-in rate-limit row missing after atomic insert")
+
+            if now_dt.timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
+                cursor.execute(
+                    self._sql(
+                        "UPDATE sign_in_rate_limits SET failure_count=1,window_started_at=? "
+                        "WHERE identity_hash=?"
+                    ),
+                    (now, identity_hash),
+                )
             elif int(row[0]) < max_sign_ins:
-                cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=failure_count+1 WHERE identity_hash=?"), (identity_hash,))
+                cursor.execute(
+                    self._sql(
+                        "UPDATE sign_in_rate_limits SET failure_count=failure_count+1 "
+                        "WHERE identity_hash=?"
+                    ),
+                    (identity_hash,),
+                )
             connection.commit()
         except Exception:
             connection.rollback()
