@@ -9,6 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from backend.managed_db_store import ManagedDbAuthStore
+from backend.store import AuthStore
 from backend.managed_store import ManagedAuthStore
 
 
@@ -131,6 +132,29 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
                     child_counts[previous_hash] = child_counts.get(previous_hash, 0) + 1
             self.assertEqual(set(child_counts), set(by_hash) - {head})
             self.assertTrue(all(count == 1 for count in child_counts.values()))
+
+    def test_sqlite_auth_store_concurrent_audit_writes_form_chain(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = str(Path(directory) / "sqlite-auth-store.sqlite3")
+            stores = [AuthStore(path) for _ in range(8)]
+            try:
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    hashes = list(pool.map(
+                        lambda item: item[1].add_audit_fingerprint(f"sqlite-event-{item[0]}", "subject-1", f"device-{item[0]}"),
+                        enumerate(stores),
+                    ))
+                rows = stores[0]._db.execute("SELECT event_hash, previous_hash FROM audit_events").fetchall()
+                self.assertEqual(len(hashes), 8)
+                self.assertEqual(len(rows), 8)
+                self.assertEqual(sum(1 for row in rows if row["previous_hash"] == "0" * 64), 1)
+                hashes_in_chain = {row["event_hash"] for row in rows}
+                self.assertEqual(stores[0].last_audit_hash(), next(row["event_hash"] for row in rows if row["event_hash"] == stores[0].last_audit_hash()))
+                for row in rows:
+                    if row["previous_hash"] != "0" * 64:
+                        self.assertIn(row["previous_hash"], hashes_in_chain)
+            finally:
+                for store in stores:
+                    store.close()
 
     def test_requires_pepper(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "pepper"):
