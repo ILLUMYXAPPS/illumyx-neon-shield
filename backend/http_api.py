@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
@@ -9,6 +10,7 @@ from auth_server_contract import AuthFailure, SignInRequest
 
 
 _MAX_REQUEST_BODY_BYTES = 32_768
+_CONTENT_LENGTH_RE = re.compile(r"[0-9]+", re.ASCII)
 
 
 def _session_json(session):
@@ -39,7 +41,7 @@ def make_handler(service):
 
         def _body(self) -> dict:
             # This adapter accepts only a single, explicitly sized request body.
-            # In particular, never let a negative length turn read() into an
+            # Never let a negative or malformed length turn read() into an
             # unbounded read from the client socket.
             if self.headers.get("Transfer-Encoding") is not None:
                 raise ValueError("transfer encoding is unsupported")
@@ -49,13 +51,12 @@ def make_handler(service):
                 raise ValueError("duplicate content length")
 
             raw_length = content_lengths[0] if content_lengths else "0"
-            try:
-                length = int(raw_length)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("invalid content length") from exc
-
-            if length < 0:
+            # RFC field syntax here is ASCII decimal digits only. int() by itself
+            # also accepts signs and surrounding whitespace, which we reject.
+            if _CONTENT_LENGTH_RE.fullmatch(raw_length) is None:
                 raise ValueError("invalid content length")
+            length = int(raw_length)
+
             if length > _MAX_REQUEST_BODY_BYTES:
                 raise ValueError("request too large")
 
