@@ -44,5 +44,52 @@ class ManagedDbHardeningTests(unittest.TestCase):
         self.assertTrue(connection.rolled_back)
 
 
+    def test_sign_in_reservation_database_error_fails_closed_without_retry_recursion(self) -> None:
+        class FailingCursor:
+            def execute(self, query, parameters=()):
+                if query.startswith("SELECT failure_count"):
+                    return None
+                if query.startswith("INSERT INTO sign_in_rate_limits"):
+                    raise RuntimeError("database unavailable")
+                raise AssertionError(f"unexpected query: {query}")
+
+            def fetchone(self):
+                return None
+
+            def close(self):
+                pass
+
+        class FailingConnection:
+            def __init__(self) -> None:
+                self.rolled_back = False
+                self.closed = False
+
+            def cursor(self):
+                return FailingCursor()
+
+            def rollback(self):
+                self.rolled_back = True
+
+            def close(self):
+                self.closed = True
+
+        connection = FailingConnection()
+        factory_calls = 0
+
+        def connection_factory():
+            nonlocal factory_calls
+            factory_calls += 1
+            return connection
+
+        store = ManagedDbAuthStore(connection_factory, pepper="test-pepper", placeholder="?", audit_lock_clause="")
+        now = "2026-10-15T00:00:00+00:00"
+        with self.assertRaisesRegex(RuntimeError, "database unavailable"):
+            store.reserve_sign_in_attempt("user@example.com", now, 300, 5)
+
+        self.assertEqual(factory_calls, 1)
+        self.assertTrue(connection.rolled_back)
+        self.assertTrue(connection.closed)
+
+
 if __name__ == "__main__":
     unittest.main()
