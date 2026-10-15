@@ -33,6 +33,22 @@ class HttpRequestBodyParsingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.parse_body({"Content-Length": "-1"}, b"ignored")
 
+    def test_signed_content_length_is_rejected(self):
+        for value in ("+2", "-0"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "invalid content length"):
+                    self.parse_body({"Content-Length": value}, b"{}")
+
+    def test_whitespace_padded_content_length_is_rejected(self):
+        for value in (" 2", "2 ", "\t2", "2\n"):
+            with self.subTest(value=repr(value)):
+                with self.assertRaisesRegex(ValueError, "invalid content length"):
+                    self.parse_body({"Content-Length": value}, b"{}")
+
+    def test_non_ascii_decimal_content_length_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "invalid content length"):
+            self.parse_body({"Content-Length": "٢"}, b"{}")
+
     def test_duplicate_content_length_headers_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "duplicate content length"):
             self.parse_body(
