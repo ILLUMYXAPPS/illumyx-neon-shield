@@ -114,6 +114,35 @@ class EncryptedFileVault {
     }
   }
 
+  /// Reads a file stream while enforcing the beta size limit before buffering
+  /// or encrypting the complete payload. A declared size is only an early
+  /// rejection hint; the actual stream length is always enforced as well.
+  Future<VaultEntry> protectStream({
+    required String originalName,
+    required Stream<List<int>> chunks,
+    int? expectedSize,
+  }) async {
+    if (expectedSize != null && expectedSize > maxFileBytes) {
+      throw ArgumentError('Files must be 50 MB or smaller in this beta.');
+    }
+
+    final builder = BytesBuilder(copy: false);
+    var totalBytes = 0;
+    await for (final chunk in chunks) {
+      if (chunk.isEmpty) continue;
+      totalBytes += chunk.length;
+      if (totalBytes > maxFileBytes) {
+        throw ArgumentError('Files must be 50 MB or smaller in this beta.');
+      }
+      builder.add(chunk);
+    }
+    if (totalBytes == 0) {
+      throw ArgumentError('The selected file is empty.');
+    }
+
+    return protectBytes(originalName: originalName, bytes: builder.takeBytes());
+  }
+
   Future<VaultEntry> protectBytes({
     required String originalName,
     required List<int> bytes,
