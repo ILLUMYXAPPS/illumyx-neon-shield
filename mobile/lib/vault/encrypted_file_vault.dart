@@ -285,7 +285,7 @@ class EncryptedFileVault {
     if (keyBytes.length != 32) throw StateError('The vault key is invalid.');
 
     final directory = await _vaultDirectory();
-    final file = File('\${directory.path}/$id.nsvault');
+    final file = File('${directory.path}/$id.nsvault');
     if (!await file.exists()) throw StateError('The orphaned encrypted file was not found.');
     if (await file.length() > maxVaultEnvelopeBytes) {
       throw const FormatException('Encrypted file exceeds the supported vault size.');
