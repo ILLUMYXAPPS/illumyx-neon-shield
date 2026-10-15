@@ -1,7 +1,12 @@
 """Regression tests for bounded HTTP request-body parsing."""
 from email.message import Message
 from io import BytesIO
+import socket
+import threading
+import time
 import unittest
+from http.server import ThreadingHTTPServer
+from unittest.mock import patch
 
 from backend.http_api import make_handler
 
@@ -78,6 +83,61 @@ class HttpRequestBodyParsingTests(unittest.TestCase):
     def test_non_object_json_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "JSON object"):
             self.parse_body({"Content-Length": "2"}, b"[]")
+
+    def test_trickled_request_body_hits_total_deadline(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(object()))
+        server.daemon_threads = True
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+
+        with patch("backend.http_api._REQUEST_READ_TIMEOUT_SECONDS", 0.35):
+            server_thread.start()
+            try:
+                with socket.create_connection(server.server_address, timeout=2) as client:
+                    client.settimeout(2)
+                    client.sendall(
+                        b"POST /v1/auth/sign-in HTTP/1.1\r\n"
+                        b"Host: localhost\r\n"
+                        b"Content-Length: 100\r\n"
+                        b"\r\n"
+                    )
+
+                    def trickle_body():
+                        for _ in range(20):
+                            try:
+                                client.sendall(b"x")
+                            except OSError:
+                                return
+                            time.sleep(0.08)
+
+                    sender = threading.Thread(target=trickle_body, daemon=True)
+                    sender.start()
+                    response = bytearray()
+                    while b"\r\n\r\n" not in response:
+                        chunk = client.recv(4096)
+                        if not chunk:
+                            break
+                        response.extend(chunk)
+                    header_end = response.find(b"\r\n\r\n") + 4
+                    headers = bytes(response[:header_end])
+                    body = bytearray(response[header_end:])
+                    content_length = next(
+                        int(line.split(b":", 1)[1].strip())
+                        for line in headers.split(b"\r\n")
+                        if line.lower().startswith(b"content-length:")
+                    )
+                    while len(body) < content_length:
+                        chunk = client.recv(4096)
+                        if not chunk:
+                            break
+                        body.extend(chunk)
+                    sender.join(timeout=1)
+                self.assertIn(b"408 Request Timeout", headers)
+                self.assertIn(b"Connection: close", headers)
+                self.assertIn(b"request_timeout", body)
+            finally:
+                server.shutdown()
+                server.server_close()
+                server_thread.join(timeout=2)
 
 
 if __name__ == "__main__":
