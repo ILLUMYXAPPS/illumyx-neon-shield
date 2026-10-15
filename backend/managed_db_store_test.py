@@ -88,7 +88,7 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
             store.migrate()
             first = store.add_audit_fingerprint("sign_in", "subject-1", "device-hash-1")
             second = store.add_audit_fingerprint("refresh", "subject-1", "device-hash-1")
-            rows = sqlite3.connect(store._connection_factory.__closure__[0].cell_contents if False else str(Path(directory) / "managed-test.sqlite3"))
+            rows = sqlite3.connect(Path(directory) / "managed-test.sqlite3")
             try:
                 events = rows.execute("SELECT event_hash, previous_hash FROM audit_events").fetchall()
             finally:
@@ -138,11 +138,14 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
             path = str(Path(directory) / "sqlite-auth-store.sqlite3")
             stores = [AuthStore(path) for _ in range(8)]
             try:
+                def append(item: tuple[int, AuthStore]) -> str:
+                    index, store = item
+                    return store.add_audit_fingerprint(
+                        f"sqlite-event-{index}", "subject-1", f"device-{index}"
+                    )
+
                 with ThreadPoolExecutor(max_workers=8) as pool:
-                    hashes = list(pool.map(
-                        lambda item: item[1].add_audit_fingerprint(f"sqlite-event-{item[0]}", "subject-1", f"device-{item[0]}"),
-                        enumerate(stores),
-                    ))
+                    hashes = list(pool.map(append, enumerate(stores)))
                 rows = stores[0]._db.execute("SELECT event_hash, previous_hash FROM audit_events").fetchall()
                 self.assertEqual(len(hashes), 8)
                 self.assertEqual(len(rows), 8)
