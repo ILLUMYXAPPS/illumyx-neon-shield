@@ -268,81 +268,7 @@ class EncryptedFileVault {
     required String id,
     required String recoveredName,
   }) async {
-    if (!RegExp(r'^[a-f0-9]{32}
     if (!RegExp(r'^[a-f0-9]{32}$').hasMatch(id)) {
-      throw ArgumentError.value(id, 'id', 'Invalid vault entry identifier.');
-    }
-    final entries = await listEntries();
-    if (!entries.any((entry) => entry.id == id)) {
-      throw StateError('That file is not listed in the vault.');
-    }
-    final directory = await _vaultDirectory();
-    final file = File('${directory.path}/$id.nsvault');
-    final preferences = await SharedPreferences.getInstance();
-    final updated = entries.where((entry) => entry.id != id).toList();
-    final previousIndex = jsonEncode(entries.map((entry) => entry.toJson()).toList());
-    final updatedIndex = jsonEncode(updated.map((entry) => entry.toJson()).toList());
-    final saved = await preferences.setString(_indexKey, updatedIndex);
-    if (!saved) throw StateError('The vault index could not be updated.');
-    try {
-      if (await file.exists()) await file.delete();
-    } catch (_) {
-      // Restore the visible entry if deleting the encrypted file failed.
-      await preferences.setString(_indexKey, previousIndex);
-      rethrow;
-    }
-  }
-
-  Future<SecretKey> _loadOrCreateKey() async {
-    final stored = await _keyStore.readKey();
-    if (stored != null) {
-      final bytes = base64Decode(stored);
-      if (bytes.length != 32) throw StateError('The vault key is invalid.');
-      return SecretKey(bytes);
-    }
-    if ((await listEntries()).isNotEmpty) {
-      throw StateError('The vault key is missing. Refusing to replace it because existing files would become unrecoverable.');
-    }
-
-    // A crash can occur after the encrypted file is renamed into place but
-    // before the index is saved. Never generate a replacement key while
-    // encrypted files or temporary write remnants may still need the old key.
-    final directory = await _vaultDirectory();
-    final hasVaultResidue = await directory
-        .list()
-        .any((entity) =>
-            entity is File &&
-            (entity.path.endsWith('.nsvault') ||
-                entity.path.endsWith('.nsvault.tmp')));
-    if (hasVaultResidue) {
-      throw StateError(
-        'The vault key is missing while encrypted vault files remain. '
-        'Refusing to create a replacement key to protect recoverability.',
-      );
-    }
-
-    final key = await _cipher.newSecretKey();
-    await _keyStore.writeKey(base64Encode(await key.extractBytes()));
-    return key;
-  }
-
-  Future<Directory> _vaultDirectory() async {
-    final root = await _directoryProvider();
-    final directory = Directory('${root.path}/neon_shield_vault');
-    if (!await directory.exists()) await directory.create(recursive: true);
-    return directory;
-  }
-
-  String _safeName(String name) {
-    final leaf = name.replaceAll('\\', '/').split('/').last.trim();
-    final cleaned = leaf.replaceAll(RegExp(r'[^a-zA-Z0-9._ ()-]'), '_');
-    if (cleaned.isEmpty || cleaned == '.' || cleaned == '..') {
-      throw ArgumentError('The selected filename is invalid.');
-    }
-    return cleaned.length > 180 ? cleaned.substring(0, 180) : cleaned;
-  }
-}
-).hasMatch(id)) {
       throw ArgumentError.value(id, 'id', 'Invalid vault entry identifier.');
     }
     final entries = await listEntries();
@@ -359,7 +285,7 @@ class EncryptedFileVault {
     if (keyBytes.length != 32) throw StateError('The vault key is invalid.');
 
     final directory = await _vaultDirectory();
-    final file = File('${directory.path}/$id.nsvault');
+    final file = File('\${directory.path}/$id.nsvault');
     if (!await file.exists()) throw StateError('The orphaned encrypted file was not found.');
     if (await file.length() > maxVaultEnvelopeBytes) {
       throw const FormatException('Encrypted file exceeds the supported vault size.');
