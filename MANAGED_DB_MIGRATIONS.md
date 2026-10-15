@@ -12,6 +12,7 @@ Production schema changes use `backend.migrations.MigrationRunner` as an explici
 - Pending migrations execute in order inside one explicit DB-API transaction and roll back on failure when the driver supports transactional DDL.
 - The runner accepts the same DB-API placeholders used by the managed store: `?`, `%s`, or `:1`.
 - Migration definitions are code-reviewed and shipped with the release.
+- Migration `4`, `create_audit_chain_head`, creates the singleton audit-chain head and backfills it from the latest existing audit event, or the zero hash when the audit log is empty.
 
 ## Operational boundary
 
