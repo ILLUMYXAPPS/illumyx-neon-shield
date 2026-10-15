@@ -12,12 +12,12 @@ from backend.production_migrations import PRODUCTION_MIGRATIONS
 
 class MigrationRunnerTests(unittest.TestCase):
     def test_production_migrations_are_contiguous_and_create_rate_limit_state(self) -> None:
-        self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3])
+        self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3, 4])
         with TemporaryDirectory() as directory:
             path = Path(directory) / "production-migrations.sqlite3"
             runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
-            self.assertEqual(runner.apply_pending(), 3)
-            self.assertEqual(runner.apply_pending(), 3)
+            self.assertEqual(runner.apply_pending(), 4)
+            self.assertEqual(runner.apply_pending(), 4)
             connection = sqlite3.connect(path)
             try:
                 table = connection.execute(
@@ -31,7 +31,54 @@ class MigrationRunnerTests(unittest.TestCase):
                 (1, "create_auth_tables"),
                 (2, "create_auth_indexes"),
                 (3, "create_sign_in_rate_limits"),
+                (4, "create_audit_chain_head"),
             ])
+
+    def test_audit_chain_head_migration_backfills_existing_events(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "audit-head-migration.sqlite3"
+            legacy_migrations = PRODUCTION_MIGRATIONS[:3]
+            legacy_runner = MigrationRunner(lambda: sqlite3.connect(path), legacy_migrations)
+            self.assertEqual(legacy_runner.apply_pending(), 3)
+
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)",
+                    ("a" * 64, "first", "2026-10-15T10:00:00+00:00", None, "device-1", "0" * 64),
+                )
+                connection.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)",
+                    ("b" * 64, "second", "2026-10-15T10:01:00+00:00", None, "device-2", "a" * 64),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
+            self.assertEqual(runner.apply_pending(), 4)
+            connection = sqlite3.connect(path)
+            try:
+                head = connection.execute(
+                    "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
+                ).fetchone()
+                self.assertEqual(head[0], "b" * 64)
+            finally:
+                connection.close()
+
+    def test_audit_chain_head_migration_initializes_empty_chain(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "empty-audit-head-migration.sqlite3"
+            runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
+            self.assertEqual(runner.apply_pending(), 4)
+            connection = sqlite3.connect(path)
+            try:
+                head = connection.execute(
+                    "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
+                ).fetchone()
+                self.assertEqual(head[0], "0" * 64)
+            finally:
+                connection.close()
 
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:
