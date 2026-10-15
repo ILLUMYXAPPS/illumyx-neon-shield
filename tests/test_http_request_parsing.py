@@ -23,6 +23,10 @@ class HttpRequestBodyParsingTests(unittest.TestCase):
             for item in values:
                 handler.headers[name] = item
         handler.rfile = BytesIO(body)
+        class FakeConnection:
+            def settimeout(self, _timeout):
+                pass
+        handler.connection = FakeConnection()
         return handler._body()
 
     def test_valid_json_object_is_accepted(self):
