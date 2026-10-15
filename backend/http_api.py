@@ -8,6 +8,46 @@ from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, SignInRequest
 
 
+_MAX_REQUEST_BYTES = 32_768
+_MAX_IDENTITY_LENGTH = 320
+_MAX_CREDENTIAL_LENGTH = 4_096
+_MAX_DEVICE_ID_LENGTH = 512
+_MAX_PHONE_IDENTITY_LENGTH = 64
+
+
+def _parse_content_length(value: str | None) -> int:
+    """Parse a bounded, non-negative decimal Content-Length without unbounded reads."""
+    if value is None or not value or not value.isascii() or not value.isdecimal():
+        raise ValueError("valid Content-Length required")
+    length = int(value)
+    if length > _MAX_REQUEST_BYTES:
+        raise ValueError("request too large")
+    return length
+
+
+def _sign_in_request(data: dict) -> SignInRequest:
+    """Validate untrusted JSON fields without coercing arbitrary values to strings."""
+    identity = data.get("identity")
+    credential = data.get("credential")
+    device_id = data.get("device_id")
+    phone_identity = data.get("phone_identity")
+
+    if not isinstance(identity, str) or not identity.strip() or len(identity) > _MAX_IDENTITY_LENGTH:
+        raise ValueError("invalid identity")
+    if not isinstance(credential, str) or not credential or len(credential) > _MAX_CREDENTIAL_LENGTH:
+        raise ValueError("invalid credential")
+    if not isinstance(device_id, str) or not device_id or len(device_id) > _MAX_DEVICE_ID_LENGTH:
+        raise ValueError("invalid device_id")
+    if phone_identity is not None and (
+        not isinstance(phone_identity, str)
+        or not phone_identity.strip()
+        or len(phone_identity) > _MAX_PHONE_IDENTITY_LENGTH
+    ):
+        raise ValueError("invalid phone_identity")
+
+    return SignInRequest(identity, credential, device_id, phone_identity)
+
+
 def _session_json(session):
     return {
         "session_id": session.session_id,
@@ -20,7 +60,7 @@ def _session_json(session):
 
 def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "NeonShieldAuth/1.0"
+        server_version = "NeonShieldAuth"
 
         def _json(self, status: int, payload: dict | None = None) -> None:
             body = b"" if status == 204 else json.dumps(payload or {}, separators=(",", ":")).encode()
@@ -30,27 +70,30 @@ def make_handler(service):
                 self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             if body:
                 self.wfile.write(body)
 
         def _body(self) -> dict:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length > 32_768:
-                raise ValueError("request too large")
-            value = json.loads(self.rfile.read(length) or b"{}")
+            content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            if content_type != "application/json":
+                raise ValueError("application/json required")
+            length = _parse_content_length(self.headers.get("Content-Length"))
+            raw_body = self.rfile.read(length) if length else b"{}"
+            if len(raw_body) != length:
+                raise ValueError("incomplete request body")
+            value = json.loads(raw_body or b"{}")
             if not isinstance(value, dict):
                 raise ValueError("JSON object required")
             return value
 
         def _session(self):
             value = self.headers.get("Authorization", "")
-            if not value.startswith("Bearer "):
+            scheme, separator, token = value.partition(" ")
+            if not separator or scheme.lower() != "bearer" or not token.strip():
                 raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
-            token = value[7:].strip()
-            if not token:
-                raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
-            return service.resolve_session(token)
+            return service.resolve_session(token.strip())
 
         def do_GET(self) -> None:
             if self.path == "/health":
@@ -62,17 +105,16 @@ def make_handler(service):
             try:
                 data = self._body()
                 if self.path == "/v1/auth/sign-in":
-                    session = service.sign_in(
-                        SignInRequest(
-                            str(data.get("identity", "")),
-                            str(data.get("credential", "")),
-                            str(data.get("device_id", "")),
-                            str(data["phone_identity"])
-                            if data.get("phone_identity") is not None
-                            else None,
-                        )
-                    )
+                    session = service.sign_in(_sign_in_request(data))
                     self._json(200, {"session": _session_json(session)})
+                    return
+
+                if self.path not in {
+                    "/v1/auth/refresh",
+                    "/v1/auth/logout",
+                    "/v1/auth/trusted-device",
+                }:
+                    self._json(404, {"error": "not_found"})
                     return
 
                 session = self._session()
@@ -83,15 +125,13 @@ def make_handler(service):
                     service.revoke(session)
                     self._json(204)
                     return
-                if self.path == "/v1/auth/trusted-device":
-                    self._json(200, {"trusted": service.is_device_trusted(session)})
-                    return
-                self._json(404, {"error": "not_found"})
+                self._json(200, {"trusted": service.is_device_trusted(session)})
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
-            except (ValueError, json.JSONDecodeError):
+            except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
                 self._json(400, {"error": "invalid_request"})
             except Exception:
+                # Keep internal exceptions and credentials out of client responses.
                 self._json(503, {"error": "unavailable"})
 
         def log_message(self, format: str, *args) -> None:
