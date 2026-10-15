@@ -239,6 +239,25 @@ void main() {
     expect(await vault.listEntries(), isEmpty);
   });
 
+  test('refuses to create a replacement key when orphaned encrypted files remain', () async {
+    final vaultDirectory = Directory('${tempDirectory.path}/neon_shield_vault');
+    await vaultDirectory.create(recursive: true);
+    final orphan = File('${vaultDirectory.path}/orphaned-entry.nsvault');
+    await orphan.writeAsString('encrypted payload from an interrupted save');
+
+    await expectLater(
+      vault.protectBytes(
+        originalName: 'new-file.txt',
+        bytes: utf8.encode('must not overwrite recoverability'),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(keyStore.key, isNull);
+    expect(await orphan.exists(), isTrue);
+    expect(await vault.listEntries(), isEmpty);
+  });
+
   test('refuses to silently replace a missing key for existing vault entries', () async {
     final entry = await vault.protectBytes(
       originalName: 'notes.txt',
