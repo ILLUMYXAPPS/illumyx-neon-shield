@@ -8,6 +8,9 @@ from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, SignInRequest
 
 
+_MAX_REQUEST_BODY_BYTES = 32_768
+
+
 def _session_json(session):
     return {
         "session_id": session.session_id,
@@ -35,10 +38,28 @@ def make_handler(service):
                 self.wfile.write(body)
 
         def _body(self) -> dict:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length > 32_768:
+            # This adapter accepts only a single, explicitly sized request body.
+            # In particular, never let a negative length turn read() into an
+            # unbounded read from the client socket.
+            if self.headers.get("Transfer-Encoding") is not None:
+                raise ValueError("transfer encoding is unsupported")
+
+            raw_length = self.headers.get("Content-Length", "0")
+            try:
+                length = int(raw_length)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("invalid content length") from exc
+
+            if length < 0:
+                raise ValueError("invalid content length")
+            if length > _MAX_REQUEST_BODY_BYTES:
                 raise ValueError("request too large")
-            value = json.loads(self.rfile.read(length) or b"{}")
+
+            raw_body = self.rfile.read(length)
+            if len(raw_body) != length:
+                raise ValueError("incomplete request body")
+
+            value = json.loads(raw_body or b"{}")
             if not isinstance(value, dict):
                 raise ValueError("JSON object required")
             return value
