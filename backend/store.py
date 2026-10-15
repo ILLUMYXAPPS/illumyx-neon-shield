@@ -63,9 +63,14 @@ class AuthStore(ManagedAuthStore):
             CREATE TABLE IF NOT EXISTS sessions (session_hash TEXT PRIMARY KEY, subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS sign_in_rate_limits (identity_hash TEXT PRIMARY KEY, failure_count INTEGER NOT NULL, window_started_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS audit_events (event_hash TEXT PRIMARY KEY, event_type TEXT NOT NULL, occurred_at TEXT NOT NULL, subject_id TEXT, device_fingerprint TEXT NOT NULL, previous_hash TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK(chain_id=1), event_hash TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS idx_sessions_subject ON sessions(subject_id);
             CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(occurred_at);
         """)
+        head = self._db.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()
+        if head is None:
+            latest = self._db.execute("SELECT event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1").fetchone()
+            self._db.execute("INSERT INTO audit_chain_head(chain_id,event_hash) VALUES(1,?)", (latest["event_hash"] if latest else "0" * 64,))
         self._db.commit()
 
     def create_user(self, subject_id: str, identity: str, credential: str) -> None:
@@ -183,16 +188,24 @@ class AuthStore(ManagedAuthStore):
         self._db.commit()
 
     def last_audit_hash(self) -> str:
-        row = self._db.execute("SELECT event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1").fetchone()
+        row = self._db.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()
         return row["event_hash"] if row else "0" * 64
 
     def add_audit(self, event_type: str, subject_id: str | None, device_id: str) -> str:
         return self.add_audit_fingerprint(event_type, subject_id, _hash(device_id, self.pepper))
 
     def add_audit_fingerprint(self, event_type: str, subject_id: str | None, device_fingerprint: str) -> str:
+        """Append one audit event while holding SQLite's write lock for the whole chain update."""
         occurred_at = _now()
-        previous_hash = self.last_audit_hash()
-        event_hash = hashlib.sha256(f"{event_type}|{occurred_at}|{subject_id or ''}|{device_fingerprint}|{previous_hash}".encode()).hexdigest()
-        self._db.execute("INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)", (event_hash, event_type, occurred_at, subject_id, device_fingerprint, previous_hash))
-        self._db.commit()
-        return event_hash
+        try:
+            self._db.execute("BEGIN IMMEDIATE")
+            row = self._db.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()
+            previous_hash = row["event_hash"] if row else "0" * 64
+            event_hash = hashlib.sha256(f"{event_type}|{occurred_at}|{subject_id or ''}|{device_fingerprint}|{previous_hash}".encode()).hexdigest()
+            self._db.execute("INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)", (event_hash, event_type, occurred_at, subject_id, device_fingerprint, previous_hash))
+            self._db.execute("UPDATE audit_chain_head SET event_hash=? WHERE chain_id=1", (event_hash,))
+            self._db.commit()
+            return event_hash
+        except Exception:
+            self._db.rollback()
+            raise
