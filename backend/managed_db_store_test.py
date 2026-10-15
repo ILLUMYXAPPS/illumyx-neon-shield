@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -86,8 +87,44 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
             store.migrate()
             first = store.add_audit_fingerprint("sign_in", "subject-1", "device-hash-1")
             second = store.add_audit_fingerprint("refresh", "subject-1", "device-hash-1")
+            rows = sqlite3.connect(store._connection_factory.__closure__[0].cell_contents if False else str(Path(directory) / "managed-test.sqlite3"))
+            try:
+                events = rows.execute("SELECT event_hash, previous_hash FROM audit_events").fetchall()
+            finally:
+                rows.close()
             self.assertNotEqual(first, second)
             self.assertEqual(store.last_audit_hash(), second)
+            self.assertEqual(events[0][1], "0" * 64)
+            self.assertEqual(events[1][1], events[0][0])
+
+    def test_concurrent_audit_writes_form_one_unbroken_chain(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "managed-test.sqlite3"
+            store = ManagedDbAuthStore(lambda: sqlite3.connect(path, timeout=15), pepper="test-pepper", placeholder="?", audit_lock_clause="")
+            store.migrate()
+
+            def append(index: int) -> str:
+                return store.add_audit_fingerprint(f"event-{index}", "subject-1", f"device-{index}")
+
+            with ThreadPoolExecutor(max_workers=12) as pool:
+                hashes = list(pool.map(append, range(24)))
+
+            db = sqlite3.connect(path)
+            try:
+                rows = db.execute("SELECT event_hash, previous_hash FROM audit_events").fetchall()
+            finally:
+                db.close()
+            self.assertEqual(len(hashes), 24)
+            self.assertEqual(len(rows), 24)
+            by_hash = {event_hash: previous_hash for event_hash, previous_hash in rows}
+            self.assertEqual(len(by_hash), 24)
+            roots = [event_hash for event_hash, previous_hash in rows if previous_hash == "0" * 64]
+            self.assertEqual(len(roots), 1)
+            for event_hash, previous_hash in rows:
+                if previous_hash != "0" * 64:
+                    self.assertIn(previous_hash, by_hash)
+            self.assertEqual(store.last_audit_hash(), next(event_hash for event_hash, _ in rows if event_hash == store.last_audit_hash()))
+            self.assertEqual(sum(1 for _, previous_hash in rows if previous_hash == store.last_audit_hash()), 0)
 
     def test_requires_pepper(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "pepper"):
