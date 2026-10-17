@@ -1,0 +1,6 @@
+# Primary software owner for all repository files.
+# This records project ownership; it does not replace independent human approvals.
+* @ILLUMYXAPPS
+
+# Explicitly protect changes to the ownership policy itself.
+.github/CODEOWNERS @ILLUMYXAPPS
