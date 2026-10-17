@@ -222,22 +222,38 @@ class ManagedDbAuthStore(ManagedAuthStore):
         connection = self._connection_factory()
         cursor = connection.cursor()
         try:
-            cursor.execute(self._sql("SELECT failure_count, window_started_at FROM sign_in_rate_limits WHERE identity_hash=?" + self._audit_lock_clause), (identity_hash,))
+            select_sql = self._sql("SELECT failure_count, window_started_at FROM sign_in_rate_limits WHERE identity_hash=?" + self._audit_lock_clause)
+            cursor.execute(select_sql, (identity_hash,))
             row = cursor.fetchone()
+
             if row is None:
-                new_count = 1
-                try:
-                    cursor.execute(self._sql("INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) VALUES(?,?,?)"), (identity_hash, new_count, now))
-                except Exception:
-                    connection.rollback()
-                    connection.close()
-                    return self.reserve_sign_in_attempt(identity, now, window_seconds, max_sign_ins)
-            elif now_dt.timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
-                new_count = 1
-                cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=1,window_started_at=? WHERE identity_hash=?"), (now, identity_hash))
-            else:
-                new_count = min(int(row[0]) + 1, max_sign_ins + 1)
-                cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=? WHERE identity_hash=?"), (new_count, identity_hash))
+                # A row-level lock cannot protect a key that does not exist yet.
+                # Let the database arbitrate concurrent first reservations instead
+                # of catching every exception and recursively retrying indefinitely.
+                cursor.execute(
+                    self._sql(
+                        "INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) "
+                        "VALUES(?,?,?) ON CONFLICT(identity_hash) DO NOTHING"
+                    ),
+                    (identity_hash, 1, now),
+                )
+                if cursor.rowcount == 1:
+                    new_count = 1
+                else:
+                    # Another transaction created the key first. Under READ COMMITTED,
+                    # this fresh statement can see that committed row and lock it.
+                    cursor.execute(select_sql, (identity_hash,))
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise RuntimeError("rate-limit reservation row disappeared during concurrent insert")
+
+            if row is not None:
+                if now_dt.timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
+                    new_count = 1
+                    cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=1,window_started_at=? WHERE identity_hash=?"), (now, identity_hash))
+                else:
+                    new_count = min(int(row[0]) + 1, max_sign_ins + 1)
+                    cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=? WHERE identity_hash=?"), (new_count, identity_hash))
             connection.commit()
             return new_count <= max_sign_ins
         except Exception:
