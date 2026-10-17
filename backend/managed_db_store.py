@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
-from backend.audit_chain import ZERO_HASH, resolve_audit_chain_head
+from backend.audit_chain import resolve_audit_chain_head
 from backend.managed_store import ManagedAuthStore
 from backend.store import _hash, hash_secret
 
