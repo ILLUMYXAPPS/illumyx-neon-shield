@@ -89,6 +89,51 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
             self.assertNotEqual(first, second)
             self.assertEqual(store.last_audit_hash(), second)
 
+    def test_rate_limit_insert_failure_is_not_recursively_retried(self) -> None:
+        attempts = {"connections": 0, "closed": 0, "rollbacks": 0}
+
+        class FailingCursor:
+            rowcount = -1
+
+            def execute(self, query, params=()):
+                if query.startswith("SELECT failure_count"):
+                    return self
+                if query.startswith("INSERT INTO sign_in_rate_limits"):
+                    raise sqlite3.OperationalError("simulated database outage")
+                raise AssertionError(f"Unexpected SQL in test: {query}")
+
+            def fetchone(self):
+                return None
+
+            def close(self):
+                return None
+
+        class FailingConnection:
+            def cursor(self):
+                return FailingCursor()
+
+            def rollback(self):
+                attempts["rollbacks"] += 1
+
+            def commit(self):
+                raise AssertionError("failed reservation must not commit")
+
+            def close(self):
+                attempts["closed"] += 1
+
+        def connect():
+            attempts["connections"] += 1
+            return FailingConnection()
+
+        store = ManagedDbAuthStore(connect, pepper="test-pepper", placeholder="?", audit_lock_clause="")
+        now = datetime.now(timezone.utc).isoformat()
+        with self.assertRaisesRegex(sqlite3.OperationalError, "simulated database outage"):
+            store.reserve_sign_in_attempt("user@example.com", now, 300, 5)
+
+        self.assertEqual(attempts["connections"], 1)
+        self.assertEqual(attempts["rollbacks"], 1)
+        self.assertEqual(attempts["closed"], 1)
+
     def test_requires_pepper(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "pepper"):
             ManagedDbAuthStore(lambda: sqlite3.connect(":memory:"), pepper="", placeholder="?", audit_lock_clause="")
