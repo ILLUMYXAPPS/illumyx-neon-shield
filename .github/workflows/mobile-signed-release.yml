@@ -24,6 +24,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Validate version inputs
+        shell: bash
+        env:
+          BUILD_NAME: ${{ inputs.build_name }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || {
+            echo "build_name must be a semantic version such as 1.0.0-beta.1"
+            exit 1
+          }
+          [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]] || {
+            echo "build_number must contain digits only"
+            exit 1
+          }
+
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
@@ -99,7 +115,10 @@ jobs:
         run: flutter test
       - name: Build signed Android App Bundle
         working-directory: mobile
-        run: flutter build appbundle --release --build-name='${{ inputs.build_name }}' --build-number='${{ inputs.build_number }}'
+        env:
+          BUILD_NAME: ${{ inputs.build_name }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+        run: flutter build appbundle --release --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
       - name: Verify Android artifact
         shell: bash
         run: |
@@ -121,6 +140,22 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Validate version inputs
+        shell: bash
+        env:
+          BUILD_NAME: ${{ inputs.build_name }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || {
+            echo "build_name must be a semantic version such as 1.0.0-beta.1"
+            exit 1
+          }
+          [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]] || {
+            echo "build_number must contain digits only"
+            exit 1
+          }
+
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
@@ -198,7 +233,10 @@ jobs:
           plutil -lint ExportOptions.plist
       - name: Build signed iOS IPA
         working-directory: mobile
-        run: flutter build ipa --release --build-name='${{ inputs.build_name }}' --build-number='${{ inputs.build_number }}' --export-options-plist=ExportOptions.plist
+        env:
+          BUILD_NAME: ${{ inputs.build_name }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+        run: flutter build ipa --release --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" --export-options-plist=ExportOptions.plist
       - name: Verify iOS artifact
         shell: bash
         run: |
