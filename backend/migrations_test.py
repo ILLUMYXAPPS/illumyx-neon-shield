@@ -45,7 +45,7 @@ class MigrationRunnerTests(unittest.TestCase):
             try:
                 connection.execute(
                     "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)",
-                    ("a" * 64, "first", "2026-10-15T10:00:00+00:00", None, "device-1", "0" * 64),
+                    ("a" * 64, "first", "2026-10-15T10:02:00+00:00", None, "device-1", "0" * 64),
                 )
                 connection.execute(
                     "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)",
@@ -63,6 +63,41 @@ class MigrationRunnerTests(unittest.TestCase):
                     "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
                 ).fetchone()
                 self.assertEqual(head[0], "b" * 64)
+            finally:
+                connection.close()
+
+    def test_audit_chain_head_migration_rejects_ambiguous_history(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "forked-audit-migration.sqlite3"
+            legacy_runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS[:3])
+            self.assertEqual(legacy_runner.apply_pending(), 3)
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)",
+                    ("a" * 64, "first", "2026-10-15T10:00:00+00:00", None, "device-1", "0" * 64),
+                )
+                connection.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)",
+                    ("b" * 64, "fork", "2026-10-15T10:01:00+00:00", None, "device-2", "0" * 64),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
+            with self.assertRaises(sqlite3.IntegrityError):
+                runner.apply_pending()
+            connection = sqlite3.connect(path)
+            try:
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM neon_schema_migrations WHERE version=4").fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='audit_chain_head'").fetchone()[0],
+                    0,
+                )
             finally:
                 connection.close()
 
