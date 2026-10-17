@@ -164,6 +164,25 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
                 for store in stores:
                     store.close()
 
+    def test_managed_writer_fails_closed_when_chain_head_is_missing(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = _store(Path(directory))
+            store.migrate()
+            with sqlite3.connect(Path(directory) / "managed-test.sqlite3") as db:
+                db.execute("DELETE FROM audit_chain_head WHERE chain_id=1")
+            with self.assertRaisesRegex(RuntimeError, "chain head is missing"):
+                store.add_audit_fingerprint("sign_in", "subject-1", "device-hash")
+            store.close()
+
+    def test_sqlite_writer_fails_closed_when_chain_head_is_missing(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = AuthStore(str(Path(directory) / "sqlite-auth-store.sqlite3"))
+            store._db.execute("DELETE FROM audit_chain_head WHERE chain_id=1")
+            store._db.commit()
+            with self.assertRaisesRegex(RuntimeError, "chain head is missing"):
+                store.add_audit_fingerprint("sign_in", "subject-1", "device-hash")
+            store.close()
+
     def test_requires_pepper(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "pepper"):
             ManagedDbAuthStore(lambda: sqlite3.connect(":memory:"), pepper="", placeholder="?", audit_lock_clause="")
