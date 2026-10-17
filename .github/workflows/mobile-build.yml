@@ -26,7 +26,7 @@ jobs:
           cache: true
       - name: Generate Android platform project
         working-directory: mobile
-        run: flutter create --platforms=android --org com.illumyx --project-name illumyx_neon_shield .
+        run: flutter create --platforms=android --org com.illumyx --project-name illumyxapp .
       - name: Set Android compile SDK required by dependencies
         working-directory: mobile
         shell: bash
@@ -86,7 +86,7 @@ jobs:
           cache: true
       - name: Generate iOS platform project
         working-directory: mobile
-        run: flutter create --platforms=ios --org com.illumyx --project-name illumyx_neon_shield .
+        run: flutter create --platforms=ios --org com.illumyx --project-name illumyxapp .
       - name: Get dependencies
         working-directory: mobile
         run: flutter pub get

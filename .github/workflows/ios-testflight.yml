@@ -26,7 +26,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  APPLE_BUNDLE_ID: com.illumyx.illumyx_neon_shield
+  APPLE_BUNDLE_ID: com.illumyx.illumyxapp
 
 jobs:
   build-and-upload:
@@ -45,7 +45,7 @@ jobs:
 
       - name: Generate iOS project
         working-directory: mobile
-        run: flutter create --platforms=ios --org com.illumyx --project-name illumyx_neon_shield .
+        run: flutter create --platforms=ios --org com.illumyx --project-name illumyxapp .
 
       - name: Validate iOS bundle identity
         shell: bash
@@ -156,7 +156,7 @@ jobs:
             <key>signingStyle</key><string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>com.illumyx.illumyx_neon_shield</key><string>$PROFILE_NAME</string>
+              <key>com.illumyx.illumyxapp</key><string>$PROFILE_NAME</string>
             </dict>
             <key>stripSwiftSymbols</key><true/>
             <key>uploadSymbols</key><true/>
