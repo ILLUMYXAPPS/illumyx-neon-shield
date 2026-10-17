@@ -30,13 +30,13 @@ jobs:
           cache: true
       - name: Generate Android project
         working-directory: mobile
-        run: flutter create --platforms=android --org com.illumyx --project-name illumyx_neon_shield .
+        run: flutter create --platforms=android --org com.illumyx --project-name illumyxapp .
       - name: Validate Android project
         shell: bash
         run: |
           set -euo pipefail
           test -f mobile/android/app/build.gradle.kts
-          grep -q 'com.illumyx.illumyx_neon_shield' mobile/android/app/build.gradle.kts
+          grep -q 'com.illumyx.illumyxapp' mobile/android/app/build.gradle.kts
       - name: Validate Android signing inputs
         shell: bash
         env:
@@ -127,13 +127,13 @@ jobs:
           cache: true
       - name: Generate iOS project
         working-directory: mobile
-        run: flutter create --platforms=ios --org com.illumyx --project-name illumyx_neon_shield .
+        run: flutter create --platforms=ios --org com.illumyx --project-name illumyxapp .
       - name: Validate iOS project identity
         shell: bash
         run: |
           set -euo pipefail
           test -f mobile/ios/Runner.xcodeproj/project.pbxproj
-          grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.illumyx.illumyx_neon_shield' mobile/ios/Runner.xcodeproj/project.pbxproj
+          grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.illumyx.illumyxapp' mobile/ios/Runner.xcodeproj/project.pbxproj
       - name: Validate Apple signing inputs
         shell: bash
         env:
