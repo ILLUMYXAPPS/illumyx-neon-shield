@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - "backend/managed_db_store.py"
+      - "backend/managed_db_store_test.py"
+      - "backend/audit_chain.py"
+      - "backend/audit_chain_test.py"
+      - "backend/store.py"
       - "backend/production_migrations.py"
       - "backend/migrations.py"
       - "backend/managed_db_postgres_audit_integration_test.py"
@@ -48,6 +52,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install "psycopg[binary]>=3.2,<4"
       - name: Compile managed database integration test
-        run: python -m compileall -q backend/managed_db_store.py backend/migrations.py backend/production_migrations.py backend/managed_db_postgres_audit_integration_test.py
+        run: python -m compileall -q backend/audit_chain.py backend/audit_chain_test.py backend/store.py backend/managed_db_store.py backend/managed_db_store_test.py backend/migrations.py backend/production_migrations.py backend/managed_db_postgres_audit_integration_test.py
       - name: Run PostgreSQL audit-chain integration tests
         run: python -m unittest backend.managed_db_postgres_audit_integration_test -v
