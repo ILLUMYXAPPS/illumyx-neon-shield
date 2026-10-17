@@ -161,7 +161,7 @@ class AuditChainPostgresTests(unittest.TestCase):
             with connect_legacy() as connection:
                 connection.execute(
                     "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(%s,%s,%s,%s,%s,%s)",
-                    ("a" * 64, "first", "2026-10-16T10:00:00+00:00", None, "device-1", _SENTINEL),
+                    ("a" * 64, "first", "2026-10-16T10:02:00+00:00", None, "device-1", _SENTINEL),
                 )
                 connection.execute(
                     "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(%s,%s,%s,%s,%s,%s)",
@@ -176,6 +176,53 @@ class AuditChainPostgresTests(unittest.TestCase):
                     "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
                 ).fetchone()[0]
             self.assertEqual(head, "b" * 64)
+        finally:
+            with psycopg.connect(_DSN, connect_timeout=5) as connection:
+                connection.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+
+
+    def test_versioned_migration_rejects_forked_legacy_chain(self):
+        schema = "neon_audit_fork_" + uuid.uuid4().hex
+        with psycopg.connect(_DSN, connect_timeout=5) as connection:
+            connection.execute(f'CREATE SCHEMA "{schema}"')
+
+        def connect_legacy():
+            return psycopg.connect(
+                _DSN, connect_timeout=5, options=f"-c search_path={schema}"
+            )
+
+        try:
+            legacy_runner = MigrationRunner(
+                connect_legacy, PRODUCTION_MIGRATIONS[:3], placeholder="%s"
+            )
+            self.assertEqual(legacy_runner.apply_pending(), 3)
+            with connect_legacy() as connection:
+                connection.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(%s,%s,%s,%s,%s,%s)",
+                    ("a" * 64, "first", "2026-10-16T10:00:00+00:00", None, "device-1", _SENTINEL),
+                )
+                connection.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(%s,%s,%s,%s,%s,%s)",
+                    ("b" * 64, "fork", "2026-10-16T10:01:00+00:00", None, "device-2", _SENTINEL),
+                )
+
+            full_runner = MigrationRunner(
+                connect_legacy, PRODUCTION_MIGRATIONS, placeholder="%s"
+            )
+            with self.assertRaises(psycopg.Error):
+                full_runner.apply_pending()
+            with connect_legacy() as connection:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM neon_schema_migrations WHERE version=4"
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertIsNone(
+                    connection.execute(
+                        "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
+                    ).fetchone()
+                )
         finally:
             with psycopg.connect(_DSN, connect_timeout=5) as connection:
                 connection.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
