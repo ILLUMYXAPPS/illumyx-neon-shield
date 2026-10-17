@@ -2,6 +2,10 @@
 
 Thank you for helping improve Neon Shield. Security-sensitive changes must be easy to understand, reproduce, and independently review.
 
+## Software ownership
+
+The repository owner, `@ILLUMYXAPPS`, owns the Neon Shield software project and is responsible for product direction, development priorities, and release decisions. This ownership does not replace independent code review or permit self-approval of pull requests. Changes authored by the owner must still satisfy the same required review and status-check gates as other changes.
+
 ## Before opening a pull request
 
 - Keep each pull request focused on one change or tightly related set of changes.
