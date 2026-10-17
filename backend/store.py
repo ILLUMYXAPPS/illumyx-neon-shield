@@ -9,7 +9,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from backend.audit_chain import ZERO_HASH, resolve_audit_chain_head
+from backend.audit_chain import resolve_audit_chain_head
 from backend.managed_store import ManagedAuthStore
 
 
