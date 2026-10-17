@@ -27,7 +27,9 @@ The workflow produces a signed `.ipa` when the certificate, provisioning profile
 
 ## Bundle identity
 
-The generated project currently uses the organization prefix `com.illumyx`. Before public store submission, confirm the final bundle/application IDs in Apple Developer and Google Play and keep them stable for all future releases.
+Neon Shield's intended mobile application ID is `com.illumyx.illumyxapp`. The Android beta, signed Android release, signed iOS release, and TestFlight workflows must all generate and validate this same ID.
+
+Before running a signed release, confirm that this exact ID is registered or available in the relevant Google Play Console and Apple Developer/App Store Connect accounts. Bundle IDs should be treated as release identity, not casually changed after store registration. Do not create or upload signing material until the registered IDs and signing assets are confirmed.
 
 ## Running a signed build
 
