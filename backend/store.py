@@ -9,6 +9,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from backend.audit_chain import ZERO_HASH, resolve_audit_chain_head
 from backend.managed_store import ManagedAuthStore
 
 
@@ -69,8 +70,9 @@ class AuthStore(ManagedAuthStore):
         """)
         head = self._db.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()
         if head is None:
-            latest = self._db.execute("SELECT event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1").fetchone()
-            self._db.execute("INSERT INTO audit_chain_head(chain_id,event_hash) VALUES(1,?)", (latest["event_hash"] if latest else "0" * 64,))
+            events = self._db.execute("SELECT event_hash, previous_hash FROM audit_events").fetchall()
+            initial_hash = resolve_audit_chain_head((row["event_hash"], row["previous_hash"]) for row in events)
+            self._db.execute("INSERT INTO audit_chain_head(chain_id,event_hash) VALUES(1,?)", (initial_hash,))
         self._db.commit()
 
     def create_user(self, subject_id: str, identity: str, credential: str) -> None:
@@ -189,7 +191,9 @@ class AuthStore(ManagedAuthStore):
 
     def last_audit_hash(self) -> str:
         row = self._db.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()
-        return row["event_hash"] if row else "0" * 64
+        if row is None:
+            raise RuntimeError("audit chain head is missing; run database migrations")
+        return row["event_hash"]
 
     def add_audit(self, event_type: str, subject_id: str | None, device_id: str) -> str:
         return self.add_audit_fingerprint(event_type, subject_id, _hash(device_id, self.pepper))
@@ -200,10 +204,14 @@ class AuthStore(ManagedAuthStore):
         try:
             self._db.execute("BEGIN IMMEDIATE")
             row = self._db.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()
-            previous_hash = row["event_hash"] if row else "0" * 64
+            if row is None:
+                raise RuntimeError("audit chain head is missing; run database migrations")
+            previous_hash = row["event_hash"]
             event_hash = hashlib.sha256(f"{event_type}|{occurred_at}|{subject_id or ''}|{device_fingerprint}|{previous_hash}".encode()).hexdigest()
             self._db.execute("INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)", (event_hash, event_type, occurred_at, subject_id, device_fingerprint, previous_hash))
-            self._db.execute("UPDATE audit_chain_head SET event_hash=? WHERE chain_id=1", (event_hash,))
+            cursor = self._db.execute("UPDATE audit_chain_head SET event_hash=? WHERE chain_id=1", (event_hash,))
+            if cursor.rowcount != 1:
+                raise RuntimeError("audit chain head update did not affect exactly one row")
             self._db.commit()
             return event_hash
         except Exception:
