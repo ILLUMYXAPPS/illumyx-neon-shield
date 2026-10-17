@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
+from backend.audit_chain import ZERO_HASH, resolve_audit_chain_head
 from backend.managed_store import ManagedAuthStore
 from backend.store import _hash, hash_secret
 
@@ -90,9 +91,8 @@ class ManagedDbAuthStore(ManagedAuthStore):
             cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1")
             head = cursor.fetchone()
             if head is None:
-                cursor.execute("SELECT event_hash FROM audit_events ORDER BY occurred_at DESC, event_hash DESC LIMIT 1")
-                latest = cursor.fetchone()
-                initial_hash = latest[0] if latest else "0" * 64
+                cursor.execute("SELECT event_hash, previous_hash FROM audit_events")
+                initial_hash = resolve_audit_chain_head(cursor.fetchall())
                 cursor.execute(self._sql("INSERT INTO audit_chain_head(chain_id,event_hash) VALUES(?,?)"), (1, initial_hash))
             connection.commit()
 
@@ -268,7 +268,9 @@ class ManagedDbAuthStore(ManagedAuthStore):
         with self._cursor() as (_, cursor):
             cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1")
             row = cursor.fetchone()
-            return row[0] if row else "0" * 64
+            if row is None:
+                raise RuntimeError("audit chain head is missing; run managed database migrations")
+            return row[0]
 
     def add_audit(self, event_type: str, subject_id: str | None, device_id: str) -> str:
         return self.add_audit_fingerprint(event_type, subject_id, _hash(device_id, self._pepper))
@@ -288,5 +290,7 @@ class ManagedDbAuthStore(ManagedAuthStore):
             event_hash = hashlib.sha256(f"{event_type}|{occurred_at}|{subject_id or ''}|{device_fingerprint}|{previous_hash}".encode()).hexdigest()
             cursor.execute(self._sql("INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)"), (event_hash, event_type, occurred_at, subject_id, device_fingerprint, previous_hash))
             cursor.execute(self._sql("UPDATE audit_chain_head SET event_hash=? WHERE chain_id=1"), (event_hash,))
+            if getattr(cursor, "rowcount", 1) != 1:
+                raise RuntimeError("audit chain head update did not affect exactly one row")
             connection.commit()
             return event_hash
