@@ -89,6 +89,57 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
             self.assertNotEqual(first, second)
             self.assertEqual(store.last_audit_hash(), second)
 
+    def test_rate_limit_concurrent_insert_winner_is_reread_and_incremented(self) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        state = {"selects": 0, "updates": [], "commits": 0, "closed": 0}
+
+        class ConflictCursor:
+            rowcount = -1
+            current_row = None
+
+            def execute(self, query, params=()):
+                if query.startswith("SELECT failure_count"):
+                    state["selects"] += 1
+                    self.current_row = None if state["selects"] == 1 else (1, now)
+                elif query.startswith("INSERT INTO sign_in_rate_limits"):
+                    self.rowcount = 0
+                elif query.startswith("UPDATE sign_in_rate_limits SET failure_count=?"):
+                    state["updates"].append(params)
+                    self.rowcount = 1
+                else:
+                    raise AssertionError(f"Unexpected SQL in test: {query}")
+                return self
+
+            def fetchone(self):
+                row = self.current_row
+                self.current_row = None
+                return row
+
+            def close(self):
+                return None
+
+        class ConflictConnection:
+            def cursor(self):
+                return ConflictCursor()
+
+            def commit(self):
+                state["commits"] += 1
+
+            def rollback(self):
+                raise AssertionError("successful conflict recovery must not roll back")
+
+            def close(self):
+                state["closed"] += 1
+
+        store = ManagedDbAuthStore(lambda: ConflictConnection(), pepper="test-pepper", placeholder="?", audit_lock_clause="")
+        allowed = store.reserve_sign_in_attempt("user@example.com", now, 300, 5)
+
+        self.assertTrue(allowed)
+        self.assertEqual(state["selects"], 2)
+        self.assertEqual(state["updates"][0][0], 2)
+        self.assertEqual(state["commits"], 1)
+        self.assertEqual(state["closed"], 1)
+
     def test_rate_limit_insert_failure_is_not_recursively_retried(self) -> None:
         attempts = {"connections": 0, "closed": 0, "rollbacks": 0}
 
