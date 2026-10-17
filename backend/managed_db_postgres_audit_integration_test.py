@@ -218,10 +218,12 @@ class AuditChainPostgresTests(unittest.TestCase):
                     ).fetchone()[0],
                     0,
                 )
+                # PostgreSQL rolls back the failed migration transaction, including
+                # CREATE TABLE. Verify the table is absent rather than querying it.
                 self.assertIsNone(
                     connection.execute(
-                        "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
-                    ).fetchone()
+                        "SELECT to_regclass('audit_chain_head')"
+                    ).fetchone()[0]
                 )
         finally:
             with psycopg.connect(_DSN, connect_timeout=5) as connection:
