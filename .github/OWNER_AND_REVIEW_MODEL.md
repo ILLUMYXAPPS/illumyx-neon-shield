@@ -21,13 +21,15 @@ The active GitHub ruleset currently requires two approving reviews, code-owner r
 - Do not list a person or team in `CODEOWNERS` until they have the necessary repository write access and have agreed to take on that responsibility.
 - Do not weaken or bypass the ruleset merely to make a pull request mergeable.
 
-## Code-owner setup
+## Code-owner setup status
 
-The proposed `.github/CODEOWNERS` file assigns `@ILLUMYXAPPS`, the repository's user-account owner, as the primary code owner for all files and explicitly for the CODEOWNERS policy itself.
+A `.github/CODEOWNERS` file is intentionally not included yet. The repository's active ruleset requires code-owner review, but a safe owner assignment needs an eligible person or team with write access who has agreed to review changes.
 
-This records the existing software ownership without inventing contributors or granting anyone new access. Because the owner cannot approve their own pull request, changes authored by `@ILLUMYXAPPS` still need eligible independent approvals under the active ruleset. The CODEOWNERS file takes effect only after the PR containing it is merged; verify the behavior on a subsequent test pull request.
+The software owner, `@ILLUMYXAPPS`, owns product direction and development. However, the owner cannot approve their own pull request, so assigning only the owner's account as code owner could leave owner-authored changes unable to satisfy the code-owner gate.
 
-Do not list another person or team until they have the necessary repository write access and have agreed to take on that responsibility. A code-owner assignment does not replace the separate requirement for two eligible approving reviews.
+A check of three previously mentioned potential reviewers (`Ironnember`, `BasitS-hash`, and `Rayha33`) found each currently has read access only. They must not be added to `CODEOWNERS` unless they are willing and granted appropriate write access.
+
+Do not invent usernames, grant access without agreement, or weaken/bypass the ruleset. The code-owner file should be added in a separate reviewed change once an eligible reviewer or team is confirmed.
 
 ## Readiness procedure
 
