@@ -21,11 +21,13 @@ The active GitHub ruleset currently requires two approving reviews, code-owner r
 - Do not list a person or team in `CODEOWNERS` until they have the necessary repository write access and have agreed to take on that responsibility.
 - Do not weaken or bypass the ruleset merely to make a pull request mergeable.
 
-## Code-owner setup status
+## Code-owner setup
 
-A valid, operational `.github/CODEOWNERS` entry has not yet been configured by this documentation change. The repository needs an agreed code owner with write access before a reliable code-owner assignment can be made.
+The proposed `.github/CODEOWNERS` file assigns `@ILLUMYXAPPS`, the repository's user-account owner, as the primary code owner for all files and explicitly for the CODEOWNERS policy itself.
 
-Do not use the software owner's account as a substitute for an independent reviewer on changes authored by that same account. Do not invent usernames or assume a public commenter has write access.
+This records the existing software ownership without inventing contributors or granting anyone new access. Because the owner cannot approve their own pull request, changes authored by `@ILLUMYXAPPS` still need eligible independent approvals under the active ruleset. The CODEOWNERS file takes effect only after the PR containing it is merged; verify the behavior on a subsequent test pull request.
+
+Do not list another person or team until they have the necessary repository write access and have agreed to take on that responsibility. A code-owner assignment does not replace the separate requirement for two eligible approving reviews.
 
 ## Readiness procedure
 
