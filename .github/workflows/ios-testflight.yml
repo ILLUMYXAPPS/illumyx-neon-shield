@@ -15,7 +15,7 @@ on:
         description: Upload the signed IPA to App Store Connect/TestFlight
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
