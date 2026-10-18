@@ -14,7 +14,7 @@ The managed database adapter is the production persistence seam. It remains prov
 
 ## Concurrency and operations
 
-`add_audit_fingerprint()` reads the latest audit hash and writes the next event in one transaction. Concurrent production writers require a database transaction/row-lock strategy that serializes this sequence. PostgreSQL-style deployments should supply `audit_lock_clause=" FOR UPDATE"` with suitable transaction isolation.
+`add_audit_fingerprint()` serializes appends by locking the singleton `audit_chain_head` row, then inserts the event and updates that head in the same transaction. Locking a stable row also handles the empty-chain case. `migrate()` bootstraps the head for development/tests; production must add and backfill this table through a reviewed, versioned migration before deploying. PostgreSQL-style deployments should retain `audit_lock_clause=" FOR UPDATE"`.
 
 Production releases must use versioned schema migrations, backup/restore procedures, TLS-protected connections, pooling, encryption at rest, access controls, retention and monitoring. The adapter does not provision those resources.
 
