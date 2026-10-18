@@ -1,7 +1,20 @@
 """Code-reviewed production migration definitions for the auth store."""
 from __future__ import annotations
 
+from backend.audit_chain import resolve_audit_chain_head
 from backend.migrations import Migration
+
+
+def _validate_existing_audit_chain_head(cursor) -> None:
+    """Fail closed if a pre-existing singleton head disagrees with audit history."""
+    cursor.execute("SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1")
+    existing = cursor.fetchone()
+    if existing is None:
+        return
+    cursor.execute("SELECT event_hash, previous_hash FROM audit_events")
+    expected = resolve_audit_chain_head(cursor.fetchall())
+    if existing[0] != expected:
+        raise RuntimeError("existing audit chain head does not match the validated audit history")
 
 
 _SENTINEL_HASH = "0" * 64
@@ -61,5 +74,6 @@ PRODUCTION_MIGRATIONS = (
             "FROM stats WHERE true "
             "ON CONFLICT (chain_id) DO NOTHING",
         ),
+        _validate_existing_audit_chain_head,
     ),
 )
