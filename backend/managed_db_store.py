@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
+from backend.audit_chain import resolve_audit_chain_head
 from backend.managed_store import ManagedAuthStore
 from backend.store import _hash, hash_secret
 
@@ -18,6 +19,7 @@ _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS sessions (session_hash TEXT PRIMARY KEY, subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
     "CREATE TABLE IF NOT EXISTS sign_in_rate_limits (identity_hash TEXT PRIMARY KEY, failure_count INTEGER NOT NULL, window_started_at TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS audit_events (event_hash TEXT PRIMARY KEY, event_type TEXT NOT NULL, occurred_at TEXT NOT NULL, subject_id TEXT, device_fingerprint TEXT NOT NULL, previous_hash TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK(chain_id=1), event_hash TEXT NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_managed_sessions_subject ON sessions(subject_id)",
     "CREATE INDEX IF NOT EXISTS idx_managed_audit_time ON audit_events(occurred_at)",
 )
@@ -86,6 +88,12 @@ class ManagedDbAuthStore(ManagedAuthStore):
         with self._cursor() as (connection, cursor):
             for statement in _SCHEMA:
                 cursor.execute(statement)
+            cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1")
+            head = cursor.fetchone()
+            if head is None:
+                cursor.execute("SELECT event_hash, previous_hash FROM audit_events")
+                initial_hash = resolve_audit_chain_head(cursor.fetchall())
+                cursor.execute(self._sql("INSERT INTO audit_chain_head(chain_id,event_hash) VALUES(?,?)"), (1, initial_hash))
             connection.commit()
 
     def create_user(self, subject_id: str, identity: str, credential: str) -> None:
@@ -216,77 +224,41 @@ class ManagedDbAuthStore(ManagedAuthStore):
                 close_connection()
 
     def reserve_sign_in_attempt(self, identity: str, now: str, window_seconds: int, max_sign_ins: int) -> bool:
-        """Atomically consume one bounded sign-in reservation.
-
-        The insert uses ON CONFLICT DO NOTHING for the concurrent first-use race.
-        Unexpected database failures propagate immediately; retries are bounded
-        and only occur when another transaction wins that first-use race.
-        """
+        """Atomically consume one bounded sign-in reservation and return whether it is allowed."""
         identity_hash = _hash(identity.strip().lower(), self._pepper)
         now_dt = datetime.fromisoformat(now)
+        connection = self._connection_factory()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(self._sql("SELECT failure_count, window_started_at FROM sign_in_rate_limits WHERE identity_hash=?" + self._audit_lock_clause), (identity_hash,))
+            row = cursor.fetchone()
+            if row is None:
+                new_count = 1
+                try:
+                    cursor.execute(self._sql("INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) VALUES(?,?,?)"), (identity_hash, new_count, now))
+                except Exception:
+                    connection.rollback()
+                    connection.close()
+                    return self.reserve_sign_in_attempt(identity, now, window_seconds, max_sign_ins)
+            elif now_dt.timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
+                new_count = 1
+                cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=1,window_started_at=? WHERE identity_hash=?"), (now, identity_hash))
+            else:
+                new_count = min(int(row[0]) + 1, max_sign_ins + 1)
+                cursor.execute(self._sql("UPDATE sign_in_rate_limits SET failure_count=? WHERE identity_hash=?"), (new_count, identity_hash))
+            connection.commit()
+            return new_count <= max_sign_ins
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            close = getattr(cursor, "close", None)
+            if close is not None:
+                close()
+            close_connection = getattr(connection, "close", None)
+            if close_connection is not None:
+                close_connection()
 
-        for attempt in range(3):
-            connection = self._connection_factory()
-            cursor = connection.cursor()
-            try:
-                cursor.execute(
-                    self._sql(
-                        "SELECT failure_count, window_started_at FROM sign_in_rate_limits "
-                        "WHERE identity_hash=?" + self._audit_lock_clause
-                    ),
-                    (identity_hash,),
-                )
-                row = cursor.fetchone()
-
-                if row is None:
-                    cursor.execute(
-                        self._sql(
-                            "INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) "
-                            "VALUES(?,?,?) ON CONFLICT(identity_hash) DO NOTHING"
-                        ),
-                        (identity_hash, 1, now),
-                    )
-                    if getattr(cursor, "rowcount", 1) != 1:
-                        connection.rollback()
-                        if attempt < 2:
-                            continue
-                        raise RuntimeError(
-                            "could not reserve sign-in attempt after concurrent first-use conflicts"
-                        )
-                    new_count = 1
-                elif now_dt.timestamp() - datetime.fromisoformat(row[1]).timestamp() >= window_seconds:
-                    new_count = 1
-                    cursor.execute(
-                        self._sql(
-                            "UPDATE sign_in_rate_limits SET failure_count=1,window_started_at=? "
-                            "WHERE identity_hash=?"
-                        ),
-                        (now, identity_hash),
-                    )
-                else:
-                    new_count = min(int(row[0]) + 1, max_sign_ins + 1)
-                    cursor.execute(
-                        self._sql(
-                            "UPDATE sign_in_rate_limits SET failure_count=? WHERE identity_hash=?"
-                        ),
-                        (new_count, identity_hash),
-                    )
-
-                connection.commit()
-                return new_count <= max_sign_ins
-            except Exception:
-                connection.rollback()
-                raise
-            finally:
-                close = getattr(cursor, "close", None)
-                if close is not None:
-                    close()
-                close_connection = getattr(connection, "close", None)
-                if close_connection is not None:
-                    close_connection()
-
-        raise RuntimeError("could not reserve sign-in attempt")
- 
     def clear_sign_in_failures(self, identity: str) -> None:
         with self._cursor() as (connection, cursor):
             cursor.execute(self._sql("DELETE FROM sign_in_rate_limits WHERE identity_hash=?"), (_hash(identity.strip().lower(), self._pepper),))
@@ -294,20 +266,31 @@ class ManagedDbAuthStore(ManagedAuthStore):
 
     def last_audit_hash(self) -> str:
         with self._cursor() as (_, cursor):
-            cursor.execute("SELECT event_hash FROM audit_events ORDER BY occurred_at DESC, event_hash DESC LIMIT 1")
+            cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1")
             row = cursor.fetchone()
-            return row[0] if row else "0" * 64
+            if row is None:
+                raise RuntimeError("audit chain head is missing; run managed database migrations")
+            return row[0]
 
     def add_audit(self, event_type: str, subject_id: str | None, device_id: str) -> str:
         return self.add_audit_fingerprint(event_type, subject_id, _hash(device_id, self._pepper))
 
     def add_audit_fingerprint(self, event_type: str, subject_id: str | None, device_fingerprint: str) -> str:
+        """Append an event while serializing writers on the singleton chain-head row."""
         occurred_at = _now()
         with self._cursor() as (connection, cursor):
-            cursor.execute("SELECT event_hash FROM audit_events ORDER BY occurred_at DESC, event_hash DESC LIMIT 1" + self._audit_lock_clause)
+            # Updating the stable row obtains a write lock even when the chain is empty.
+            # The no-op update also serializes SQLite test writers when FOR UPDATE is unavailable.
+            cursor.execute("UPDATE audit_chain_head SET event_hash=event_hash WHERE chain_id=1")
+            cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1" + self._audit_lock_clause)
             row = cursor.fetchone()
-            previous_hash = row[0] if row else "0" * 64
+            if row is None:
+                raise RuntimeError("audit chain head is missing; run managed database migrations")
+            previous_hash = row[0]
             event_hash = hashlib.sha256(f"{event_type}|{occurred_at}|{subject_id or ''}|{device_fingerprint}|{previous_hash}".encode()).hexdigest()
             cursor.execute(self._sql("INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)"), (event_hash, event_type, occurred_at, subject_id, device_fingerprint, previous_hash))
+            cursor.execute(self._sql("UPDATE audit_chain_head SET event_hash=? WHERE chain_id=1"), (event_hash,))
+            if getattr(cursor, "rowcount", 1) != 1:
+                raise RuntimeError("audit chain head update did not affect exactly one row")
             connection.commit()
             return event_hash
