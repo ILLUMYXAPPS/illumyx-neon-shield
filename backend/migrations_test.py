@@ -101,6 +101,45 @@ class MigrationRunnerTests(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_audit_chain_head_migration_rejects_stale_existing_head(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "stale-audit-head-migration.sqlite3"
+            legacy_runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS[:3])
+            self.assertEqual(legacy_runner.apply_pending(), 3)
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)",
+                    ("a" * 64, "first", "2026-10-15T10:02:00+00:00", None, "device-1", "0" * 64),
+                )
+                connection.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)",
+                    ("b" * 64, "second", "2026-10-15T10:01:00+00:00", None, "device-2", "a" * 64),
+                )
+                connection.execute(
+                    "CREATE TABLE audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK(chain_id=1), event_hash TEXT NOT NULL)"
+                )
+                connection.execute("INSERT INTO audit_chain_head(chain_id,event_hash) VALUES(1,?)", ("a" * 64,))
+                connection.commit()
+            finally:
+                connection.close()
+
+            runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
+            with self.assertRaisesRegex(RuntimeError, "does not match"):
+                runner.apply_pending()
+            connection = sqlite3.connect(path)
+            try:
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM neon_schema_migrations WHERE version=4").fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    connection.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()[0],
+                    "a" * 64,
+                )
+            finally:
+                connection.close()
+
     def test_audit_chain_head_migration_initializes_empty_chain(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "empty-audit-head-migration.sqlite3"
