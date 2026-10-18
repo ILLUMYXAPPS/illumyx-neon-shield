@@ -49,6 +49,8 @@ Run the repository's PostgreSQL integration suite against the provider-compatibl
 
 - [ ] Append audit events concurrently from multiple independent connections.
 - [ ] Verify event ordering, chain-head consistency, and that no fork or committed event loss occurs.
+- [ ] Confirm the production schema and writer agree on the canonical `audit_chain_head.event_hash` column; reject a stale existing head before migration 4 is recorded as applied.
+- [ ] Confirm concurrent deployment jobs serialize through the transaction-scoped PostgreSQL advisory lock before inspecting migration history.
 - [ ] Verify failed writes roll back atomically and do not advance the durable chain head incorrectly.
 - [ ] Verify verifier behaviour for a valid chain, modified event, missing event, invalid head, and ambiguous history.
 - [ ] Repeat relevant tests after migration and after a staging database restart.
