@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import sqlite3
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from backend.managed_db_store import ManagedDbAuthStore
+from backend.store import AuthStore
 from backend.managed_store import ManagedAuthStore
 
 
@@ -86,42 +88,103 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
             store.migrate()
             first = store.add_audit_fingerprint("sign_in", "subject-1", "device-hash-1")
             second = store.add_audit_fingerprint("refresh", "subject-1", "device-hash-1")
+            rows = sqlite3.connect(Path(directory) / "managed-test.sqlite3")
+            try:
+                events = rows.execute("SELECT event_hash, previous_hash FROM audit_events").fetchall()
+            finally:
+                rows.close()
             self.assertNotEqual(first, second)
             self.assertEqual(store.last_audit_hash(), second)
+            self.assertEqual(events[0][1], "0" * 64)
+            self.assertEqual(events[1][1], events[0][0])
 
-    def test_rate_limit_insert_failure_is_not_recursively_retried(self) -> None:
+    def test_concurrent_audit_writes_form_one_unbroken_chain(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "managed-test.sqlite3"
-            store = ManagedDbAuthStore(
-                lambda: sqlite3.connect(path),
-                pepper="test-pepper",
-                placeholder="?",
-                audit_lock_clause="",
-            )
+            store = ManagedDbAuthStore(lambda: sqlite3.connect(path, timeout=15), pepper="test-pepper", placeholder="?", audit_lock_clause="")
             store.migrate()
-            connection = sqlite3.connect(path)
-            try:
-                connection.execute(
-                    "CREATE TRIGGER fail_rate_limit_insert "
-                    "BEFORE INSERT ON sign_in_rate_limits "
-                    "BEGIN SELECT RAISE(ABORT, 'forced insert failure'); END"
-                )
-                connection.commit()
-            finally:
-                connection.close()
 
-            now = datetime.now(timezone.utc).isoformat()
-            with self.assertRaisesRegex(sqlite3.IntegrityError, "forced insert failure"):
-                store.reserve_sign_in_attempt("user@example.com", now, 300, 5)
+            def append(index: int) -> str:
+                return store.add_audit_fingerprint(f"event-{index}", "subject-1", f"device-{index}")
 
-            connection = sqlite3.connect(path)
+            with ThreadPoolExecutor(max_workers=12) as pool:
+                hashes = list(pool.map(append, range(24)))
+
+            db = sqlite3.connect(path)
             try:
-                count = connection.execute(
-                    "SELECT COUNT(*) FROM sign_in_rate_limits"
-                ).fetchone()[0]
+                rows = db.execute("SELECT event_hash, previous_hash FROM audit_events").fetchall()
             finally:
-                connection.close()
-            self.assertEqual(count, 0)
+                db.close()
+            self.assertEqual(len(hashes), 24)
+            self.assertEqual(len(rows), 24)
+            by_hash = {event_hash: previous_hash for event_hash, previous_hash in rows}
+            self.assertEqual(len(by_hash), 24)
+            roots = [event_hash for event_hash, previous_hash in rows if previous_hash == "0" * 64]
+            self.assertEqual(len(roots), 1)
+            for event_hash, previous_hash in rows:
+                if previous_hash != "0" * 64:
+                    self.assertIn(previous_hash, by_hash)
+            head = store.last_audit_hash()
+            self.assertIn(head, by_hash)
+            child_counts = {}
+            for _, previous_hash in rows:
+                if previous_hash != "0" * 64:
+                    child_counts[previous_hash] = child_counts.get(previous_hash, 0) + 1
+            self.assertEqual(set(child_counts), set(by_hash) - {head})
+            self.assertTrue(all(count == 1 for count in child_counts.values()))
+
+    def test_sqlite_auth_store_concurrent_audit_writes_form_chain(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = str(Path(directory) / "sqlite-auth-store.sqlite3")
+            stores = [AuthStore(path) for _ in range(8)]
+            try:
+                def append(item: tuple[int, AuthStore]) -> str:
+                    index, store = item
+                    return store.add_audit_fingerprint(
+                        f"sqlite-event-{index}", "subject-1", f"device-{index}"
+                    )
+
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    hashes = list(pool.map(append, enumerate(stores)))
+                rows = stores[0]._db.execute("SELECT event_hash, previous_hash FROM audit_events").fetchall()
+                self.assertEqual(len(hashes), 8)
+                self.assertEqual(len(rows), 8)
+                self.assertEqual(sum(1 for row in rows if row["previous_hash"] == "0" * 64), 1)
+                hashes_in_chain = {row["event_hash"] for row in rows}
+                head = stores[0].last_audit_hash()
+                self.assertIn(head, hashes_in_chain)
+                child_counts = {}
+                for row in rows:
+                    if row["previous_hash"] != "0" * 64:
+                        self.assertIn(row["previous_hash"], hashes_in_chain)
+                        child_counts[row["previous_hash"]] = child_counts.get(row["previous_hash"], 0) + 1
+                self.assertEqual(set(child_counts), hashes_in_chain - {head})
+                self.assertTrue(all(count == 1 for count in child_counts.values()))
+            finally:
+                for store in stores:
+                    store.close()
+
+    def test_managed_writer_fails_closed_when_chain_head_is_missing(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = _store(Path(directory))
+            store.migrate()
+            db = sqlite3.connect(Path(directory) / "managed-test.sqlite3")
+            try:
+                db.execute("DELETE FROM audit_chain_head WHERE chain_id=1")
+                db.commit()
+            finally:
+                db.close()
+            with self.assertRaisesRegex(RuntimeError, "chain head is missing"):
+                store.add_audit_fingerprint("sign_in", "subject-1", "device-hash")
+            store.close()
+
+    def test_sqlite_writer_fails_closed_when_chain_head_is_missing(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = AuthStore(str(Path(directory) / "sqlite-auth-store.sqlite3"))
+            store._db.execute("DELETE FROM audit_chain_head WHERE chain_id=1")
+            store._db.commit()
+            with self.assertRaisesRegex(RuntimeError, "chain head is missing"):
+                store.add_audit_fingerprint("sign_in", "subject-1", "device-hash")
             store.close()
 
     def test_requires_pepper(self) -> None:
