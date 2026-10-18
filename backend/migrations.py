@@ -94,9 +94,10 @@ class MigrationRunner:
             # SQLite does not implicitly wrap DDL in a transaction. Begin before
             # creating metadata or applying migrations so failed backfills leave
             # neither schema objects nor migration-version rows behind.
+            self._create_metadata_table(cursor)
+            connection.commit()
             begin_sql = "BEGIN IMMEDIATE" if connection.__class__.__module__.split(".")[0] == "sqlite3" else "BEGIN"
             cursor.execute(begin_sql)
-            self._create_metadata_table(cursor)
             cursor.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version")
             applied = tuple((int(version), name) for version, name in cursor.fetchall())
             known = {migration.version: migration.name for migration in self._migrations}
