@@ -53,7 +53,10 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.runner = MigrationRunner(
-            self.connection_factory, PRODUCTION_MIGRATIONS, placeholder="%s"
+            self.connection_factory,
+            PRODUCTION_MIGRATIONS,
+            placeholder="%s",
+            lock_statement="SELECT pg_advisory_xact_lock(1180194898, 1)",
         )
         self.assertEqual(self.runner.apply_pending(), 4)
         self.assertEqual(self.runner.apply_pending(), 4)
@@ -63,7 +66,7 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
         with self.connection_factory() as connection:
             connection.execute("DELETE FROM audit_events")
             connection.execute(
-                "UPDATE audit_chain_head SET last_event_hash=%s WHERE chain_id=1",
+                "UPDATE audit_chain_head SET event_hash=%s WHERE chain_id=1",
                 (_SENTINEL,),
             )
 
@@ -73,7 +76,7 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
                 "SELECT event_hash, previous_hash FROM audit_events"
             ).fetchall()
             head = connection.execute(
-                "SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1"
+                "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
             ).fetchone()[0]
         return rows, head
 
