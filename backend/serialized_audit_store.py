@@ -16,7 +16,7 @@ class SerializedAuditManagedDbAuthStore(ManagedDbAuthStore):
     def last_audit_hash(self) -> str:
         with self._cursor() as (_, cursor):
             cursor.execute(
-                "SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1"
+                "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
             )
             row = cursor.fetchone()
             if row is None:
@@ -29,7 +29,7 @@ class SerializedAuditManagedDbAuthStore(ManagedDbAuthStore):
         occurred_at = _now()
         with self._cursor() as (connection, cursor):
             cursor.execute(
-                "SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1"
+                "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
                 + self._audit_lock_clause
             )
             row = cursor.fetchone()
@@ -48,7 +48,7 @@ class SerializedAuditManagedDbAuthStore(ManagedDbAuthStore):
             )
             cursor.execute(
                 self._sql(
-                    "UPDATE audit_chain_head SET last_event_hash=? WHERE chain_id=1"
+                    "UPDATE audit_chain_head SET event_hash=? WHERE chain_id=1"
                 ),
                 (event_hash,),
             )

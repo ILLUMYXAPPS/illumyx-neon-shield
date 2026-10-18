@@ -1,7 +1,20 @@
 """Code-reviewed production migration definitions for the auth store."""
 from __future__ import annotations
 
+from backend.audit_chain import resolve_audit_chain_head
 from backend.migrations import Migration
+
+
+def _validate_existing_audit_chain_head(cursor) -> None:
+    """Fail closed if a pre-existing singleton head disagrees with audit history."""
+    cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1")
+    existing = cursor.fetchone()
+    if existing is None:
+        return
+    cursor.execute("SELECT event_hash, previous_hash FROM audit_events")
+    expected = resolve_audit_chain_head(cursor.fetchall())
+    if existing[0] != expected:
+        raise RuntimeError("existing audit chain head does not match the validated audit history")
 
 
 _SENTINEL_HASH = "0" * 64
@@ -37,7 +50,7 @@ PRODUCTION_MIGRATIONS = (
         4,
         "create_serialized_audit_chain_head",
         (
-            "CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK (chain_id = 1), last_event_hash TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK (chain_id = 1), event_hash TEXT NOT NULL)",
             "WITH RECURSIVE reachable(event_hash) AS ("
             "SELECT event_hash FROM audit_events WHERE previous_hash = '" + _SENTINEL_HASH + "' "
             "UNION "
@@ -51,7 +64,7 @@ PRODUCTION_MIGRATIONS = (
             "(SELECT COUNT(*) FROM audit_events e WHERE NOT EXISTS "
             "(SELECT 1 FROM audit_events child WHERE child.previous_hash = e.event_hash)) AS tip_count"
             ") "
-            "INSERT INTO audit_chain_head (chain_id, last_event_hash) "
+            "INSERT INTO audit_chain_head (chain_id, event_hash) "
             "SELECT 1, CASE "
             "WHEN total_count = 0 THEN '" + _SENTINEL_HASH + "' "
             "WHEN reachable_count = total_count AND root_count = 1 AND tip_count = 1 "
@@ -61,5 +74,6 @@ PRODUCTION_MIGRATIONS = (
             "FROM stats WHERE true "
             "ON CONFLICT (chain_id) DO NOTHING",
         ),
+        _validate_existing_audit_chain_head,
     ),
 )

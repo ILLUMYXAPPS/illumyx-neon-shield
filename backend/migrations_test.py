@@ -24,7 +24,7 @@ class MigrationRunnerTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_chain_head'"
                 ).fetchone()
                 head = connection.execute(
-                    "SELECT chain_id, last_event_hash FROM audit_chain_head"
+                    "SELECT chain_id, event_hash FROM audit_chain_head"
                 ).fetchall()
                 versions = connection.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version").fetchall()
             finally:
@@ -62,7 +62,7 @@ class MigrationRunnerTests(unittest.TestCase):
             connection = sqlite3.connect(path)
             try:
                 head = connection.execute(
-                    "SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1"
+                    "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
                 ).fetchone()
             finally:
                 connection.close()
@@ -146,6 +146,84 @@ class MigrationRunnerTests(unittest.TestCase):
                 self.assertIsNone(head_table)
             finally:
                 connection.close()
+
+    def test_incremental_audit_head_failure_rolls_back_v4_ddl_and_version(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "incremental-v4-rollback.sqlite3"
+            legacy_runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS[:3])
+            self.assertEqual(legacy_runner.apply_pending(), 3)
+
+            connection = sqlite3.connect(path)
+            try:
+                connection.executemany(
+                    "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?)",
+                    [
+                        ("root-a", "test", "2026-01-01", None, "device", "0" * 64),
+                        ("root-b", "test", "2026-01-02", None, "device", "0" * 64),
+                    ],
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
+            with self.assertRaises(sqlite3.IntegrityError):
+                runner.apply_pending()
+
+            connection = sqlite3.connect(path)
+            try:
+                self.assertIsNone(connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_chain_head'"
+                ).fetchone())
+                versions = connection.execute(
+                    "SELECT version FROM neon_schema_migrations ORDER BY version"
+                ).fetchall()
+                self.assertEqual(versions, [(1,), (2,), (3,)])
+            finally:
+                connection.close()
+
+    def test_existing_stale_audit_head_fails_closed_without_marking_v4_applied(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "stale-existing-head.sqlite3"
+            legacy_runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS[:3])
+            self.assertEqual(legacy_runner.apply_pending(), 3)
+
+            connection = sqlite3.connect(path)
+            try:
+                connection.executemany(
+                    "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?)",
+                    [
+                        ("a" * 64, "test", "2026-10-18T10:02:00+00:00", None, "device-a", "0" * 64),
+                        ("b" * 64, "test", "2026-10-18T10:01:00+00:00", None, "device-b", "a" * 64),
+                    ],
+                )
+                connection.execute(
+                    "CREATE TABLE audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK (chain_id = 1), event_hash TEXT NOT NULL)"
+                )
+                connection.execute(
+                    "INSERT INTO audit_chain_head(chain_id, event_hash) VALUES(1, ?)",
+                    ("a" * 64,),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
+            with self.assertRaisesRegex(RuntimeError, "does not match"):
+                runner.apply_pending()
+
+            connection = sqlite3.connect(path)
+            try:
+                versions = connection.execute(
+                    "SELECT version FROM neon_schema_migrations ORDER BY version"
+                ).fetchall()
+                head = connection.execute(
+                    "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
+                ).fetchone()
+            finally:
+                connection.close()
+            self.assertEqual(versions, [(1,), (2,), (3,)])
+            self.assertEqual(head, ("a" * 64,))
 
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:

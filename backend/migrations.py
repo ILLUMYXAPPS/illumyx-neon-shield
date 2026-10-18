@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Callable
 
 
 @dataclass(frozen=True)
@@ -14,6 +15,7 @@ class Migration:
     version: int
     name: str
     statements: tuple[str, ...]
+    validate_after_first_statement: Callable[[object], None] | None = None
 
 
 class MigrationRunner:
@@ -25,12 +27,16 @@ class MigrationRunner:
         migrations: tuple[Migration, ...],
         *,
         placeholder: str = "?",
+        lock_statement: str | None = None,
     ) -> None:
         if placeholder not in {"%s", "?", ":1"}:
             raise ValueError("unsupported DB-API placeholder")
         self._connection_factory = connection_factory
         self._migrations = self._validate_migrations(migrations)
         self._placeholder = placeholder
+        if lock_statement is not None and not lock_statement.startswith("SELECT pg_advisory_xact_lock("):
+            raise ValueError("unsupported migration lock statement")
+        self._lock_statement = lock_statement
 
     @staticmethod
     def _validate_migrations(migrations: tuple[Migration, ...]) -> tuple[Migration, ...]:
@@ -85,13 +91,21 @@ class MigrationRunner:
             connection.close()
 
     def apply_pending(self) -> int:
-        """Apply all pending migrations in one explicit transaction."""
+        """Apply pending migrations atomically, serializing PostgreSQL deployers."""
         connection = self._connection_factory()
         cursor = connection.cursor()
         try:
-            # Start the transaction before creating migration metadata so a failed
-            # first migration rolls back the metadata table as well as schema changes.
-            cursor.execute("BEGIN")
+            # Begin before creating metadata or changing schema. SQLite requires
+            # an explicit transaction for DDL rollback; IMMEDIATE also serializes
+            # competing local migration writers before they inspect history.
+            is_sqlite = connection.__class__.__module__.split(".")[0] == "sqlite3"
+            cursor.execute("BEGIN IMMEDIATE" if is_sqlite else "BEGIN")
+
+            # PostgreSQL transaction-scoped advisory lock must be acquired before
+            # reading or changing migration history.
+            if self._lock_statement is not None:
+                cursor.execute(self._lock_statement)
+
             self._create_metadata_table(cursor)
             cursor.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version")
             applied = tuple((int(version), name) for version, name in cursor.fetchall())
@@ -115,8 +129,10 @@ class MigrationRunner:
                     raise RuntimeError(
                         f"migration history requires version {expected_version} before {migration.version}"
                     )
-                for statement in migration.statements:
+                for index, statement in enumerate(migration.statements):
                     cursor.execute(statement)
+                    if index == 0 and migration.validate_after_first_statement is not None:
+                        migration.validate_after_first_statement(cursor)
                 self._insert_applied(cursor, migration)
                 applied_versions.add(migration.version)
 

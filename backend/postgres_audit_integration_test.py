@@ -53,7 +53,10 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.runner = MigrationRunner(
-            self.connection_factory, PRODUCTION_MIGRATIONS, placeholder="%s"
+            self.connection_factory,
+            PRODUCTION_MIGRATIONS,
+            placeholder="%s",
+            lock_statement="SELECT pg_advisory_xact_lock(1180194898, 1)",
         )
         self.assertEqual(self.runner.apply_pending(), 4)
         self.assertEqual(self.runner.apply_pending(), 4)
@@ -63,7 +66,7 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
         with self.connection_factory() as connection:
             connection.execute("DELETE FROM audit_events")
             connection.execute(
-                "UPDATE audit_chain_head SET last_event_hash=%s WHERE chain_id=1",
+                "UPDATE audit_chain_head SET event_hash=%s WHERE chain_id=1",
                 (_SENTINEL,),
             )
 
@@ -73,7 +76,7 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
                 "SELECT event_hash, previous_hash FROM audit_events"
             ).fetchall()
             head = connection.execute(
-                "SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1"
+                "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
             ).fetchone()[0]
         return rows, head
 
@@ -115,6 +118,46 @@ class PostgreSQLAuditChainIntegrationTests(unittest.TestCase):
         # placeholder configuration is never used to open a real connection.
         self.assertEqual(run_migrations(config=config, connection_factory=self.connection_factory), 4)
         self.assertEqual(self.runner.current_version(), 4)
+
+    def test_concurrent_deployment_commands_serialize_initial_migrations(self) -> None:
+        schema = "neon_migration_race_" + uuid.uuid4().hex
+        with psycopg.connect(_DSN, connect_timeout=10) as connection:
+            connection.execute(f'CREATE SCHEMA "{schema}"')
+
+        def connect_isolated():
+            return psycopg.connect(
+                _DSN,
+                connect_timeout=10,
+                options=f"-c search_path={schema}",
+                application_name="neon-shield-migration-integration-test",
+            )
+
+        config = ProductionConfig(
+            database_url="postgresql://test.invalid/neon_shield_test?sslmode=verify-full",
+            database_user="neon_test",
+            database_password="integration-placeholder",
+            idp_url="https://idp.invalid",
+            idp_client_id="integration-test-client",
+            idp_client_secret="integration-placeholder",
+            database_pepper="integration-test-pepper",
+            monitoring_endpoint="https://monitor.invalid/events",
+        )
+        try:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                versions = list(pool.map(
+                    lambda _: run_migrations(config=config, connection_factory=connect_isolated),
+                    range(8),
+                ))
+            self.assertEqual(versions, [4] * 8)
+            with connect_isolated() as connection:
+                rows = connection.execute(
+                    "SELECT version, name FROM neon_schema_migrations ORDER BY version"
+                ).fetchall()
+            self.assertEqual([row[0] for row in rows], [1, 2, 3, 4])
+            self.assertEqual(len({row[1] for row in rows}), 4)
+        finally:
+            with psycopg.connect(_DSN, connect_timeout=10) as connection:
+                connection.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
 
     def test_concurrent_appends_from_independent_connections_form_one_chain(self) -> None:
         workers = 12

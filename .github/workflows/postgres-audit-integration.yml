@@ -54,7 +54,19 @@ jobs:
           python -m compileall -q
           backend/migrations.py
           backend/production_migrations.py
+          backend/migrations.py
+          backend/run_production_migrations.py
+          backend/run_production_migrations_test.py
           backend/serialized_audit_store.py
           backend/postgres_audit_integration_test.py
-      - name: Run real PostgreSQL migration, concurrency, and rollback tests
+          backend/audit_chain.py
+          backend/audit_chain_test.py
+          backend/managed_db_store.py
+          backend/managed_db_store_test.py
+          backend/managed_db_postgres_audit_integration_test.py
+      - name: Run migration command unit tests
+        run: python -m unittest backend.run_production_migrations_test -v
+      - name: Run production migration command PostgreSQL tests
         run: python -m unittest backend.postgres_audit_integration_test -v
+      - name: Run serialized audit-chain PostgreSQL tests
+        run: python -m unittest backend.managed_db_postgres_audit_integration_test -v
