@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Callable
 
 
 @dataclass(frozen=True)
@@ -14,6 +15,7 @@ class Migration:
     version: int
     name: str
     statements: tuple[str, ...]
+    validate_after_first_statement: Callable[[object], None] | None = None
 
 
 class MigrationRunner:
@@ -89,6 +91,11 @@ class MigrationRunner:
         connection = self._connection_factory()
         cursor = connection.cursor()
         try:
+            # SQLite does not implicitly wrap DDL in a transaction. Begin before
+            # creating metadata or applying migrations so failed backfills leave
+            # neither schema objects nor migration-version rows behind.
+            begin_sql = "BEGIN IMMEDIATE" if connection.__class__.__module__.split(".")[0] == "sqlite3" else "BEGIN"
+            cursor.execute(begin_sql)
             self._create_metadata_table(cursor)
             cursor.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version")
             applied = tuple((int(version), name) for version, name in cursor.fetchall())
@@ -112,8 +119,10 @@ class MigrationRunner:
                     raise RuntimeError(
                         f"migration history requires version {expected_version} before {migration.version}"
                     )
-                for statement in migration.statements:
+                for index, statement in enumerate(migration.statements):
                     cursor.execute(statement)
+                    if index == 0 and migration.validate_after_first_statement is not None:
+                        migration.validate_after_first_statement(cursor)
                 self._insert_applied(cursor, migration)
                 applied_versions.add(migration.version)
 
