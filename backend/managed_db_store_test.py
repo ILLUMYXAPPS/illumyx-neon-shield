@@ -168,8 +168,12 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             store = _store(Path(directory))
             store.migrate()
-            with sqlite3.connect(Path(directory) / "managed-test.sqlite3") as db:
+            db = sqlite3.connect(Path(directory) / "managed-test.sqlite3")
+            try:
                 db.execute("DELETE FROM audit_chain_head WHERE chain_id=1")
+                db.commit()
+            finally:
+                db.close()
             with self.assertRaisesRegex(RuntimeError, "chain head is missing"):
                 store.add_audit_fingerprint("sign_in", "subject-1", "device-hash")
             store.close()
