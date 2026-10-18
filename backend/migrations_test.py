@@ -24,7 +24,7 @@ class MigrationRunnerTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_chain_head'"
                 ).fetchone()
                 head = connection.execute(
-                    "SELECT chain_id, last_event_hash FROM audit_chain_head"
+                    "SELECT chain_id, event_hash FROM audit_chain_head"
                 ).fetchall()
                 versions = connection.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version").fetchall()
             finally:
@@ -62,7 +62,7 @@ class MigrationRunnerTests(unittest.TestCase):
             connection = sqlite3.connect(path)
             try:
                 head = connection.execute(
-                    "SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1"
+                    "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
                 ).fetchone()
             finally:
                 connection.close()
@@ -198,10 +198,10 @@ class MigrationRunnerTests(unittest.TestCase):
                     ],
                 )
                 connection.execute(
-                    "CREATE TABLE audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK (chain_id = 1), last_event_hash TEXT NOT NULL)"
+                    "CREATE TABLE audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK (chain_id = 1), event_hash TEXT NOT NULL)"
                 )
                 connection.execute(
-                    "INSERT INTO audit_chain_head(chain_id, last_event_hash) VALUES(1, ?)",
+                    "INSERT INTO audit_chain_head(chain_id, event_hash) VALUES(1, ?)",
                     ("a" * 64,),
                 )
                 connection.commit()
@@ -218,7 +218,7 @@ class MigrationRunnerTests(unittest.TestCase):
                     "SELECT version FROM neon_schema_migrations ORDER BY version"
                 ).fetchall()
                 head = connection.execute(
-                    "SELECT last_event_hash FROM audit_chain_head WHERE chain_id=1"
+                    "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
                 ).fetchone()
             finally:
                 connection.close()
