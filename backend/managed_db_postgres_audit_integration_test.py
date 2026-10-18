@@ -42,7 +42,10 @@ class AuditChainPostgresTests(unittest.TestCase):
 
         cls.connection_factory = staticmethod(connect)
         cls.runner = MigrationRunner(
-            cls.connection_factory, PRODUCTION_MIGRATIONS, placeholder="%s"
+            cls.connection_factory,
+            PRODUCTION_MIGRATIONS,
+            placeholder="%s",
+            lock_statement="SELECT pg_advisory_xact_lock(1180194898, 1)",
         )
         cls.store = ManagedDbAuthStore(
             cls.connection_factory,
