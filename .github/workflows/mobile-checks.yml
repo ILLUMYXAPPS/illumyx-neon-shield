@@ -39,6 +39,12 @@ jobs:
       - name: Get dependencies
         working-directory: mobile
         run: flutter pub get
+      - name: Upload generated lockfile for dependency review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flutter-pubspec-lock
+          path: mobile/pubspec.lock
+          if-no-files-found: error
       - name: Analyze
         working-directory: mobile
         run: flutter analyze
