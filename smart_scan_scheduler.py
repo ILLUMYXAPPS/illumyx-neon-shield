@@ -16,6 +16,7 @@ from typing import Iterable, Mapping, Any
 INTERVAL_SECONDS = 60 * 60
 APP_IDLE_SECONDS = 5 * 60
 MAX_HISTORY_RECORDS = 100
+SECURITY_CHECK_NAMES = {"Disk free", "Firewall", "Built-in protection"}
 
 
 def local_timestamp(now: datetime | None = None) -> str:
@@ -34,11 +35,12 @@ def build_evidence_record(results: Iterable[Any], timestamp: str | None = None) 
     """
     items = list(results)
     stamp = timestamp or local_timestamp()
-    if items and all(getattr(item, "state", None) == "ok" for item in items):
+    relevant = [item for item in items if getattr(item, "name", None) in SECURITY_CHECK_NAMES]
+    if relevant and all(getattr(item, "state", None) == "ok" for item in relevant):
         return {"timestamp": stamp, "status": "verified_clear"}
 
     issues = []
-    for item in items:
+    for item in relevant:
         state = str(getattr(item, "state", "unknown"))
         if state != "ok":
             issues.append({
@@ -50,9 +52,9 @@ def build_evidence_record(results: Iterable[Any], timestamp: str | None = None) 
     if not issues:
         issues.append({
             "check": "Scheduled posture check",
-            "result": "No results",
+            "result": "No verifiable security checks",
             "state": "uncertain",
-            "detail": "The check returned no results; a clear result could not be verified.",
+            "detail": "No supported security checks returned a verifiable result.",
         })
     return {"timestamp": stamp, "status": "issue_or_uncertain", "issues": issues}
 
