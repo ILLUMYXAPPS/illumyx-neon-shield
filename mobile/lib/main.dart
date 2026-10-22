@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
@@ -15,6 +16,7 @@ import 'onboarding/onboarding_screen.dart';
 import 'protection/protection_profile.dart';
 import 'protection/protection_profile_service.dart';
 import 'security/security_service.dart';
+import 'security/smart_scan_schedule_service.dart';
 import 'vault/encrypted_vault_screen.dart';
 
 void main() => runApp(const NeonShieldApp());
@@ -261,9 +263,16 @@ class ShieldDashboard extends StatefulWidget {
   State<ShieldDashboard> createState() => _ShieldDashboardState();
 }
 
-class _ShieldDashboardState extends State<ShieldDashboard> {
+class _ShieldDashboardState extends State<ShieldDashboard> with WidgetsBindingObserver {
   late final SecurityService security;
   final ProtectionProfileService profiles = ProtectionProfileService();
+  final SmartScanScheduleService scanSchedule = SmartScanScheduleService();
+  Timer? _scanReminderTimer;
+  DateTime _lastInteraction = DateTime.now();
+  bool _reminderDialogOpen = false;
+  bool _scanScheduleEnabled = true;
+  DateTime? _lastReviewAt;
+  String? _lastReviewStatus;
 
   bool loading = true;
   String device = 'Checking device…';
@@ -276,7 +285,101 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
   void initState() {
     super.initState();
     security = widget.securityServiceFactory?.call() ?? SecurityService();
+    WidgetsBinding.instance.addObserver(this);
+    _loadScanSchedule();
+    _scanReminderTimer = Timer.periodic(const Duration(seconds: 30), (_) => _checkScanReminder());
     refresh();
+  }
+
+  Future<void> _loadScanSchedule() async {
+    try {
+      final enabled = await scanSchedule.isEnabled();
+      final lastAt = await scanSchedule.lastReview();
+      final status = await scanSchedule.lastStatus();
+      if (!mounted) return;
+      setState(() {
+        _scanScheduleEnabled = enabled;
+        _lastReviewAt = lastAt;
+        _lastReviewStatus = status;
+      });
+      await _checkScanReminder();
+    } catch (_) {
+      // A reminder failure must not block the dashboard.
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _lastInteraction = DateTime.now();
+      _checkScanReminder();
+    }
+  }
+
+  Future<void> _checkScanReminder() async {
+    if (!mounted || _reminderDialogOpen || !_scanScheduleEnabled) return;
+    if (DateTime.now().difference(_lastInteraction) < const Duration(minutes: 5)) return;
+    try {
+      if (!await scanSchedule.isDue() || !mounted) return;
+      _reminderDialogOpen = true;
+      final retry = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Hourly Smart Scan reminder'),
+          content: const Text(
+            'A scheduled review is due. The mobile beta cannot run a verified security scan in the background yet. Would you like to open the dashboard and review the available posture information now?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Ask me later'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Review now'),
+            ),
+          ],
+        ),
+      );
+      _reminderDialogOpen = false;
+      if (!mounted || retry != true) return;
+      await scanSchedule.recordReviewAcknowledged();
+      final lastAt = await scanSchedule.lastReview();
+      final status = await scanSchedule.lastStatus();
+      if (!mounted) return;
+      setState(() {
+        _lastReviewAt = lastAt;
+        _lastReviewStatus = status;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Review acknowledged. This is not a verified-clear scan result.')),
+      );
+    } catch (_) {
+      _reminderDialogOpen = false;
+    }
+  }
+
+  Future<void> _setScanSchedule(bool enabled) async {
+    try {
+      await scanSchedule.setEnabled(enabled);
+      if (!mounted) return;
+      setState(() => _scanScheduleEnabled = enabled);
+      if (enabled) _lastInteraction = DateTime.now();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save the reminder preference. Please try again.')),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _scanReminderTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<void> refresh() async {
@@ -434,6 +537,8 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               label: const Text('Open encrypted file vault'),
             ),
             const SizedBox(height: 18),
+            _smartScanReminderCard(),
+            const SizedBox(height: 18),
             _profileCard(),
             const SizedBox(height: 18),
             _commandCentre(),
@@ -450,6 +555,66 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _smartScanReminderCard() {
+    final lastReview = _lastReviewAt == null
+        ? 'No review recorded yet'
+        : 'Last acknowledged: ${_lastReviewAt!.toLocal()}';
+    final status = _lastReviewStatus == null
+        ? 'No evidence recorded'
+        : 'Evidence status: ${_lastReviewStatus!.replaceAll('_', ' ')}';
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF11172A),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFF21E6FF).withValues(alpha: .28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.schedule_rounded, color: Color(0xFF21E6FF)),
+              SizedBox(width: 10),
+              Expanded(child: Text('HOURLY SMART SCAN', style: TextStyle(fontWeight: FontWeight.w800))),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Proposed mobile reminder: hourly, preferably after 5 minutes of app inactivity. iOS and Android control background execution, so this reminder only runs while Neon Shield is open. It is not a malware scan.',
+            style: TextStyle(color: Color(0xFF9BA7C7), height: 1.4),
+          ),
+          const SizedBox(height: 8),
+          Text(lastReview, style: const TextStyle(fontSize: 12, color: Color(0xFF9BA7C7))),
+          Text(status, style: const TextStyle(fontSize: 12, color: Color(0xFF9BA7C7))),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Enable hourly reminder'),
+            value: _scanScheduleEnabled,
+            onChanged: _setScanSchedule,
+          ),
+          OutlinedButton.icon(
+            onPressed: () async {
+              await scanSchedule.recordReviewAcknowledged();
+              final lastAt = await scanSchedule.lastReview();
+              final lastStatus = await scanSchedule.lastStatus();
+              if (!mounted) return;
+              setState(() {
+                _lastReviewAt = lastAt;
+                _lastReviewStatus = lastStatus;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Review acknowledged. No security scan was performed.')),
+              );
+            },
+            icon: const Icon(Icons.fact_check_outlined),
+            label: const Text('Acknowledge posture review'),
+          ),
+        ],
       ),
     );
   }
