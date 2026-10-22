@@ -47,8 +47,8 @@ class NeonShield(tk.Tk):
         self._schedule_was_missed = self.scan_store.is_due()
         self._last_user_activity = time.monotonic()
         self._scheduled_scan_prompt_open = False
-        self.bind_all(\"<KeyPress>\", self._note_user_activity, add=\"+\")
-        self.bind_all(\"<Button>\", self._note_user_activity, add=\"+\")
+        self.bind_all("<KeyPress>", self._note_user_activity, add="+")
+        self.bind_all("<Button>", self._note_user_activity, add="+")
         self._build()
         self.refresh()
         self._update_smart_scan_status()
@@ -133,16 +133,16 @@ class NeonShield(tk.Tk):
         self.recommendation.pack(anchor="w", pady=(5, 0))
 
         scan_frame = tk.Frame(main, bg=PANEL, padx=16, pady=10)
-        scan_frame.pack(fill=\"x\", padx=26, pady=(0, 10))
-        tk.Label(scan_frame, text=\"TIMED SMART SCAN\", bg=PANEL, fg=CYAN, font=(\"Arial\", 9, \"bold\")).pack(anchor=\"w\")
-        tk.Label(scan_frame, text=\"Schedules local read-only security-posture checks. This is not a malware scan. Idle preference means Neon Shield app inactivity, not verified whole-device inactivity.\", bg=PANEL, fg=MUTED, font=(\"Arial\", 9), justify=\"left\", wraplength=920).pack(anchor=\"w\", pady=(4, 6))
-        self.smart_scan_status = tk.Label(scan_frame, text=\"Loading schedule...\", bg=PANEL, fg=TEXT, font=(\"Arial\", 9))
-        self.smart_scan_status.pack(anchor=\"w\", pady=(0, 8))
+        scan_frame.pack(fill="x", padx=26, pady=(0, 10))
+        tk.Label(scan_frame, text="TIMED SMART SCAN", bg=PANEL, fg=CYAN, font=("Arial", 9, "bold")).pack(anchor="w")
+        tk.Label(scan_frame, text="Schedules local read-only security-posture checks. This is not a malware scan. Idle preference means Neon Shield app inactivity, not verified whole-device inactivity.", bg=PANEL, fg=MUTED, font=("Arial", 9), justify="left", wraplength=920).pack(anchor="w", pady=(4, 6))
+        self.smart_scan_status = tk.Label(scan_frame, text="Loading schedule...", bg=PANEL, fg=TEXT, font=("Arial", 9))
+        self.smart_scan_status.pack(anchor="w", pady=(0, 8))
         scan_actions = tk.Frame(scan_frame, bg=PANEL)
-        scan_actions.pack(fill=\"x\")
-        self.smart_scan_toggle = self._button(scan_actions, \"Pause hourly checks\", self.toggle_smart_scan_schedule, PANEL_ALT, TEXT)
-        self.smart_scan_toggle.pack(side=\"left\")
-        self._button(scan_actions, \"Run checks now\", self.run_scheduled_scan, VIOLET, TEXT).pack(side=\"left\", padx=(10, 0))
+        scan_actions.pack(fill="x")
+        self.smart_scan_toggle = self._button(scan_actions, "Pause hourly checks", self.toggle_smart_scan_schedule, PANEL_ALT, TEXT)
+        self.smart_scan_toggle.pack(side="left")
+        self._button(scan_actions, "Run checks now", self.run_scheduled_scan, VIOLET, TEXT).pack(side="left", padx=(10, 0))
 
         actions = tk.Frame(main, bg=BG)
         actions.pack(fill="x", padx=26, pady=(0, 10))
@@ -160,33 +160,33 @@ class NeonShield(tk.Tk):
         self._last_user_activity = time.monotonic()
 
     def _update_smart_scan_status(self):
-        if not hasattr(self, \"smart_scan_status\"):
+        if not hasattr(self, "smart_scan_status"):
             return
         self.smart_scan_status.config(text=self.scan_store.next_due_label())
-        self.smart_scan_toggle.config(text=\"Pause hourly checks\" if self.scan_store.data.get(\"enabled\", True) else \"Resume hourly checks\")
+        self.smart_scan_toggle.config(text="Pause hourly checks" if self.scan_store.data.get("enabled", True) else "Resume hourly checks")
 
     def toggle_smart_scan_schedule(self):
-        enabled = not self.scan_store.data.get(\"enabled\", True)
+        enabled = not self.scan_store.data.get("enabled", True)
         self.scan_store.set_enabled(enabled)
         self._schedule_was_missed = False
         self._update_smart_scan_status()
 
     def run_scheduled_scan(self):
-        self.hero_status.config(text=\"RUNNING LOCAL CHECKS\", fg=CYAN)
-        self.hero_detail.config(text=\"Running the existing read-only posture checks. This does not scan files for malware.\")
+        self.hero_status.config(text="RUNNING LOCAL CHECKS", fg=CYAN)
+        self.hero_detail.config(text="Running the existing read-only posture checks. This does not scan files for malware.")
         self.update_idletasks()
         self.refresh()
         try:
             record = self.scan_store.complete_scan(self.last_results)
             self._schedule_was_missed = False
-            if record[\"status\"] == \"verified_clear\":
-                self.hero_detail.config(text=\"Local checks completed; the result was verified clear. Only timestamp and status were saved.\")
+            if record["status"] == "verified_clear":
+                self.hero_detail.config(text="Supported local posture checks returned clear. Only timestamp and status were saved; this is not malware detection.")
             else:
-                self.hero_detail.config(text=\"Local checks completed with review or uncertain results. Relevant check details and timestamp were saved locally.\")
+                self.hero_detail.config(text="Local checks completed with review or uncertain results. Relevant check details and timestamp were saved locally.")
             self._update_smart_scan_status()
         except (OSError, ValueError, TypeError) as exc:
-            self.hero_status.config(text=\"CHECKS COMPLETED, HISTORY NOT SAVED\", fg=WARN)
-            self.hero_detail.config(text=f\"The check ran, but its local evidence record could not be saved ({type(exc).__name__}).\")
+            self.hero_status.config(text="CHECKS COMPLETED, HISTORY NOT SAVED", fg=WARN)
+            self.hero_detail.config(text=f"The check ran, but its local evidence record could not be saved ({type(exc).__name__}).")
 
     def _scheduled_scan_tick(self):
         try:
@@ -194,7 +194,7 @@ class NeonShield(tk.Tk):
                 self._scheduled_scan_prompt_open = True
                 try:
                     if self._schedule_was_missed:
-                        retry = messagebox.askyesno(APP_NAME, \"An hourly local check was missed while Neon Shield was not running. Would you like to retry it now?\")
+                        retry = messagebox.askyesno(APP_NAME, "An hourly local check was missed while Neon Shield was not running. Would you like to retry it now?")
                         if retry:
                             self.run_scheduled_scan()
                         else:
@@ -203,7 +203,7 @@ class NeonShield(tk.Tk):
                     elif time.monotonic() - self._last_user_activity >= APP_IDLE_SECONDS:
                         self.run_scheduled_scan()
                     else:
-                        run_now = messagebox.askyesno(APP_NAME, \"The hourly local check is due, but Neon Shield has not been idle for five minutes. Run it now? Choose No to defer it for one hour.\")
+                        run_now = messagebox.askyesno(APP_NAME, "The hourly local check is due, but Neon Shield has not been idle for five minutes. Run it now? Choose No to defer it for one hour.")
                         if run_now:
                             self.run_scheduled_scan()
                         else:
@@ -212,8 +212,8 @@ class NeonShield(tk.Tk):
                     self._scheduled_scan_prompt_open = False
                 self._update_smart_scan_status()
         except Exception as exc:
-            if hasattr(self, \"smart_scan_status\"):
-                self.smart_scan_status.config(text=f\"Schedule needs attention ({type(exc).__name__}).\")
+            if hasattr(self, "smart_scan_status"):
+                self.smart_scan_status.config(text=f"Schedule needs attention ({type(exc).__name__}).")
         finally:
             try:
                 self.after(60000, self._scheduled_scan_tick)
