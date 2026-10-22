@@ -343,7 +343,11 @@ class _ShieldDashboardState extends State<ShieldDashboard> with WidgetsBindingOb
         ),
       );
       _reminderDialogOpen = false;
-      if (!mounted || retry != true) return;
+      if (retry != true) {
+        _lastInteraction = DateTime.now();
+        return;
+      }
+      if (!mounted) return;
       await scanSchedule.recordReviewAcknowledged();
       final lastAt = await scanSchedule.lastReview();
       final status = await scanSchedule.lastStatus();
@@ -512,7 +516,10 @@ class _ShieldDashboardState extends State<ShieldDashboard> with WidgetsBindingOb
           IconButton(onPressed: loading ? null : refresh, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
-      body: RefreshIndicator(
+      body: Listener(
+        onPointerDown: (_) => _lastInteraction = DateTime.now(),
+        onPointerMove: (_) => _lastInteraction = DateTime.now(),
+        child: RefreshIndicator(
         onRefresh: refresh,
         child: ListView(
           padding: const EdgeInsets.all(18),
@@ -554,6 +561,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> with WidgetsBindingOb
               style: TextStyle(color: Color(0xFF9BA7C7), height: 1.45),
             ),
           ],
+        ),
         ),
       ),
     );
