@@ -35,6 +35,26 @@ class SmartScanEvidenceTests(unittest.TestCase):
         self.assertEqual(result["issues"][0]["check"], "Firewall")
         self.assertEqual(result["issues"][0]["detail"], "Needs review")
 
+    def test_non_security_inventory_fields_are_not_saved_as_issue_details(self):
+        result = build_evidence_record([
+            CheckResult("Local hostname", "private-device", "info", "Do not persist this inventory detail"),
+            CheckResult("Firewall", "Unknown", "info", "Firewall status unavailable"),
+        ])
+        self.assertEqual(result["status"], "issue_or_uncertain")
+        self.assertEqual([item["check"] for item in result["issues"]], ["Firewall"])
+        self.assertNotIn("private-device", str(result))
+
+    def test_clear_security_checks_do_not_store_inventory_metadata(self):
+        result = build_evidence_record([
+            CheckResult("Local hostname", "private-device", "info", "Do not persist this inventory detail"),
+            CheckResult("Firewall", "Enabled", "ok", "Private detail"),
+            CheckResult("Built-in protection", "Active", "ok", "Private detail"),
+        ], "2026-10-22T08:00:00+10:00")
+        self.assertEqual(result, {
+            "timestamp": "2026-10-22T08:00:00+10:00",
+            "status": "verified_clear",
+        })
+
     def test_empty_results_are_uncertain_not_clear(self):
         result = build_evidence_record([], "2026-10-22T08:00:00+10:00")
         self.assertEqual(result["status"], "issue_or_uncertain")
