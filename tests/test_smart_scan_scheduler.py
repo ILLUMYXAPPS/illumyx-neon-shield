@@ -102,6 +102,17 @@ class SmartScanStoreTests(unittest.TestCase):
         })
         self.assertEqual(datetime.fromisoformat(reopened.data["next_due_at"]), now + timedelta(seconds=INTERVAL_SECONDS))
 
+    def test_resuming_schedule_sets_a_fresh_hourly_deadline(self):
+        start = datetime.fromisoformat("2026-10-22T08:00:00+10:00")
+        resumed = start + timedelta(hours=3)
+        self.store.data["enabled"] = False
+        self.store.data["next_due_at"] = (start + timedelta(hours=1)).isoformat()
+        self.store.set_enabled(True, resumed)
+        self.assertEqual(
+            datetime.fromisoformat(self.store.data["next_due_at"]),
+            resumed + timedelta(seconds=INTERVAL_SECONDS),
+        )
+
     def test_evidence_history_is_capped(self):
         for _ in range(105):
             self.store.complete_scan([CheckResult("Firewall", "Enabled", "ok")])
