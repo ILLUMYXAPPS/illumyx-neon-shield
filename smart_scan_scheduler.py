@@ -146,8 +146,9 @@ class SmartScanStore:
         self.save()
 
     def set_enabled(self, enabled: bool, now: datetime | None = None) -> None:
+        was_enabled = bool(self.data.get("enabled", True))
         self.data["enabled"] = bool(enabled)
-        if enabled and not self.data.get("next_due_at"):
+        if enabled and (not was_enabled or not self.data.get("next_due_at")):
             current = now or datetime.now().astimezone()
             self.data["next_due_at"] = local_timestamp(current + timedelta(seconds=INTERVAL_SECONDS))
         self.save()
