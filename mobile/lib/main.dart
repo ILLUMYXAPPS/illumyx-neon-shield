@@ -597,11 +597,15 @@ class _ShieldDashboardState extends State<ShieldDashboard> with WidgetsBindingOb
           const SizedBox(height: 8),
           Text(lastReview, style: const TextStyle(fontSize: 12, color: Color(0xFF9BA7C7))),
           Text(status, style: const TextStyle(fontSize: 12, color: Color(0xFF9BA7C7))),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Enable hourly reminder'),
-            value: _scanScheduleEnabled,
-            onChanged: _setScanSchedule,
+          Material(
+            color: const Color(0xFF11172A),
+            borderRadius: BorderRadius.circular(8),
+            child: SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Enable hourly reminder'),
+              value: _scanScheduleEnabled,
+              onChanged: _setScanSchedule,
+            ),
           ),
           OutlinedButton.icon(
             onPressed: () async {
