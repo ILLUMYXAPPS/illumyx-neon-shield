@@ -2,17 +2,22 @@
 from __future__ import annotations
 
 import json
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, SignInRequest
 
 
+_MAX_BODY_BYTES = 32_768
+_REQUEST_TIMEOUT_SECONDS = 5
+
+
 def _session_json(session):
+    # Never return an internal/raw device identifier from an auth response.
     return {
         "session_id": session.session_id,
         "subject_id": session.subject_id,
-        "device_id": session.device_id,
         "issued_at": session.issued_at.isoformat(),
         "expires_at": session.expires_at.isoformat(),
     }
@@ -21,6 +26,12 @@ def _session_json(session):
 def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
         server_version = "NeonShieldAuth/1.0"
+
+        def setup(self) -> None:
+            super().setup()
+            # Bound idle socket reads. The deployment proxy must also enforce
+            # an overall request deadline to stop slow-trickle body attacks.
+            self.connection.settimeout(_REQUEST_TIMEOUT_SECONDS)
 
         def _json(self, status: int, payload: dict | None = None) -> None:
             body = b"" if status == 204 else json.dumps(payload or {}, separators=(",", ":")).encode()
@@ -35,10 +46,23 @@ def make_handler(service):
                 self.wfile.write(body)
 
         def _body(self) -> dict:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length > 32_768:
+            raw_length = self.headers.get("Content-Length")
+            if raw_length is None or not raw_length.isascii() or not raw_length.isdecimal():
+                raise ValueError("valid Content-Length required")
+            length = int(raw_length, 10)
+            if length > _MAX_BODY_BYTES:
                 raise ValueError("request too large")
-            value = json.loads(self.rfile.read(length) or b"{}")
+            content_type = self.headers.get("Content-Type", "")
+            media_type = content_type.split(";", 1)[0].strip().lower()
+            if media_type != "application/json":
+                raise ValueError("application/json required")
+            try:
+                body = self.rfile.read(length) if length else b""
+            except (OSError, socket.timeout) as exc:
+                raise ValueError("request body read timed out") from exc
+            if len(body) != length:
+                raise ValueError("incomplete request body")
+            value = json.loads(body or b"{}")
             if not isinstance(value, dict):
                 raise ValueError("JSON object required")
             return value
@@ -89,7 +113,7 @@ def make_handler(service):
                 self._json(404, {"error": "not_found"})
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
-            except (ValueError, json.JSONDecodeError):
+            except (ValueError, json.JSONDecodeError, socket.timeout, OSError):
                 self._json(400, {"error": "invalid_request"})
             except Exception:
                 self._json(503, {"error": "unavailable"})
