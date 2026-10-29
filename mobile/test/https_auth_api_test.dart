@@ -47,7 +47,6 @@ void main() {
           'session': {
             'session_id': session.token,
             'expires_at': session.expiresAt.toIso8601String(),
-            'device_id': session.deviceId,
           },
         }),
         200,
@@ -70,7 +69,6 @@ void main() {
     expect(jsonDecode(request.body), {
       'identity': 'user@example.com',
       'credential': 'secret',
-      'device_id': 'device-123',
     });
     expect(result.token, session.token);
     expect(result.deviceId, session.deviceId);
@@ -106,7 +104,6 @@ void main() {
             'session': {
               'session_id': '',
               'expires_at': DateTime.now().toUtc().add(const Duration(minutes: 5)).toIso8601String(),
-              'device_id': 'device-123',
             },
           }),
           200,
@@ -129,7 +126,6 @@ void main() {
             'session': {
               'session_id': 'session-123',
               'expires_at': DateTime.now().toUtc().subtract(const Duration(seconds: 1)).toIso8601String(),
-              'device_id': 'device-123',
             },
           }),
           200,
