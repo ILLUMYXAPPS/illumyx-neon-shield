@@ -90,6 +90,24 @@ class HttpRequestBodyParsingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "JSON object"):
             self.parse_body({"Content-Length": "2"}, b"[]")
 
+    def test_missing_content_length_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Content-Length"):
+            self.parse_body({})
+
+    def test_non_json_content_type_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "application/json"):
+            self.parse_body(
+                {"Content-Length": "2", "Content-Type": "text/plain"},
+                b"{}",
+            )
+
+    def test_duplicate_transfer_encoding_and_content_length_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Content-Length"):
+            self.parse_body(
+                {"Content-Length": ["2", "2"], "Transfer-Encoding": "chunked"},
+                b"{}",
+            )
+
     def test_trickled_request_body_hits_total_deadline(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(object()))
         server.daemon_threads = True
