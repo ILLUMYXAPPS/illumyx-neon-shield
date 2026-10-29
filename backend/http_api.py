@@ -15,6 +15,10 @@ _REQUEST_TIMEOUT_SECONDS = 5
 _REQUEST_BODY_DEADLINE_SECONDS = 10
 
 
+class RequestBodyTimeout(ValueError):
+    """Raised when a client exceeds the total request-body deadline."""
+
+
 def _session_json(session):
     # Never return an internal/raw device identifier from an auth response.
     return {
@@ -69,7 +73,7 @@ def make_handler(service):
                 while len(body) < length:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        raise ValueError("request body deadline exceeded")
+                        raise RequestBodyTimeout("request body deadline exceeded")
                     self.connection.settimeout(min(_REQUEST_TIMEOUT_SECONDS, remaining))
                     # read1 performs at most one underlying read, allowing the
                     # absolute deadline to be re-evaluated between slow chunks.
@@ -78,7 +82,7 @@ def make_handler(service):
                         break
                     body.extend(chunk)
             except (OSError, socket.timeout) as exc:
-                raise ValueError("request body read timed out") from exc
+                raise RequestBodyTimeout("request body read timed out") from exc
             finally:
                 self.connection.settimeout(_REQUEST_TIMEOUT_SECONDS)
             if len(body) != length:
@@ -134,7 +138,11 @@ def make_handler(service):
                 self._json(404, {"error": "not_found"})
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
+            except RequestBodyTimeout:
+                self.close_connection = True
+                self._json(408, {"error": "request_timeout"})
             except (ValueError, json.JSONDecodeError, socket.timeout, OSError):
+                self.close_connection = True
                 self._json(400, {"error": "invalid_request"})
             except Exception:
                 self._json(503, {"error": "unavailable"})
