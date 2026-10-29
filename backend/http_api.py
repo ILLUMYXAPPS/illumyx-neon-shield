@@ -48,8 +48,13 @@ def make_handler(service):
                 self.wfile.write(body)
 
         def _body(self) -> dict:
-            raw_length = self.headers.get("Content-Length")
-            if raw_length is None or not raw_length.isascii() or not raw_length.isdecimal():
+            length_values = self.headers.get_all("Content-Length", [])
+            if len(length_values) != 1:
+                raise ValueError("exactly one Content-Length required")
+            if self.headers.get("Transfer-Encoding") is not None:
+                raise ValueError("Transfer-Encoding is not supported")
+            raw_length = length_values[0]
+            if not raw_length.isascii() or not raw_length.isdecimal():
                 raise ValueError("valid Content-Length required")
             length = int(raw_length, 10)
             if length > _MAX_BODY_BYTES:
