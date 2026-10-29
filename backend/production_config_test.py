@@ -53,6 +53,36 @@ class ProductionConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "NEON_DB_PEPPER"):
             validate_production_config(self._env(), secret_provider=provider)
 
+    def test_blank_and_whitespace_configuration_is_rejected(self):
+        for value in ("", "   ", "\\t"):
+            with self.subTest(value=repr(value)):
+                env = self._env()
+                env["NEON_IDP_CLIENT_ID"] = value
+                with self.assertRaisesRegex(RuntimeError, "missing production configuration"):
+                    validate_production_config(env, secret_provider=self._provider())
+
+    def test_duplicate_database_sslmode_is_rejected(self):
+        env = self._env()
+        env["NEON_AUTH_DB"] = (
+            "postgresql://managed.example/auth?sslmode=verify-full&sslmode=disable"
+        )
+        with self.assertRaisesRegex(RuntimeError, "must explicitly require TLS"):
+            validate_production_config(env, secret_provider=self._provider())
+
+    def test_identity_provider_url_rejects_credentials(self):
+        env = self._env()
+        env["NEON_IDP_URL"] = "https://user:password@idp.example"
+        with self.assertRaisesRegex(RuntimeError, "without credentials"):
+            validate_production_config(env, secret_provider=self._provider())
+
+    def test_blank_secret_fails_closed(self):
+        provider = MappingSecretProvider({
+            "NEON_IDP_CLIENT_SECRET": "   ",
+            "NEON_DB_PEPPER": "pepper-test-value",
+        })
+        with self.assertRaisesRegex(RuntimeError, "NEON_IDP_CLIENT_SECRET"):
+            validate_production_config(self._env(), secret_provider=provider)
+
 
 if __name__ == "__main__":
     unittest.main()
