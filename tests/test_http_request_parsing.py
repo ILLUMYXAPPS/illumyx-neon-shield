@@ -103,6 +103,7 @@ class HttpRequestBodyParsingTests(unittest.TestCase):
                     client.sendall(
                         b"POST /v1/auth/sign-in HTTP/1.1\r\n"
                         b"Host: localhost\r\n"
+                        b"Content-Type: application/json\r\n"
                         b"Content-Length: 100\r\n"
                         b"\r\n"
                     )
