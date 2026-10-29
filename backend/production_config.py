@@ -64,7 +64,7 @@ def _require_database_tls(value: str) -> None:
     """Require explicit TLS for the PostgreSQL production connection."""
     try:
         parsed = urlparse(value)
-        sslmodes = parse_qs(parsed.query, strict_parsing=True).get("sslmode", [])
+        sslmodes = parse_qs(parsed.query).get("sslmode", [])
         port = parsed.port
     except ValueError as exc:
         raise RuntimeError("NEON_AUTH_DB must be a valid PostgreSQL connection URL") from exc
