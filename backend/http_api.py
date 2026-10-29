@@ -47,6 +47,8 @@ def make_handler(service):
                 self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            if self.close_connection:
+                self.send_header("Connection", "close")
             self.end_headers()
             if body:
                 self.wfile.write(body)
