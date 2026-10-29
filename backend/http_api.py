@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
@@ -11,6 +12,7 @@ from auth_server_contract import AuthFailure, SignInRequest
 
 _MAX_BODY_BYTES = 32_768
 _REQUEST_TIMEOUT_SECONDS = 5
+_REQUEST_BODY_DEADLINE_SECONDS = 10
 
 
 def _session_json(session):
@@ -56,13 +58,27 @@ def make_handler(service):
             media_type = content_type.split(";", 1)[0].strip().lower()
             if media_type != "application/json":
                 raise ValueError("application/json required")
+            deadline = time.monotonic() + _REQUEST_BODY_DEADLINE_SECONDS
+            body = bytearray()
             try:
-                body = self.rfile.read(length) if length else b""
+                while len(body) < length:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ValueError("request body deadline exceeded")
+                    self.connection.settimeout(min(_REQUEST_TIMEOUT_SECONDS, remaining))
+                    # read1 performs at most one underlying read, allowing the
+                    # absolute deadline to be re-evaluated between slow chunks.
+                    chunk = self.rfile.read1(min(4096, length - len(body)))
+                    if not chunk:
+                        break
+                    body.extend(chunk)
             except (OSError, socket.timeout) as exc:
                 raise ValueError("request body read timed out") from exc
+            finally:
+                self.connection.settimeout(_REQUEST_TIMEOUT_SECONDS)
             if len(body) != length:
                 raise ValueError("incomplete request body")
-            value = json.loads(body or b"{}")
+            value = json.loads(bytes(body) if body else b"{}")
             if not isinstance(value, dict):
                 raise ValueError("JSON object required")
             return value
