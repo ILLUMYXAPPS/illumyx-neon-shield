@@ -37,7 +37,7 @@ def _require_https(name: str, value: str) -> None:
     try:
         parsed = urlparse(value)
         hostname = parsed.hostname
-        port = parsed.port  # Force validation of malformed/out-of-range ports.
+        port = parsed.port
     except ValueError as exc:
         raise RuntimeError(f"{name} must be a valid absolute HTTPS URL") from exc
     if (
@@ -65,12 +65,13 @@ def _require_database_tls(value: str) -> None:
     try:
         parsed = urlparse(value)
         sslmodes = parse_qs(parsed.query, strict_parsing=True).get("sslmode", [])
+        port = parsed.port
     except ValueError as exc:
         raise RuntimeError("NEON_AUTH_DB must be a valid PostgreSQL connection URL") from exc
     if parsed.scheme not in {"postgres", "postgresql"} or not parsed.hostname:
         raise RuntimeError("NEON_AUTH_DB must use a PostgreSQL connection URL with a hostname")
-    if parsed.password is None or parsed.username is None:
-        raise RuntimeError("NEON_AUTH_DB must include managed-database credentials")
+    if port is not None and not 1 <= port <= 65535:
+        raise RuntimeError("NEON_AUTH_DB must use a valid PostgreSQL port")
     if len(sslmodes) != 1 or sslmodes[0].lower() not in _ALLOWED_DB_SSLMODES:
         raise RuntimeError(
             "NEON_AUTH_DB must explicitly require TLS with sslmode=require, verify-ca, or verify-full"
