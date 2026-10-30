@@ -54,7 +54,7 @@ class ProductionConfigTests(unittest.TestCase):
             validate_production_config(self._env(), secret_provider=provider)
 
     def test_blank_and_whitespace_configuration_is_rejected(self):
-        for value in ("", "   ", "\\t"):
+        for value in ("", "   ", "\t"):
             with self.subTest(value=repr(value)):
                 env = self._env()
                 env["NEON_IDP_CLIENT_ID"] = value
