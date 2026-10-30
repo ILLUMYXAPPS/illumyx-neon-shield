@@ -69,6 +69,7 @@ void main() {
     expect(jsonDecode(request.body), {
       'identity': 'user@example.com',
       'credential': 'secret',
+      'device_id': session.deviceId,
     });
     expect(result.token, session.token);
     expect(result.deviceId, session.deviceId);
