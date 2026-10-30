@@ -66,7 +66,7 @@ class HttpsAuthApi implements AuthApiContract {
         'device_id': deviceId,
       }),
     ));
-    return _sessionFromResponse(response);
+    return _sessionFromResponse(response, deviceId: deviceId);
   }
 
   @override
@@ -75,7 +75,7 @@ class HttpsAuthApi implements AuthApiContract {
       _endpoint('/v1/auth/refresh'),
       headers: _authHeaders(session),
     ));
-    return _sessionFromResponse(response);
+    return _sessionFromResponse(response, deviceId: session.deviceId);
   }
 
   @override
@@ -109,7 +109,7 @@ class HttpsAuthApi implements AuthApiContract {
         'Content-Type': 'application/json',
       };
 
-  AuthSession _sessionFromResponse(http.Response response) {
+  AuthSession _sessionFromResponse(http.Response response, {required String deviceId}) {
     if (response.statusCode != 200) throw _failure(response);
     final data = _decodeObject(response.body);
     final session = data['session'];
@@ -119,11 +119,9 @@ class HttpsAuthApi implements AuthApiContract {
     try {
       final token = session['session_id'];
       final expiresAtValue = session['expires_at'];
-      final deviceId = session['device_id'];
       if (token is! String ||
           token.trim().isEmpty ||
           expiresAtValue is! String ||
-          deviceId is! String ||
           deviceId.trim().isEmpty) {
         throw const FormatException();
       }
