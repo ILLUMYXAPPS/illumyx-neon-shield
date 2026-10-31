@@ -86,11 +86,9 @@ class HttpEvidenceTests(unittest.TestCase):
     def test_invalid_json_is_recorded_as_bad_request(self):
         req = Request(self.base + "/v1/auth/sign-in", data=b"{", method="POST",
                       headers={"Content-Type": "application/json"})
-        try:
+        with self.assertRaises(HTTPError) as caught:
             urlopen(req, timeout=3)
-        except HTTPError as exc:
-            status = exc.code
-        self.assertEqual(status, 400)
+        self.assertEqual(caught.exception.code, 400)
         self.assertEqual(self.evidence.events[0]["event_type"], "http.invalid_request")
 
     def test_evidence_store_failure_does_not_change_auth_response(self):
