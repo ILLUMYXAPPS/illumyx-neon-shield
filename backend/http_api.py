@@ -35,7 +35,7 @@ def make_handler(service, *, evidence_store=None, trusted_proxies=()):
                     event_type=event_type,
                     source_ip=source_ip,
                     method=self.command,
-                    path=self.path,
+                    path=self.path.split("?", 1)[0].split("#", 1)[0],
                     status_code=status,
                     user_agent=self.headers.get("User-Agent"),
                 )
