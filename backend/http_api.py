@@ -30,14 +30,19 @@ def make_handler(service, *, evidence_store=None, trusted_proxies=()):
             peer = self.client_address[0] if self.client_address else None
             forwarded = self.headers.get("X-Forwarded-For")
             source_ip = resolve_client_ip(peer, forwarded, trusted_proxies)
-            evidence_store.record_event(
-                event_type=event_type,
-                source_ip=source_ip,
-                method=self.command,
-                path=self.path,
-                status_code=status,
-                user_agent=self.headers.get("User-Agent"),
-            )
+            try:
+                evidence_store.record_event(
+                    event_type=event_type,
+                    source_ip=source_ip,
+                    method=self.command,
+                    path=self.path,
+                    status_code=status,
+                    user_agent=self.headers.get("User-Agent"),
+                )
+            except Exception:
+                # Evidence storage must never turn an auth response into a 500.
+                # The deployment should separately monitor storage health.
+                return
 
         def _json(self, status: int, payload: dict | None = None) -> None:
             body = b"" if status == 204 else json.dumps(payload or {}, separators=(",", ":")).encode()
