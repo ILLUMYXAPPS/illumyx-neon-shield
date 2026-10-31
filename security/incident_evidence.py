@@ -1,5 +1,6 @@
 """Server-side, privacy-conscious intrusion evidence ledger."""
 import hashlib, ipaddress, json, sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,9 +29,16 @@ class EvidenceStore:
             seq INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, kind TEXT NOT NULL,
             ip TEXT, method TEXT, path TEXT, status INTEGER, agent TEXT, details TEXT NOT NULL,
             prev TEXT NOT NULL, digest TEXT NOT NULL UNIQUE)""")
+    @contextmanager
     def _db(self):
-        db=sqlite3.connect(self.database,timeout=15,isolation_level="IMMEDIATE")
-        db.row_factory=sqlite3.Row; return db
+        """Open a short-lived connection and always release its file handle."""
+        db = sqlite3.connect(self.database, timeout=15, isolation_level="IMMEDIATE")
+        db.row_factory = sqlite3.Row
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
     def record_event(self, *, event_type, source_ip=None, method=None, path=None,
                      status_code=None, user_agent=None, details=None):
         if not event_type or len(event_type)>80: raise ValueError("invalid event_type")
