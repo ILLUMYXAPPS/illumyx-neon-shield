@@ -36,6 +36,13 @@ class ResolveClientIpTests(unittest.TestCase):
     def test_invalid_peer_returns_unavailable(self):
         self.assertEqual(resolve_client_ip("not-an-ip")[0], None)
 
+    def test_trusted_proxy_without_forwarded_client_returns_unavailable(self):
+        ip, source = resolve_client_ip(
+            "10.0.0.2", "", trusted_proxy_cidrs=("10.0.0.0/8",)
+        )
+        self.assertIsNone(ip)
+        self.assertEqual(source, "unavailable")
+
 
 class RequestEvidenceRecorderTests(unittest.TestCase):
     def test_records_security_response_with_chain_hash(self):
