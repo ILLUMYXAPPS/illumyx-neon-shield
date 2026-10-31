@@ -67,11 +67,15 @@ def resolve_client_ip(
 
     chain = [_parse_ip(item) for item in (forwarded_for or "").split(",")]
     chain = [item for item in chain if item is not None]
+    if not chain:
+        return None, "unavailable"
     chain.append(peer)
 
     while len(chain) > 1 and _in_networks(chain[-1], networks):
         chain.pop()
 
+    if len(chain) == 1 and _in_networks(chain[0], networks):
+        return None, "unavailable"
     return str(chain[-1]), "trusted_proxy_chain"
 
 
@@ -244,6 +248,9 @@ class NeonShieldEvidenceMiddleware:
                         user_agent=user_agent,
                     )
                 except Exception as exc:  # evidence failure must not break the protected service
-                    self.on_error(exc)
+                    try:
+                        self.on_error(exc)
+                    except Exception:
+                        pass
 
         await self.app(scope, receive, observed_send)
