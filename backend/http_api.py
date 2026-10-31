@@ -58,6 +58,8 @@ def make_handler(service, *, evidence_store=None, trusted_proxies=()):
 
         def _body(self) -> dict:
             length = int(self.headers.get("Content-Length", "0"))
+            if length < 0:
+                raise ValueError("invalid content length")
             if length > 32_768:
                 raise ValueError("request too large")
             value = json.loads(self.rfile.read(length) or b"{}")
