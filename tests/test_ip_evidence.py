@@ -6,6 +6,7 @@ from pathlib import Path
 from security.ip_evidence import (
     JsonlEvidenceSink,
     RequestEvidenceRecorder,
+    NeonShieldEvidenceMiddleware,
     resolve_client_ip,
 )
 
@@ -42,6 +43,48 @@ class ResolveClientIpTests(unittest.TestCase):
         )
         self.assertIsNone(ip)
         self.assertEqual(source, "unavailable")
+
+
+class MemorySink:
+    def __init__(self):
+        self.records = []
+
+    def append(self, record):
+        self.records.append(dict(record))
+        return "a" * 64
+
+
+class MiddlewareTests(unittest.IsolatedAsyncioTestCase):
+    async def test_records_403_response_from_asgi_scope(self):
+        sink = MemorySink()
+        recorder = RequestEvidenceRecorder(sink, destination_domain="api.example.test")
+
+        async def app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 403, "headers": []})
+            await send({"type": "http.response.body", "body": b"denied"})
+
+        middleware = NeonShieldEvidenceMiddleware(app, recorder)
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await middleware(
+            {
+                "type": "http",
+                "method": "POST",
+                "client": ("203.0.113.11", 4567),
+                "headers": [(b"user-agent", b"unit-test")],
+            },
+            receive,
+            send,
+        )
+        self.assertEqual(len(sink.records), 1)
+        self.assertEqual(sink.records[0]["data"]["source_ip"], "203.0.113.11")
+        self.assertEqual(len(sent), 2)
 
 
 class RequestEvidenceRecorderTests(unittest.TestCase):
