@@ -1,0 +1,23 @@
+name: Intrusion Evidence Component Tests
+on:
+  pull_request:
+    paths:
+      - "security/incident_evidence.py"
+      - "backend/http_api.py"
+      - "backend/server.py"
+      - "tests/test_incident_evidence.py"
+      - "tests/test_http_evidence.py"
+      - "docs/INTRUSION_EVIDENCE_CAPTURE.md"
+  push:
+    branches: ["security/intrusion-evidence-capture"]
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest tests.test_incident_evidence tests.test_http_evidence -v
