@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, SignInRequest
+from security.incident_evidence import resolve_client_ip
 
 
 def _session_json(session):
@@ -18,9 +19,25 @@ def _session_json(session):
     }
 
 
-def make_handler(service):
+def make_handler(service, *, evidence_store=None, trusted_proxies=()):
+    """Build handler; evidence is recorded only when an explicit store is injected."""
     class Handler(BaseHTTPRequestHandler):
         server_version = "NeonShieldAuth/1.0"
+
+        def _capture(self, event_type: str, status: int) -> None:
+            if evidence_store is None:
+                return
+            peer = self.client_address[0] if self.client_address else None
+            forwarded = self.headers.get("X-Forwarded-For")
+            source_ip = resolve_client_ip(peer, forwarded, trusted_proxies)
+            evidence_store.record_event(
+                event_type=event_type,
+                source_ip=source_ip,
+                method=self.command,
+                path=self.path,
+                status_code=status,
+                user_agent=self.headers.get("User-Agent"),
+            )
 
         def _json(self, status: int, payload: dict | None = None) -> None:
             body = b"" if status == 204 else json.dumps(payload or {}, separators=(",", ":")).encode()
@@ -56,6 +73,7 @@ def make_handler(service):
             if self.path == "/health":
                 self._json(200, {"status": "ok", "service": "neon-shield-auth"})
             else:
+                self._capture("http.not_found", 404)
                 self._json(404, {"error": "not_found"})
 
         def do_POST(self) -> None:
@@ -67,9 +85,7 @@ def make_handler(service):
                             str(data.get("identity", "")),
                             str(data.get("credential", "")),
                             str(data.get("device_id", "")),
-                            str(data["phone_identity"])
-                            if data.get("phone_identity") is not None
-                            else None,
+                            str(data["phone_identity"]) if data.get("phone_identity") is not None else None,
                         )
                     )
                     self._json(200, {"session": _session_json(session)})
@@ -86,12 +102,17 @@ def make_handler(service):
                 if self.path == "/v1/auth/trusted-device":
                     self._json(200, {"trusted": service.is_device_trusted(session)})
                     return
+                self._capture("http.not_found", 404)
                 self._json(404, {"error": "not_found"})
             except AuthenticationError as exc:
-                self._json(401, {"error": exc.failure.value})
+                event = "auth.rate_limited" if exc.failure == AuthFailure.RATE_LIMITED else "auth.failure"
+                self._capture(event, 429 if exc.failure == AuthFailure.RATE_LIMITED else 401)
+                self._json(429 if exc.failure == AuthFailure.RATE_LIMITED else 401, {"error": exc.failure.value})
             except (ValueError, json.JSONDecodeError):
+                self._capture("http.invalid_request", 400)
                 self._json(400, {"error": "invalid_request"})
             except Exception:
+                self._capture("http.internal_error", 503)
                 self._json(503, {"error": "unavailable"})
 
         def log_message(self, format: str, *args) -> None:
@@ -100,7 +121,11 @@ def make_handler(service):
     return Handler
 
 
-def serve(service, host: str = "127.0.0.1", port: int = 8080) -> None:
+def serve(service, host: str = "127.0.0.1", port: int = 8080, *,
+          evidence_store=None, trusted_proxies=()) -> None:
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("bind behind an HTTPS reverse proxy for non-local deployment")
-    ThreadingHTTPServer((host, port), make_handler(service)).serve_forever()
+    ThreadingHTTPServer(
+        (host, port),
+        make_handler(service, evidence_store=evidence_store, trusted_proxies=trusted_proxies),
+    ).serve_forever()
