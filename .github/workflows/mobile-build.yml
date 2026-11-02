@@ -13,6 +13,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  APP_BUNDLE_ID: com.illumyx.illumyxapp
 
 jobs:
   android:
@@ -26,7 +27,12 @@ jobs:
           cache: true
       - name: Generate Android platform project
         working-directory: mobile
-        run: flutter create --platforms=android --org com.illumyx --project-name illumyx_neon_shield .
+        run: flutter create --platforms=android --org com.illumyx --project-name illumyxapp .
+      - name: Validate Android application identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "$APP_BUNDLE_ID" mobile/android/app/build.gradle.kts || grep -q "$APP_BUNDLE_ID" mobile/android/app/build.gradle
       - name: Set Android compile SDK required by dependencies
         working-directory: mobile
         shell: bash
@@ -86,7 +92,12 @@ jobs:
           cache: true
       - name: Generate iOS platform project
         working-directory: mobile
-        run: flutter create --platforms=ios --org com.illumyx --project-name illumyx_neon_shield .
+        run: flutter create --platforms=ios --org com.illumyx --project-name illumyxapp .
+      - name: Validate iOS bundle identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "PRODUCT_BUNDLE_IDENTIFIER = $APP_BUNDLE_ID" mobile/ios/Runner.xcodeproj/project.pbxproj
       - name: Get dependencies
         working-directory: mobile
         run: flutter pub get
