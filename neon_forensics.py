@@ -111,7 +111,7 @@ SAFE_FIELDS = {
     "launch_agent_metadata", "launch_daemon_metadata", "login_item_metadata",
     "system_extension_metadata", "configuration_profile_metadata", "bytes_sent",
     "bytes_received", "source_ip", "coarse_location", "country", "region",
-    "approximate_location",
+    "approximate_location", "client_ip_source",
 }
 
 CONSENT_FIELDS = {
