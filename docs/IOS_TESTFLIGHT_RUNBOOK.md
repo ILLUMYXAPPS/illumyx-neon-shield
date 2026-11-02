@@ -8,7 +8,7 @@ This runbook is the final execution path for the signed iOS TestFlight gate. It 
 
 - Release-readiness estimate: **97%**
 - Next gate: **98%**, real-world security behavior and signed iOS path verification
-- iOS bundle ID: `com.illumyx.illumyx_neon_shield`
+- iOS bundle ID: `com.illumyx.illumyxapp`
 - Workflow: `.github/workflows/ios-testflight.yml`
 - Latest iOS signing workflow hardening commit: `23b3b0ddcfbd75428a590fbd327bac3766f37ec7`
 
@@ -35,7 +35,7 @@ Create/populate these repository secrets in GitHub Actions. Never paste secret v
 2. Create a Certificate Signing Request with a private key.
 3. In Apple Developer, create/download an **Apple Distribution** certificate using that CSR.
 4. Import the certificate into Keychain Access and export the certificate plus private key as a password-protected `.p12`.
-5. Create/download an iOS App Store provisioning profile for bundle ID `com.illumyx.illumyx_neon_shield` using the distribution certificate.
+5. Create/download an iOS App Store provisioning profile for bundle ID `com.illumyx.illumyxapp` using the distribution certificate.
 6. Verify the profile is intended for the correct team and bundle identifier.
 7. Convert the `.p12` and provisioning profile to Base64 locally. Do not use an online converter.
 8. Convert the App Store Connect `.p8` private key to Base64 locally.
@@ -50,7 +50,7 @@ Before building, CI verifies:
 - the generated project contains the expected bundle ID
 - the provisioning profile decodes successfully
 - profile TeamIdentifier matches `APPLE_TEAM_ID`
-- profile application identifier matches `APPLE_TEAM_ID.com.illumyx.illumyx_neon_shield`
+- profile application identifier matches `APPLE_TEAM_ID.com.illumyx.illumyxapp`
 - Xcode project is configured for manual signing
 - the configured provisioning profile is present in the export mapping
 - Flutter tests pass
