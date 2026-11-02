@@ -35,3 +35,24 @@ SQLite is the initial persistence adapter and is **not the final managed product
 - Fail closed when device authorization cannot be established.
 - Keep production configuration separate from source code.
 - Every production endpoint must have automated tests before release.
+
+
+## Intrusion evidence capture (opt-in integration)
+
+The HTTP adapter accepts an injected `EvidenceStore`. When configured with
+`NEON_EVIDENCE_DB`, it records server-observed failed authentication,
+rate-limit, invalid-request, internal-error, and unknown-route events.
+It stores only bounded request metadata and strips query strings; request
+bodies, credentials, authorization headers and cookies are not captured.
+
+Set `NEON_TRUSTED_PROXY_CIDRS` only to the exact CIDR ranges of proxies that
+are directly trusted by the deployment. Forwarded-for headers from any other
+peer are ignored. Never populate this setting with broad networks or values
+supplied by a client.
+
+This integration is currently an opt-in local SQLite adapter. It is not a
+managed production evidence store and must not be represented as active
+production capture. Public deployment requires a managed encrypted evidence
+sink, verified proxy topology, retention/privacy review, access controls,
+backup/restore tests and external security review. The local HTTP server still
+binds to loopback and must remain behind a managed HTTPS edge.
