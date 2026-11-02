@@ -37,7 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f mobile/android/app/build.gradle.kts
-          grep -q '$APP_BUNDLE_ID' mobile/android/app/build.gradle.kts
+          grep -q "$APP_BUNDLE_ID" mobile/android/app/build.gradle.kts
       - name: Validate Android signing inputs
         shell: bash
         env:
@@ -134,7 +134,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f mobile/ios/Runner.xcodeproj/project.pbxproj
-          grep -q 'PRODUCT_BUNDLE_IDENTIFIER = $APP_BUNDLE_ID' mobile/ios/Runner.xcodeproj/project.pbxproj
+          grep -q "PRODUCT_BUNDLE_IDENTIFIER = $APP_BUNDLE_ID" mobile/ios/Runner.xcodeproj/project.pbxproj
       - name: Validate Apple signing inputs
         shell: bash
         env:
