@@ -42,6 +42,13 @@ jobs:
       - name: Run production configuration boundary tests
         run: python -m unittest -v backend.production_config_test
 
+      - name: Run audit-chain and migration regression tests
+        run: >-
+          python -m unittest -v
+          backend.audit_chain_test
+          backend.migrations_test
+          backend.managed_db_store_test
+
       - name: Run monitoring hardening tests
         run: >-
           python -m unittest -v
