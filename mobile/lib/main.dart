@@ -6,6 +6,8 @@ import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth/auth_gate.dart';
+import 'companion/ad_bugsworth_card.dart';
+import 'companion/ad_bugsworth_settings.dart';
 import 'auth/auth_service.dart';
 import 'auth/auth_session.dart';
 import 'auth/device_identity_store.dart';
@@ -264,6 +266,9 @@ class ShieldDashboard extends StatefulWidget {
 class _ShieldDashboardState extends State<ShieldDashboard> {
   late final SecurityService security;
   final ProtectionProfileService profiles = ProtectionProfileService();
+  final AdBugsworthSettings bugsworthSettings = AdBugsworthSettings();
+
+  bool bugsworthEnabled = false;
 
   bool loading = true;
   String device = 'Checking device…';
@@ -301,6 +306,12 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
     var nextDevice = 'Device details unavailable';
     var nextNetwork = 'Network details unavailable';
     var nextPlatformStatus = 'Platform details unavailable';
+    var nextBugsworthEnabled = false;
+    try {
+      nextBugsworthEnabled = await bugsworthSettings.loadEnabled();
+    } catch (_) {
+      // Keep the companion safely off if its preference cannot be read.
+    }
 
     try {
       if (Platform.isAndroid) {
@@ -328,11 +339,27 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
       device = nextDevice;
       network = nextNetwork;
       platformStatus = nextPlatformStatus;
+      bugsworthEnabled = nextBugsworthEnabled;
       securityStatus = snapshot.ownerInitialized
           ? 'Local owner setup complete • ${snapshot.trustedDeviceCount} local device record(s); server trust is verified separately'
           : 'Local owner setup required';
       loading = false;
     });
+  }
+
+  Future<void> setBugsworthEnabled(bool enabled) async {
+    try {
+      await bugsworthSettings.saveEnabled(enabled);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save A.D. Bugsworth preference. Please try again.')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() => bugsworthEnabled = enabled);
   }
 
   Future<void> chooseProfile() async {
@@ -435,6 +462,8 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             ),
             const SizedBox(height: 18),
             _profileCard(),
+            const SizedBox(height: 12),
+            AdBugsworthCard(enabled: bugsworthEnabled, onChanged: setBugsworthEnabled),
             const SizedBox(height: 18),
             _commandCentre(),
             const SizedBox(height: 18),
