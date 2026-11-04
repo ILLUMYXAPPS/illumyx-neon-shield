@@ -1,7 +1,20 @@
 """Code-reviewed production migration definitions for the auth store."""
 from __future__ import annotations
 
+from backend.audit_chain import resolve_audit_chain_head
 from backend.migrations import Migration
+
+
+def _validate_existing_audit_chain_head(cursor) -> None:
+    """Reject a pre-existing singleton head that disagrees with the event chain."""
+    cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1")
+    existing = cursor.fetchone()
+    if existing is None:
+        return
+    cursor.execute("SELECT event_hash, previous_hash FROM audit_events")
+    expected = resolve_audit_chain_head(cursor.fetchall())
+    if existing[0] != expected:
+        raise RuntimeError("existing audit chain head does not match the validated audit history")
 
 
 PRODUCTION_MIGRATIONS = (
@@ -30,5 +43,14 @@ PRODUCTION_MIGRATIONS = (
         (
             "CREATE TABLE IF NOT EXISTS sign_in_rate_limits (identity_hash TEXT PRIMARY KEY, failure_count INTEGER NOT NULL, window_started_at TEXT NOT NULL)",
         ),
+    ),
+    Migration(
+        4,
+        "create_audit_chain_head",
+        (
+            "CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK(chain_id=1), event_hash TEXT NOT NULL)",
+            "INSERT INTO audit_chain_head(chain_id, event_hash) SELECT 1, CASE WHEN (SELECT COUNT(*) FROM audit_events)=0 THEN '0000000000000000000000000000000000000000000000000000000000000000' WHEN (SELECT COUNT(*) FROM audit_events WHERE previous_hash='0000000000000000000000000000000000000000000000000000000000000000')=1 AND (SELECT COUNT(*) FROM audit_events terminal WHERE NOT EXISTS (SELECT 1 FROM audit_events child WHERE child.previous_hash=terminal.event_hash))=1 AND (WITH RECURSIVE reachable(event_hash) AS (SELECT event_hash FROM audit_events WHERE previous_hash='0000000000000000000000000000000000000000000000000000000000000000' UNION ALL SELECT child.event_hash FROM audit_events child JOIN reachable parent ON child.previous_hash=parent.event_hash) SELECT COUNT(*) FROM reachable)=(SELECT COUNT(*) FROM audit_events) THEN (SELECT event_hash FROM audit_events terminal WHERE NOT EXISTS (SELECT 1 FROM audit_events child WHERE child.previous_hash=terminal.event_hash)) ELSE NULL END WHERE NOT EXISTS (SELECT 1 FROM audit_chain_head WHERE chain_id=1)",
+        ),
+        _validate_existing_audit_chain_head,
     ),
 )
