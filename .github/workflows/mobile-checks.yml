@@ -39,6 +39,13 @@ jobs:
       - name: Get dependencies
         working-directory: mobile
         run: flutter pub get
+      - name: Preserve generated Flutter lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-pubspec-lock-${{ github.run_id }}
+          path: mobile/pubspec.lock
+          if-no-files-found: error
+          retention-days: 30
       - name: Analyze
         working-directory: mobile
         run: flutter analyze
