@@ -68,9 +68,13 @@ void main() {
 
         expect(find.text('Confirm vault recovery'), findsOneWidget);
         await tester.tap(find.text('Confirm recovery'));
-        // Recovery performs asynchronous file and preference I/O. Advance the
-        // test binding in bounded steps rather than pumpAndSettle, which can
-        // wait indefinitely on unrelated repeating animations.
+        // The recovery callback performs real filesystem and preference I/O.
+        // Let those platform futures run outside the widget test's fake clock,
+        // then pump the resulting UI updates. A bounded wait avoids both
+        // deadlocking file I/O and waiting forever on repeating animations.
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        });
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
         await tester.pump();
