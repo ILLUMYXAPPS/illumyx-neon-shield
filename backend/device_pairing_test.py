@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import unittest
+import sqlite3
+import tempfile
+from pathlib import Path
 
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, SignInRequest
+from backend.managed_db_store import ManagedDbAuthStore
 from backend.service import PersistentIdentityService
 from backend.store import AuthStore
 
@@ -69,6 +73,30 @@ class DevicePairingTests(unittest.TestCase):
         own_ref = self.pairing.devices(self.existing_session)[0]['device_ref']
         with self.assertRaises(ValueError):
             self.pairing.unlink(self.existing_session, own_ref)
+
+    def test_managed_database_adapter_supports_pairing_after_migration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / 'managed-pairing.sqlite3'
+            store = ManagedDbAuthStore(
+                lambda: sqlite3.connect(database_path),
+                pepper='managed-pairing-pepper',
+                placeholder='?',
+                audit_lock_clause='',
+            )
+            store.migrate()
+            store.create_user('managed-subject', 'managed@example.test', 'managed-password')
+            store.trust_device('managed-subject', 'managed-existing')
+            service = PersistentIdentityService(store)
+            trusted = service.sign_in(SignInRequest(
+                'managed@example.test', 'managed-password', 'managed-existing'
+            ))
+            request = service.device_pairing.start(
+                'managed@example.test', 'managed-password', 'managed-new', 'Managed tablet'
+            )
+            service.device_pairing.approve(
+                trusted, request['request_id'], pairing_code=request['pairing_code']
+            )
+            self.assertTrue(store.device_trusted('managed-subject', 'managed-new'))
 
 
 if __name__ == '__main__':
