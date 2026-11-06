@@ -55,7 +55,10 @@ void main() {
         expect(find.text('Review'), findsOneWidget);
 
         await tester.tap(find.text('Review'));
-        await tester.pumpAndSettle();
+        // The review dialog autofocuses its TextField. Its blinking cursor is
+        // an ongoing animation, so pumpAndSettle would wait forever here.
+        // Pump the route transition once, then interact with the field.
+        await tester.pump();
         await tester.enterText(find.byType(TextField), 'customer-recovered.txt');
         await tester.tap(find.text('Recover listing'));
         await tester.pumpAndSettle();
