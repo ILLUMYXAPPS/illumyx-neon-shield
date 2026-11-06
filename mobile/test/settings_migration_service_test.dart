@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:illumyx_neon_shield/settings/settings_migration_service.dart';
+import 'package:illumyx_neon_shield/protection/protection_clipboard_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -60,6 +61,31 @@ void main() {
     expect(preferences.containsKey('legacy.alerts_enabled'), isFalse);
     expect(preferences.getString('neon_shield.protection_profile'), 'balanced');
     expect(preferences.getString('unrelated.setting'), 'untouched');
+  });
+
+  test('settings migration preserves Protection Clipboard choices when reloaded', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'neon_shield.protection_clipboard.enabled': false,
+      'neon_shield.protection_clipboard.control.device_security': false,
+      'neon_shield.protection_clipboard.control.network_safety': false,
+      'neon_shield.protection_clipboard.control.privacy_protection': true,
+      'customer.custom.future_setting': 'keep-me',
+    });
+
+    await SettingsMigrationService().migrate();
+
+    final clipboard = ProtectionClipboardService();
+    expect(await clipboard.loadEnabled(), isFalse);
+    final controls = await clipboard.loadControls();
+    expect(controls['device_security'], isFalse);
+    expect(controls['network_safety'], isFalse);
+    expect(controls['privacy_protection'], isTrue);
+    expect(controls['app_monitoring'], isTrue);
+    expect(controls['family_safety'], isTrue);
+    expect(controls['security_notifications'], isTrue);
+
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getString('customer.custom.future_setting'), 'keep-me');
   });
 
   test('successful migrations run only once', () async {
