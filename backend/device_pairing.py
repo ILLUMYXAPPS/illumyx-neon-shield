@@ -159,6 +159,8 @@ class DevicePairingRepository:
 
 class DevicePairingService:
     REQUEST_TTL = timedelta(minutes=5)
+    STATUS_RATE_WINDOW_SECONDS = 60
+    MAX_STATUS_POLLS_PER_WINDOW = 30
 
     def __init__(self, identity_service):
         self.identity_service = identity_service
@@ -196,7 +198,17 @@ class DevicePairingService:
         if not isinstance(request_id, str) or not isinstance(secret, str) or len(request_id) > 128 or len(secret) > 128:
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         secret_hash = hmac.new(self.pepper.encode(), ('pair-secret:' + secret).encode(), hashlib.sha256).hexdigest()
-        return self.repository.status(request_id, secret_hash, datetime.now(timezone.utc))
+        now = datetime.now(timezone.utc)
+        status = self.repository.status(request_id, secret_hash, now)
+        allowed = self.store.reserve_sign_in_attempt(
+            'device-pairing-status:' + request_id,
+            now.isoformat(),
+            self.STATUS_RATE_WINDOW_SECONDS,
+            self.MAX_STATUS_POLLS_PER_WINDOW,
+        )
+        if not allowed:
+            raise AuthenticationError(AuthFailure.RATE_LIMITED)
+        return status
 
     def _verified_session(self, session):
         return self.identity_service.resolve_session(session.session_id)
