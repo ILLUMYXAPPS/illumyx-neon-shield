@@ -112,7 +112,7 @@ class _AuthGateState extends State<AuthGate> {
         _error = switch (failure) {
           AuthFailure.invalidCredentials => 'Those sign-in details were not accepted.',
           AuthFailure.blockedIdentity => 'This account cannot sign in. Contact support if you believe this is an error.',
-          AuthFailure.untrustedDevice => 'This device has not been approved for this account. Choose “Pair this device” first.',
+          AuthFailure.untrustedDevice => 'This device has not been approved for this account.',
           AuthFailure.rateLimited => 'Too many attempts. Please wait before trying again.',
           AuthFailure.expiredSession || AuthFailure.revokedSession => 'Your session is no longer valid. Please sign in again.',
           AuthFailure.unavailable => 'Authentication is unavailable. Check your connection and try again.',
