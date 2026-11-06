@@ -198,6 +198,26 @@ class DevicePairingTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(approved['status'], 'approved')
             self.assertTrue(self.store.device_trusted('subject-a', 'http-new-device'))
+
+            status, rejected_start = post('/v1/device-pairing/start', {
+                'identity': 'owner@example.test',
+                'credential': 'correct-password',
+                'device_id': 'http-rejected-device',
+                'device_name': 'Unwanted device',
+            })
+            self.assertEqual(status, 201)
+            status, rejected = post('/v1/device-pairing/reject', {
+                'request_id': rejected_start['request_id'],
+            }, self.existing_session.session_id)
+            self.assertEqual(status, 200)
+            self.assertEqual(rejected['status'], 'rejected')
+            status, result = post('/v1/device-pairing/status', {
+                'request_id': rejected_start['request_id'],
+                'pairing_secret': rejected_start['pairing_secret'],
+            })
+            self.assertEqual(status, 200)
+            self.assertEqual(result['status'], 'rejected')
+            self.assertFalse(self.store.device_trusted('subject-a', 'http-rejected-device'))
         finally:
             server.shutdown()
             server.server_close()
