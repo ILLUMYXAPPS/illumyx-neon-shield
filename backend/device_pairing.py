@@ -216,7 +216,7 @@ class DevicePairingService:
         self.repository.rename_device(session.subject_id, device_ref, device_name.strip())
 
     def unlink(self, session, device_ref):
-        own_ref = self.repository._ref(_hash(session.device_id, self.pepper))
+        own_ref = self.repository._ref(session.device_id)
         if hmac.compare_digest(own_ref, device_ref):
             raise ValueError('current device cannot unlink itself')
         self.repository.unlink_device(session.subject_id, device_ref)
