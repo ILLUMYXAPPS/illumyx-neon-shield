@@ -69,6 +69,14 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(home: EncryptedVaultScreen(vault: vault)),
       );
+
+      // Let the screen's initState-triggered asynchronous refresh finish
+      // outside the fake-async zone. The fake vault performs no filesystem or
+      // platform-channel work, so this only drains its Future continuations.
+      await tester.runAsync(() async {
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.pump();
       await tester.pumpAndSettle();
 
       expect(find.textContaining('vault index could not be read'), findsOneWidget);
