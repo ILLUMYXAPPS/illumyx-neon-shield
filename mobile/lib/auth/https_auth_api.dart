@@ -104,9 +104,8 @@ class HttpsAuthApi implements AuthApiContract, DevicePairingApi {
       final code = data['pairing_code'];
       final secret = data['pairing_secret'];
       final expires = data['expires_at'];
-      final qrPayload = data['qr_payload'];
       if (requestId is! String || code is! String || secret is! String ||
-          expires is! String || qrPayload is! String) {
+          expires is! String) {
         throw const FormatException();
       }
       return DevicePairingRequest(
@@ -114,7 +113,6 @@ class HttpsAuthApi implements AuthApiContract, DevicePairingApi {
         code: code,
         secret: secret,
         expiresAt: DateTime.parse(expires).toUtc(),
-        qrPayload: qrPayload,
       );
     } on FormatException {
       throw const AuthServiceException(AuthFailure.unavailable);
