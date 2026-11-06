@@ -69,7 +69,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(home: EncryptedVaultScreen(vault: vault)),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       expect(find.textContaining('vault index could not be read'), findsOneWidget);
       expect(find.text('Verified encrypted file'), findsOneWidget);
