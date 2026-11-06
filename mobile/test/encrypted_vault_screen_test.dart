@@ -61,11 +61,19 @@ void main() {
         await tester.pump();
         await tester.enterText(find.byType(TextField), 'customer-recovered.txt');
         await tester.tap(find.text('Recover listing'));
-        await tester.pumpAndSettle();
+        // The previously focused review TextField can leave a cursor animation
+        // active during the route transition. Pump the dialog transition without
+        // waiting for every animation in the test binding to become idle.
+        await tester.pump();
 
         expect(find.text('Confirm vault recovery'), findsOneWidget);
         await tester.tap(find.text('Confirm recovery'));
-        await tester.pumpAndSettle();
+        // Recovery performs asynchronous file and preference I/O. Advance the
+        // test binding in bounded steps rather than pumpAndSettle, which can
+        // wait indefinitely on unrelated repeating animations.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump();
 
         final entries = await vault.listEntries();
         expect(entries, hasLength(1));
