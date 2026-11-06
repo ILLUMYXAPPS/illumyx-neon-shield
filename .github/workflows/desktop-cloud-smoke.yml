@@ -1,0 +1,149 @@
+name: Neon Shield Desktop Cloud Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly desktop regression check, Monday 12:30 Brisbane (UTC+10).
+    - cron: '30 2 * * 1'
+  pull_request:
+    paths:
+      - "mobile/**"
+      - ".github/workflows/desktop-cloud-smoke.yml"
+  push:
+    branches:
+      - "main"
+      - "integration/neon-shield-ios-smoke-2026-11-06"
+      - "feature/**"
+    paths:
+      - "mobile/**"
+      - ".github/workflows/desktop-cloud-smoke.yml"
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  APP_BUNDLE_ID: com.illumyx.illumyxapp
+
+jobs:
+  windows-desktop-smoke:
+    name: Windows desktop launch smoke
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Windows project
+        working-directory: mobile
+        run: flutter create --platforms=windows --org com.illumyx --project-name illumyxapp .
+
+      - name: Resolve dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Analyze Flutter code
+        working-directory: mobile
+        run: flutter analyze
+
+      - name: Build Windows desktop app
+        working-directory: mobile
+        run: flutter build windows --debug
+
+      - name: Install and launch Neon Shield
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $appPath = Join-Path $PWD "mobile\build\windows\x64\runner\Debug\illumyxapp.exe"
+          if (-not (Test-Path $appPath)) {
+            throw "Expected Neon Shield executable was not produced: $appPath"
+          }
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $stdout = Join-Path $PWD "artifacts\windows-stdout.log"
+          $stderr = Join-Path $PWD "artifacts\windows-stderr.log"
+          $process = Start-Process -FilePath $appPath -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Start-Sleep -Seconds 10
+          $running = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+          if ($null -eq $running) {
+            throw "Neon Shield exited before the Windows startup smoke check completed."
+          }
+          "Neon Shield launched successfully. PID=$($process.Id)" | Set-Content (Join-Path $PWD "artifacts\windows-launch-result.txt")
+          Stop-Process -Id $process.Id -Force
+          "Neon Shield process shut down after the smoke check." | Add-Content (Join-Path $PWD "artifacts\windows-launch-result.txt")
+
+      - name: Upload Windows startup evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neon-shield-windows-desktop-smoke-evidence
+          path: artifacts/
+          if-no-files-found: warn
+
+  macos-desktop-smoke:
+    name: macOS desktop launch smoke
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate macOS project
+        working-directory: mobile
+        run: flutter create --platforms=macos --org com.illumyx --project-name illumyxapp .
+
+      - name: Resolve dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Analyze Flutter code
+        working-directory: mobile
+        run: flutter analyze
+
+      - name: Build macOS desktop app
+        working-directory: mobile
+        run: flutter build macos --debug
+
+      - name: Install and launch Neon Shield
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="mobile/build/macos/Build/Products/Debug/illumyxapp.app"
+          test -d "$APP_PATH"
+          mkdir -p artifacts
+          open "$APP_PATH"
+          launched=false
+          for attempt in $(seq 1 20); do
+            if pgrep -x illumyxapp >/dev/null; then
+              launched=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$launched" != true ]; then
+            echo "Neon Shield did not remain running after launch." | tee artifacts/macos-launch-result.txt
+            exit 1
+          fi
+          echo "Neon Shield launched successfully on macOS." | tee artifacts/macos-launch-result.txt
+          pgrep -laf illumyxapp >> artifacts/macos-launch-result.txt || true
+          pkill -x illumyxapp || true
+          echo "Neon Shield process shut down after the smoke check." >> artifacts/macos-launch-result.txt
+
+      - name: Upload macOS startup evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neon-shield-macos-desktop-smoke-evidence
+          path: artifacts/
+          if-no-files-found: warn
