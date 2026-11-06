@@ -106,6 +106,31 @@ class DevicePairingRepository:
             cursor.close()
             if close: connection.close()
 
+
+    def reject(self, request_id, subject_id, now):
+        connection, close = self._connection(); cursor = connection.cursor()
+        try:
+            self._begin(connection)
+            cursor.execute(self._sql('SELECT subject_id, status, expires_at FROM device_pairing_requests WHERE request_id=?'), (request_id,))
+            row = self._row_dict(cursor, cursor.fetchone())
+            if row is None or row['subject_id'] != subject_id or row['status'] != 'pending':
+                connection.rollback(); raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
+            if datetime.fromisoformat(row['expires_at']) <= now:
+                cursor.execute(self._sql("UPDATE device_pairing_requests SET status='expired' WHERE request_id=? AND status='pending'"), (request_id,))
+                connection.commit()
+                raise AuthenticationError(AuthFailure.EXPIRED_SESSION)
+            cursor.execute(self._sql("UPDATE device_pairing_requests SET status='rejected' WHERE request_id=? AND status='pending'"), (request_id,))
+            if getattr(cursor, 'rowcount', 1) != 1:
+                connection.rollback(); raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
+            connection.commit()
+        except Exception:
+            try: connection.rollback()
+            except Exception: pass
+            raise
+        finally:
+            cursor.close()
+            if close: connection.close()
+
     def list_devices(self, subject_id):
         connection, close = self._connection(); cursor = connection.cursor()
         try:
@@ -223,6 +248,14 @@ class DevicePairingService:
         self.repository.approve(request_id, session.subject_id, code_hash, datetime.now(timezone.utc))
         self.store.add_audit_fingerprint('device_pairing_approved', session.subject_id, session.device_id)
         return {'status': 'approved'}
+
+
+    def reject(self, session, request_id):
+        session = self._verified_session(session)
+        if not isinstance(request_id, str) or not request_id or len(request_id) > 128:
+            raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
+        self.repository.reject(request_id, session.subject_id, datetime.now(timezone.utc))
+        self.store.add_audit_fingerprint('device_pairing_rejected', session.subject_id, session.device_id)
 
     def devices(self, session):
         session = self._verified_session(session)
