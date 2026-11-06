@@ -400,7 +400,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('ILLUMYX NEON SHIELD', style: TextStyle(fontWeight: FontWeight.w800)),
