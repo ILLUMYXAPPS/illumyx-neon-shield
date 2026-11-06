@@ -330,7 +330,7 @@ void main() {
 
     expect(await vault.findRecoverableFiles(), isEmpty);
     expect(await encryptedFile.exists(), isTrue);
-    expect(await preferences.getString('neon_shield.encrypted_vault_index_v1'),
+    expect(preferences.getString('neon_shield.encrypted_vault_index_v1'),
         'corrupt-index');
   });
 
