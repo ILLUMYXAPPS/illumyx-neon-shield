@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:illumyx_neon_shield/auth/auth_session.dart';
-import 'package:illumyx_neon_shield/auth/device_pairing_api.dart';
 import 'package:illumyx_neon_shield/auth/https_auth_api.dart';
 
 void main() {
