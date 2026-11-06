@@ -42,6 +42,9 @@ jobs:
       - name: Run production configuration boundary tests
         run: python -m unittest -v backend.production_config_test
 
+      - name: Run device pairing security and lifecycle tests
+        run: python -m unittest -v backend.device_pairing_test backend.managed_db_store_hardening_test
+
       - name: Run monitoring hardening tests
         run: >-
           python -m unittest -v
