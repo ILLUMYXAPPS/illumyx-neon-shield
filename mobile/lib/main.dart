@@ -18,6 +18,7 @@ import 'protection/protection_profile.dart';
 import 'protection/protection_profile_service.dart';
 import 'protection/protection_clipboard_screen.dart';
 import 'security/security_service.dart';
+import 'settings/settings_migration_service.dart';
 import 'vault/encrypted_vault_screen.dart';
 
 void main() => runApp(const NeonShieldApp());
@@ -98,6 +99,8 @@ class _AppBootstrapState extends State<AppBootstrap> {
 
   Future<void> _loadBootstrapState() async {
     try {
+      // Upgrade saved preferences before any screen reads customer choices.
+      await SettingsMigrationService().migrate();
       final preferences = await SharedPreferences.getInstance();
       final security = _createSecurityService();
       await security.load();
