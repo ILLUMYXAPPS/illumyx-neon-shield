@@ -24,6 +24,12 @@ class _FakePairingApi implements DevicePairingApi {
   Future<String> pairingStatus({required String requestId, required String secret}) async => 'pending';
 
   @override
+  Future<void> rejectPairing({
+    required AuthSession session,
+    required String requestId,
+  }) async {}
+
+  @override
   Future<void> approvePairing({
     required AuthSession session,
     required String requestId,
