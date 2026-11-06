@@ -39,6 +39,11 @@ abstract interface class DevicePairingApi {
     required String secret,
   });
 
+  Future<void> rejectPairing({
+    required AuthSession session,
+    required String requestId,
+  });
+
   Future<void> approvePairing({
     required AuthSession session,
     required String requestId,
