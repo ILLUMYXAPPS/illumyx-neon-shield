@@ -2,6 +2,9 @@ name: Neon Shield iOS Cloud Simulator
 
 on:
   workflow_dispatch:
+  schedule:
+    # 12:00 Monday in Brisbane (UTC+10, no daylight saving).
+    - cron: '0 2 * * 1'
   pull_request:
     paths:
       - "mobile/**"
