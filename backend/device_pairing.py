@@ -203,7 +203,17 @@ class DevicePairingService:
 
     def approve(self, session, request_id, pairing_code=None, pairing_secret=None):
         session = self._verified_session(session)
-        if (not pairing_code and not pairing_secret) or (pairing_code and (not pairing_code.isdigit() or len(pairing_code) != 6)):
+        if not isinstance(request_id, str) or not request_id or len(request_id) > 128:
+            raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
+        if pairing_code is not None and (
+            not isinstance(pairing_code, str) or not pairing_code.isdigit() or len(pairing_code) != 6
+        ):
+            raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
+        if pairing_secret is not None and (
+            not isinstance(pairing_secret, str) or not pairing_secret or len(pairing_secret) > 128
+        ):
+            raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
+        if not pairing_code and not pairing_secret:
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         code_hash = hmac.new(self.pepper.encode(), ('pair-code:' + pairing_code).encode(), hashlib.sha256).hexdigest() if pairing_code else None
         secret_hash = hmac.new(self.pepper.encode(), ('pair-secret:' + pairing_secret).encode(), hashlib.sha256).hexdigest() if pairing_secret else None
