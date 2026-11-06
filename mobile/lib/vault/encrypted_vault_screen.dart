@@ -15,6 +15,7 @@ class EncryptedVaultScreen extends StatefulWidget {
 class _EncryptedVaultScreenState extends State<EncryptedVaultScreen> {
   late final EncryptedFileVault _vault;
   List<VaultEntry> _entries = const [];
+  List<VaultOrphanCandidate> _recoveryCandidates = const [];
   bool _loading = true;
   bool _busy = false;
   String? _loadError;
@@ -37,12 +38,24 @@ class _EncryptedVaultScreenState extends State<EncryptedVaultScreen> {
       if (!mounted) return;
       setState(() {
         _entries = entries;
+        _recoveryCandidates = const [];
         _loading = false;
       });
     } catch (_) {
+      List<VaultOrphanCandidate> candidates = const [];
+      try {
+        candidates = await _vault.findRecoverableFiles();
+      } catch (_) {
+        // The screen still reports the index problem. Missing/invalid secure
+        // keys are never worked around and no encrypted files are changed.
+      }
       if (!mounted) return;
       setState(() {
-        _loadError = 'The vault index could not be read. Encrypted files were not changed.';
+        _entries = const [];
+        _recoveryCandidates = candidates;
+        _loadError = candidates.isEmpty
+            ? 'The vault index could not be read. Encrypted files were not changed. No files could be safely verified for recovery.'
+            : 'The vault index could not be read. The encrypted files below authenticated with this device key. Review each one before restoring its listing.';
         _loading = false;
       });
     }
@@ -108,6 +121,87 @@ class _EncryptedVaultScreenState extends State<EncryptedVaultScreen> {
       }
     } catch (_) {
       if (mounted) _showMessage('Could not decrypt this file. The encrypted vault copy was retained.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _recoverOrphanedFile(VaultOrphanCandidate candidate) async {
+    if (_busy) return;
+    final nameController = TextEditingController();
+    final recoveredName = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Review encrypted file'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Authenticated encrypted file • ${_formatSize(candidate.sizeBytes)}'),
+            const SizedBox(height: 8),
+            const Text(
+              'The original filename is not stored inside the encrypted file. Enter a name for its vault listing. The encrypted file itself will not be changed.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: nameController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Recovered filename',
+                hintText: 'example.txt',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = nameController.text.trim();
+              if (value.isNotEmpty) Navigator.pop(context, value);
+            },
+            child: const Text('Recover listing'),
+          ),
+        ],
+      ),
+    );
+    nameController.dispose();
+    if (recoveredName == null || !mounted || _busy) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm vault recovery'),
+        content: const Text(
+          'This will preserve the encrypted file and add a new listing. If the index is damaged, its original contents will first be backed up. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Confirm recovery'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || _busy) return;
+
+    setState(() => _busy = true);
+    try {
+      final entry = await _vault.recoverOrphanedEntry(
+        id: candidate.id,
+        recoveredName: recoveredName,
+      );
+      await _refresh();
+      if (mounted) _showMessage('${entry.name} was added to the vault listing. The encrypted file was preserved.');
+    } catch (_) {
+      if (mounted) _showMessage('Recovery could not be completed. The encrypted file was retained.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -208,6 +302,26 @@ class _EncryptedVaultScreenState extends State<EncryptedVaultScreen> {
             _notice(_loadError!, isError: true)
           else if (_entries.isEmpty)
             _notice('Your encrypted vault is empty. Choose “Encrypt a file” to store a protected copy.')
+          if (_recoveryCandidates.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _notice(
+              'RECOVERY REVIEW • These files authenticated with the existing vault key. Their original filenames are unavailable. Nothing is restored until you confirm each listing.',
+              isError: true,
+            ),
+            for (final candidate in _recoveryCandidates)
+              Card(
+                color: const Color(0xFF11172A),
+                child: ListTile(
+                  leading: const Icon(Icons.verified_user_outlined, color: Color(0xFFFFD27A)),
+                  title: const Text('Verified encrypted file'),
+                  subtitle: Text('${_formatSize(candidate.sizeBytes)} • ${candidate.id.substring(0, 8)}…'),
+                  trailing: TextButton(
+                    onPressed: _busy ? null : () => _recoverOrphanedFile(candidate),
+                    child: const Text('Review'),
+                  ),
+                ),
+              ),
+          ],
           else
             for (final entry in _entries)
               Card(
