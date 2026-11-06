@@ -72,12 +72,12 @@ class DevicePairingRepository:
             cursor.close()
             if close: connection.close()
 
-    def approve(self, request_id, subject_id, code_hash, secret_hash, now):
+    def approve(self, request_id, subject_id, code_hash, now):
         connection, close = self._connection(); cursor = connection.cursor()
         try:
             self._begin(connection)
             lock = getattr(self.store, '_audit_lock_clause', '')
-            cursor.execute(self._sql('SELECT subject_id, device_hash, device_name, secret_hash, code_hash, status, attempts, expires_at FROM device_pairing_requests WHERE request_id=?' + lock), (request_id,))
+            cursor.execute(self._sql('SELECT subject_id, device_hash, device_name, code_hash, status, attempts, expires_at FROM device_pairing_requests WHERE request_id=?' + lock), (request_id,))
             row = self._row_dict(cursor, cursor.fetchone())
             if row is None or row['subject_id'] != subject_id or row['status'] != 'pending':
                 connection.rollback(); raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
@@ -86,7 +86,7 @@ class DevicePairingRepository:
                 raise AuthenticationError(AuthFailure.EXPIRED_SESSION)
             if int(row['attempts']) >= 5:
                 connection.rollback(); raise AuthenticationError(AuthFailure.RATE_LIMITED)
-            valid = hmac.compare_digest(row['secret_hash'], secret_hash) if secret_hash else hmac.compare_digest(row['code_hash'], code_hash or '')
+            valid = hmac.compare_digest(row['code_hash'], code_hash or '')
             if not valid:
                 cursor.execute(self._sql('UPDATE device_pairing_requests SET attempts=attempts+1 WHERE request_id=?'), (request_id,)); connection.commit()
                 raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
@@ -201,23 +201,14 @@ class DevicePairingService:
     def _verified_session(self, session):
         return self.identity_service.resolve_session(session.session_id)
 
-    def approve(self, session, request_id, pairing_code=None, pairing_secret=None):
+    def approve(self, session, request_id, pairing_code):
         session = self._verified_session(session)
         if not isinstance(request_id, str) or not request_id or len(request_id) > 128:
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
-        if pairing_code is not None and (
-            not isinstance(pairing_code, str) or not pairing_code.isdigit() or len(pairing_code) != 6
-        ):
+        if not isinstance(pairing_code, str) or not pairing_code.isdigit() or len(pairing_code) != 6:
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
-        if pairing_secret is not None and (
-            not isinstance(pairing_secret, str) or not pairing_secret or len(pairing_secret) > 128
-        ):
-            raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
-        if not pairing_code and not pairing_secret:
-            raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
-        code_hash = hmac.new(self.pepper.encode(), ('pair-code:' + pairing_code).encode(), hashlib.sha256).hexdigest() if pairing_code else None
-        secret_hash = hmac.new(self.pepper.encode(), ('pair-secret:' + pairing_secret).encode(), hashlib.sha256).hexdigest() if pairing_secret else None
-        self.repository.approve(request_id, session.subject_id, code_hash, secret_hash, datetime.now(timezone.utc))
+        code_hash = hmac.new(self.pepper.encode(), ('pair-code:' + pairing_code).encode(), hashlib.sha256).hexdigest()
+        self.repository.approve(request_id, session.subject_id, code_hash, datetime.now(timezone.utc))
         self.store.add_audit_fingerprint('device_pairing_approved', session.subject_id, session.device_id)
         return {'status': 'approved'}
 
