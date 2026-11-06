@@ -103,12 +103,15 @@ class _ProtectionClipboardScreenState extends State<ProtectionClipboardScreen> {
                         style: TextStyle(color: Color(0xFF9BA7C7), height: 1.4),
                       ),
                       const SizedBox(height: 12),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Protection Clipboard'),
-                        subtitle: Text(_enabled ? 'Enabled' : 'Disabled'),
-                        value: _enabled,
-                        onChanged: _setMaster,
+                      Material(
+                        color: Colors.transparent,
+                        child: SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Protection Clipboard'),
+                          subtitle: Text(_enabled ? 'Enabled' : 'Disabled'),
+                          value: _enabled,
+                          onChanged: _setMaster,
+                        ),
                       ),
                     ],
                   ),
