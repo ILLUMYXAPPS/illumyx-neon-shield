@@ -1,7 +1,7 @@
 """Explicit production migration command; never run migrations at app startup.
 
 Run with `python -m backend.run_production_migrations` from a deployment job
-after production configuration and secrets have been injected. This command
+after database configuration and credentials have been injected. This command
 never prints connection URLs, credentials, SQL, or driver exception details.
 """
 from __future__ import annotations
@@ -11,12 +11,12 @@ from collections.abc import Callable
 from typing import Any
 
 from backend.migrations import MigrationRunner
-from backend.production_config import ProductionConfig, validate_production_config
+from backend.production_config import MigrationConfig, validate_migration_config
 from backend.production_migrations import PRODUCTION_MIGRATIONS
 from backend.secrets import EnvironmentSecretProvider, SecretProvider
 
 
-def _connection_factory(config: ProductionConfig) -> Callable[[], Any]:
+def _connection_factory(config: MigrationConfig) -> Callable[[], Any]:
     """Create a lazy PostgreSQL connector using validated TLS and separate secrets."""
     def connect() -> Any:
         try:
@@ -38,20 +38,19 @@ def _connection_factory(config: ProductionConfig) -> Callable[[], Any]:
 
 def run_migrations(
     *,
-    config: ProductionConfig | None = None,
+    config: MigrationConfig | None = None,
     env: dict[str, str] | None = None,
     secret_provider: SecretProvider | None = None,
     connection_factory: Callable[[], Any] | None = None,
 ) -> int:
-    """Validate deployment configuration, apply migrations, and verify final version.
+    """Validate migration-specific production configuration, apply, and verify.
 
     Dependency injection is provided for deterministic tests. Production CLI
-    calls use the environment configuration validator and environment secret
-    provider, plus a real TLS-configured psycopg connection.
+    calls resolve only the database credentials needed for the migration job.
     """
     if config is None:
         provider = secret_provider or EnvironmentSecretProvider(env)
-        config = validate_production_config(env, secret_provider=provider)
+        config = validate_migration_config(env, secret_provider=provider)
 
     connect = connection_factory or _connection_factory(config)
     runner = MigrationRunner(

@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import Mock, patch
 
-from backend.production_config import ProductionConfig
+from backend.production_config import MigrationConfig
 from backend.run_production_migrations import main, run_migrations
 from backend.secrets import MappingSecretProvider
 
@@ -15,31 +15,19 @@ class ProductionMigrationCommandTests(unittest.TestCase):
             "NEON_AUTH_ENV": "production",
             "NEON_AUTH_DB": "postgresql://managed.example/auth?sslmode=verify-full",
             "NEON_DB_USER": "neon_service",
-            "NEON_IDP_URL": "https://idp.example",
-            "NEON_IDP_CLIENT_ID": "client-id",
-            "NEON_MONITORING_ENDPOINT": "https://monitor.example/events",
         }
 
     def _provider(self):
-        return MappingSecretProvider({
-            "NEON_IDP_CLIENT_SECRET": "test-idp-secret",
-            "NEON_DB_PASSWORD": "test-db-password",
-            "NEON_DB_PEPPER": "test-db-pepper",
-        })
+        return MappingSecretProvider({"NEON_DB_PASSWORD": "test-db-password"})
 
     def _config(self):
-        return ProductionConfig(
+        return MigrationConfig(
             database_url="postgresql://managed.example/auth?sslmode=verify-full",
             database_user="neon_service",
             database_password="test-db-password",
-            idp_url="https://idp.example",
-            idp_client_id="client-id",
-            idp_client_secret="test-idp-secret",
-            database_pepper="test-db-pepper",
-            monitoring_endpoint="https://monitor.example/events",
         )
 
-    def test_requires_validated_production_configuration(self):
+    def test_requires_production_environment(self):
         with self.assertRaisesRegex(RuntimeError, "NEON_AUTH_ENV=production"):
             run_migrations(
                 env={"NEON_AUTH_ENV": "development"},
@@ -53,10 +41,22 @@ class ProductionMigrationCommandTests(unittest.TestCase):
             run_migrations(env={}, secret_provider=self._provider(), connection_factory=connect)
         connect.assert_not_called()
 
-    def test_connection_factory_is_not_opened_until_migration_execution(self):
-        # A fake connection is enough to verify construction is lazy; migration
-        # behaviour against real PostgreSQL is covered by the integration workflow.
-        self.assertIsNotNone(self._config())
+    def test_migration_command_requires_only_database_configuration(self):
+        # Identity-provider, monitoring, and pepper settings are unrelated to
+        # applying schema migrations and must not block this standalone job.
+        with patch("backend.run_production_migrations.MigrationRunner") as runner_type:
+            runner = runner_type.return_value
+            runner.apply_pending.return_value = 4
+            runner.current_version.return_value = 4
+            connect = Mock()
+            self.assertEqual(
+                run_migrations(env=self._env(), secret_provider=self._provider(), connection_factory=connect),
+                4,
+            )
+            connect.assert_not_called()
+            runner_type.assert_called_once()
+
+    def test_connection_factory_is_lazy_when_configuration_is_injected(self):
         with patch("backend.run_production_migrations.MigrationRunner") as runner_type:
             runner = runner_type.return_value
             runner.apply_pending.return_value = 4

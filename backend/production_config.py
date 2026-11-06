@@ -30,6 +30,14 @@ class ProductionConfig:
     monitoring_endpoint: str = ""
 
 
+@dataclass(frozen=True)
+class MigrationConfig:
+    """Minimal configuration required by the standalone schema migration job."""
+    database_url: str
+    database_user: str
+    database_password: str = field(repr=False)
+
+
 def _require_https(name: str, value: str) -> None:
     if not value or value != value.strip() or any(ord(char) < 32 for char in value):
         raise RuntimeError(f"{name} must be an absolute HTTPS URL without surrounding whitespace or control characters")
@@ -78,12 +86,45 @@ def _require_database_tls(value: str) -> None:
         )
 
 
+def _validate_database_user(database_user: str) -> None:
+    if not database_user.strip() or database_user != database_user.strip() or any(ord(c) < 32 for c in database_user):
+        raise RuntimeError("NEON_DB_USER must be non-empty and must not have surrounding whitespace or control characters")
+
+
+def validate_migration_config(
+    env: dict[str, str] | None = None,
+    *,
+    secret_provider: SecretProvider,
+) -> MigrationConfig:
+    """Validate only the production database settings needed by migration deployment."""
+    values = os.environ if env is None else env
+    if values.get("NEON_AUTH_ENV") != "production":
+        raise RuntimeError("production configuration requires NEON_AUTH_ENV=production")
+    missing = [name for name in ("NEON_AUTH_DB", "NEON_DB_USER") if not values.get(name)]
+    if missing:
+        raise RuntimeError("missing migration configuration: " + ", ".join(missing))
+    if secret_provider is None:
+        raise RuntimeError("migration configuration requires an injected SecretProvider")
+
+    database_url = values["NEON_AUTH_DB"]
+    database_user = values["NEON_DB_USER"]
+    _reject_local_database(database_url)
+    _require_database_tls(database_url)
+    _validate_database_user(database_user)
+    database_password = secret_provider.get_required("NEON_DB_PASSWORD")
+    return MigrationConfig(
+        database_url=database_url,
+        database_user=database_user,
+        database_password=database_password,
+    )
+
+
 def validate_production_config(
     env: dict[str, str] | None = None,
     *,
     secret_provider: SecretProvider,
 ) -> ProductionConfig:
-    """Validate production configuration and resolve secrets only via the provider."""
+    """Validate full application production configuration and resolve secrets."""
     values = os.environ if env is None else env
     if values.get("NEON_AUTH_ENV") != "production":
         raise RuntimeError("production configuration requires NEON_AUTH_ENV=production")
@@ -101,9 +142,8 @@ def validate_production_config(
     _require_database_tls(database_url)
     _require_https("NEON_IDP_URL", idp_url)
     _require_https("NEON_MONITORING_ENDPOINT", monitoring_endpoint)
+    _validate_database_user(database_user)
 
-    if not database_user.strip() or database_user != database_user.strip() or any(ord(c) < 32 for c in database_user):
-        raise RuntimeError("NEON_DB_USER must be non-empty and must not have surrounding whitespace or control characters")
     client_id = values["NEON_IDP_CLIENT_ID"]
     if not client_id.strip() or client_id != client_id.strip() or any(ord(c) < 32 for c in client_id):
         raise RuntimeError("NEON_IDP_CLIENT_ID must be non-empty and must not have surrounding whitespace or control characters")
