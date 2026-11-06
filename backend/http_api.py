@@ -97,7 +97,6 @@ def make_handler(service):
                         str(data.get("device_id", "")),
                         str(data.get("device_name", "")),
                     )
-                    result["qr_payload"] = "neonshield://pair?request_id=" + result["request_id"] + "&secret=" + result["pairing_secret"]
                     self._json(201, result)
                     return
 
@@ -123,7 +122,6 @@ def make_handler(service):
                         session,
                         str(data.get("request_id", "")),
                         pairing_code=data.get("pairing_code"),
-                        pairing_secret=data.get("pairing_secret"),
                     ))
                     return
                 self._json(404, {"error": "not_found"})
