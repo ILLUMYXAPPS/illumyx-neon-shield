@@ -22,7 +22,6 @@ void main() {
         'pairing_code': '123456',
         'pairing_secret': 'one-time-secret',
         'expires_at': DateTime.now().toUtc().add(const Duration(minutes: 5)).toIso8601String(),
-        'qr_payload': 'neonshield://pair?request_id=request-opaque&secret=one-time-secret',
       }), 201);
     });
     final api = HttpsAuthApi(baseUri: Uri.parse('https://example.invalid'), client: client);
@@ -38,6 +37,7 @@ void main() {
     expect(jsonDecode(captured.body)['credential'], 'correct-password');
     expect(result.code, '123456');
     expect(result.requestId, 'request-opaque');
+    expect(result.secret, 'one-time-secret');
   });
 
   test('polls pairing status using a POST body', () async {
