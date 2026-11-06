@@ -135,6 +135,22 @@ class HttpsAuthApi implements AuthApiContract, DevicePairingApi {
   }
 
   @override
+  Future<void> rejectPairing({
+    required AuthSession session,
+    required String requestId,
+  }) async {
+    final response = await _send(_client.post(
+      _endpoint('/v1/device-pairing/reject'),
+      headers: _authHeaders(session),
+      body: jsonEncode({'request_id': requestId}),
+    ));
+    if (response.statusCode != 200) throw _failure(response);
+    if (_decodeObject(response.body)['status'] != 'rejected') {
+      throw const AuthServiceException(AuthFailure.unavailable);
+    }
+  }
+
+  @override
   Future<void> approvePairing({
     required AuthSession session,
     required String requestId,
