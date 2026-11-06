@@ -73,6 +73,48 @@ class DevicePairingTests(unittest.TestCase):
             self.pairing.approve(other, started['request_id'], pairing_code=started['pairing_code'])
         self.assertFalse(self.store.device_trusted('subject-b', 'target-device'))
 
+    def test_owner_can_reject_pending_request_and_replay_is_denied(self):
+        started = self.pairing.start('owner@example.test', 'correct-password', 'reject-device', 'Tablet')
+        self.pairing.reject(self.existing_session, started['request_id'])
+        self.assertEqual(
+            self.pairing.status(started['request_id'], started['pairing_secret']),
+            'rejected',
+        )
+        with self.assertRaises(AuthenticationError):
+            self.pairing.approve(
+                self.existing_session, started['request_id'],
+                pairing_code=started['pairing_code'],
+            )
+        self.assertFalse(self.store.device_trusted('subject-a', 'reject-device'))
+
+    def test_other_account_cannot_reject_pairing_request(self):
+        self.store.create_user('subject-b', 'other@example.test', 'other-password')
+        self.store.trust_device('subject-b', 'other-device')
+        other = self.service.sign_in(SignInRequest('other@example.test', 'other-password', 'other-device'))
+        started = self.pairing.start('owner@example.test', 'correct-password', 'target-device', 'Tablet')
+        with self.assertRaises(AuthenticationError):
+            self.pairing.reject(other, started['request_id'])
+        self.assertEqual(
+            self.pairing.status(started['request_id'], started['pairing_secret']),
+            'pending',
+        )
+
+    def test_expired_request_cannot_be_rejected_as_pending(self):
+        started = self.pairing.start('owner@example.test', 'correct-password', 'expired-reject-device', 'Tablet')
+        expired_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        self.store._db.execute(
+            'UPDATE device_pairing_requests SET expires_at=? WHERE request_id=?',
+            (expired_at, started['request_id']),
+        )
+        self.store._db.commit()
+        with self.assertRaises(AuthenticationError) as caught:
+            self.pairing.reject(self.existing_session, started['request_id'])
+        self.assertEqual(caught.exception.failure, AuthFailure.EXPIRED_SESSION)
+        self.assertEqual(
+            self.pairing.status(started['request_id'], started['pairing_secret']),
+            'expired',
+        )
+
     def test_five_failed_codes_lock_out_the_correct_code(self):
         started = self.pairing.start('owner@example.test', 'correct-password', 'locked-device', 'Laptop')
         wrong_code = '000000' if started['pairing_code'] != '000000' else '000001'
