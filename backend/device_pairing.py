@@ -190,6 +190,7 @@ class DevicePairingService:
         expires = now + self.REQUEST_TTL
         self.repository.create_request(subject_id, device_id, device_name.strip(), request_id, secret_hash, code_hash, now.isoformat(), expires.isoformat())
         self.identity_service._clear_failures(identity)
+        self.store.add_audit_fingerprint('device_pairing_started', subject_id, _hash(device_id, self.pepper))
         return {'request_id': request_id, 'pairing_code': code, 'pairing_secret': secret, 'expires_at': expires.isoformat(), 'poll_interval_seconds': 3}
 
     def status(self, request_id, secret):
@@ -198,7 +199,11 @@ class DevicePairingService:
         secret_hash = hmac.new(self.pepper.encode(), ('pair-secret:' + secret).encode(), hashlib.sha256).hexdigest()
         return self.repository.status(request_id, secret_hash, datetime.now(timezone.utc))
 
+    def _verified_session(self, session):
+        return self.identity_service.resolve_session(session.session_id)
+
     def approve(self, session, request_id, pairing_code=None, pairing_secret=None):
+        session = self._verified_session(session)
         if (not pairing_code and not pairing_secret) or (pairing_code and (not pairing_code.isdigit() or len(pairing_code) != 6)):
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         code_hash = hmac.new(self.pepper.encode(), ('pair-code:' + pairing_code).encode(), hashlib.sha256).hexdigest() if pairing_code else None
@@ -208,14 +213,17 @@ class DevicePairingService:
         return {'status': 'approved'}
 
     def devices(self, session):
+        session = self._verified_session(session)
         return self.repository.list_devices(session.subject_id)
 
     def rename(self, session, device_ref, device_name):
+        session = self._verified_session(session)
         if not isinstance(device_name, str) or not device_name.strip() or len(device_name.strip()) > 48:
             raise ValueError('invalid device name')
         self.repository.rename_device(session.subject_id, device_ref, device_name.strip())
 
     def unlink(self, session, device_ref):
+        session = self._verified_session(session)
         own_ref = self.repository._ref(session.device_id)
         if hmac.compare_digest(own_ref, device_ref):
             raise ValueError('current device cannot unlink itself')
