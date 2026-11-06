@@ -118,7 +118,7 @@ class _ConnectedDevicesScreenState extends State<ConnectedDevicesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('My Connected Devices')),
-      floatingActionButton: FloatingActionButton.extended(onPressed: _approve, icon: const Icon(Icons.verified_user_rounded), label: const Text('Approve a device')),
+      floatingActionButton: FloatingActionButton.extended(onPressed: _approve, icon: const Icon(Icons.verified_user_rounded), label: const Text('Review pairing request')),
       body: RefreshIndicator(
         onRefresh: _load,
         child: _loading
