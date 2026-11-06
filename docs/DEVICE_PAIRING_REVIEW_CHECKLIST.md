@@ -57,7 +57,7 @@
 
 These are not represented as completed by green CI:
 
-- IP/edge rate limiting and application-level polling throttling.
+- IP/edge rate limiting at the trusted production proxy/WAF.
 - Step-up authentication for sensitive device-management actions.
 - Server-side Premium/Family entitlement enforcement after exact product limits are approved.
 - Apply and verify production migration version 4 against the actual managed database.
