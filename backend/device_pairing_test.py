@@ -45,7 +45,7 @@ class DevicePairingTests(unittest.TestCase):
         self.pairing.unlink(self.existing_session, new_device['device_ref'])
         with self.assertRaises(AuthenticationError) as caught:
             self.service.resolve_session(new_session.session_id)
-        self.assertEqual(caught.exception.failure, AuthFailure.UNTRUSTED_DEVICE)
+        self.assertEqual(caught.exception.failure, AuthFailure.REVOKED_SESSION)
         with self.assertRaises(AuthenticationError) as sign_in_error:
             self.service.sign_in(SignInRequest('owner@example.test', 'correct-password', 'new-device'))
         self.assertEqual(sign_in_error.exception.failure, AuthFailure.UNTRUSTED_DEVICE)
