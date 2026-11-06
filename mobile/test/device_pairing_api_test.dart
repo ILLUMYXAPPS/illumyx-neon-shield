@@ -53,6 +53,20 @@ void main() {
     expect(jsonDecode(captured.body), {'request_id': 'request-1', 'pairing_secret': 'secret-1'});
   });
 
+  test('rejects a pairing request using the current trusted session', () async {
+    late http.Request captured;
+    final client = MockClient((request) async {
+      captured = request;
+      return http.Response(jsonEncode({'status': 'rejected'}), 200);
+    });
+    final api = HttpsAuthApi(baseUri: Uri.parse('https://example.invalid'), client: client);
+    await api.rejectPairing(session: session, requestId: 'request-1');
+    expect(captured.method, 'POST');
+    expect(captured.url.path, '/v1/device-pairing/reject');
+    expect(captured.headers['authorization'], 'Bearer trusted-session');
+    expect(jsonDecode(captured.body), {'request_id': 'request-1'});
+  });
+
   test('approves a pairing request with the current trusted session', () async {
     late http.Request captured;
     final client = MockClient((request) async {
