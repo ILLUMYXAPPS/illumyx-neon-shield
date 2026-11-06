@@ -94,5 +94,55 @@ class ManagedDbAuthStoreTests(unittest.TestCase):
             ManagedDbAuthStore(lambda: sqlite3.connect(":memory:"), pepper="", placeholder="?", audit_lock_clause="")
 
 
+    def test_managed_db_rotation_consumes_old_session_once(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = _store(Path(directory))
+            store.migrate()
+            now = datetime.now(timezone.utc)
+            issued = now.isoformat()
+            expires = (now + timedelta(minutes=15)).isoformat()
+            store.save_session("old-managed-token", "subject-1", "device-hash-1", issued, expires)
+
+            first = store.rotate_session(
+                "old-managed-token", "new-managed-token", issued, expires
+            )
+            second = store.rotate_session(
+                "old-managed-token", "replay-managed-token", issued, expires
+            )
+
+            self.assertIsNotNone(first)
+            self.assertEqual(first["subject_id"], "subject-1")
+            self.assertIsNone(second)
+            self.assertTrue(store.get_session("old-managed-token")["revoked"])
+            self.assertIsNotNone(store.get_session("new-managed-token"))
+            self.assertIsNone(store.get_session("replay-managed-token"))
+            store.close()
+
+    def test_managed_db_rotation_rejects_expired_session(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = _store(Path(directory))
+            store.migrate()
+            expired = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+            store.save_session(
+                "expired-managed-token",
+                "subject-1",
+                "device-hash-1",
+                expired,
+                expired,
+            )
+
+            result = store.rotate_session(
+                "expired-managed-token",
+                "must-not-be-issued",
+                expired,
+                (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+            )
+
+            self.assertIsNone(result)
+            self.assertFalse(store.get_session("expired-managed-token")["revoked"])
+            self.assertIsNone(store.get_session("must-not-be-issued"))
+            store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

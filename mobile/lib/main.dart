@@ -6,6 +6,8 @@ import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth/auth_gate.dart';
+import 'auth/connected_devices_screen.dart';
+import 'auth/device_pairing_api.dart';
 import 'auth/auth_service.dart';
 import 'auth/auth_session.dart';
 import 'auth/device_identity_store.dart';
@@ -68,6 +70,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
   Object? _bootstrapError;
   String? _authConfigurationError;
   late final AuthService? _authService;
+  DevicePairingApi? _pairingApi;
   late final Future<String> Function() _deviceIdProvider;
 
   @override
@@ -87,10 +90,9 @@ class _AppBootstrapState extends State<AppBootstrap> {
   AuthService? _configuredAuthService() {
     const endpoint = String.fromEnvironment('NEON_SHIELD_AUTH_BASE_URL');
     if (endpoint.trim().isEmpty) return null;
-    return ServerBackedAuthService(
-      api: HttpsAuthApi(baseUri: Uri.parse(endpoint)),
-      store: SecureAuthSessionStore(),
-    );
+    final api = HttpsAuthApi(baseUri: Uri.parse(endpoint));
+    _pairingApi = api;
+    return ServerBackedAuthService(api: api, store: SecureAuthSessionStore());
   }
 
   Future<void> _loadBootstrapState() async {
@@ -154,9 +156,16 @@ class _AppBootstrapState extends State<AppBootstrap> {
       return AuthGate(
         authService: _authService,
         deviceIdProvider: _deviceIdProvider,
+        pairingApi: _pairingApi,
         dashboardBuilder: (onSignOut) => ShieldDashboard(
           securityServiceFactory: widget.securityServiceFactory,
           onSignOut: onSignOut,
+        ),
+        sessionDashboardBuilder: (session, onSignOut) => ShieldDashboard(
+          securityServiceFactory: widget.securityServiceFactory,
+          onSignOut: onSignOut,
+          pairingApi: _pairingApi,
+          session: session,
         ),
       );
     }
@@ -252,10 +261,14 @@ class ShieldDashboard extends StatefulWidget {
     super.key,
     this.securityServiceFactory,
     this.onSignOut,
+    this.pairingApi,
+    this.session,
   });
 
   final SecurityService Function()? securityServiceFactory;
   final VoidCallback? onSignOut;
+  final DevicePairingApi? pairingApi;
+  final AuthSession? session;
 
   @override
   State<ShieldDashboard> createState() => _ShieldDashboardState();
@@ -433,6 +446,21 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               icon: const Icon(Icons.enhanced_encryption_rounded),
               label: const Text('Open encrypted file vault'),
             ),
+            if (widget.pairingApi != null && widget.session != null) ...[
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ConnectedDevicesScreen(
+                      api: widget.pairingApi!,
+                      session: widget.session!,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.devices_rounded),
+                label: const Text('My Connected Devices'),
+              ),
+            ],
             const SizedBox(height: 18),
             _profileCard(),
             const SizedBox(height: 18),

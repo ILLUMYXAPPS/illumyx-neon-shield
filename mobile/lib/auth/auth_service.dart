@@ -10,8 +10,9 @@ class ServerBackedAuthService implements AuthService {
   ServerBackedAuthService({
     required AuthApiContract api,
     required AuthSessionStore store,
-  })  : _api = api,
-        _store = store;
+  }) : this._(api, store);
+
+  ServerBackedAuthService._(this._api, this._store);
 
   final AuthApiContract _api;
   final AuthSessionStore _store;

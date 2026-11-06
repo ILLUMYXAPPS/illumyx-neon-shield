@@ -11,6 +11,7 @@ on:
       - "agent/**"
       - "fix/**"
       - "feat/**"
+      - "feature/**"
     paths:
       - "mobile/**"
       - ".github/workflows/mobile-checks.yml"

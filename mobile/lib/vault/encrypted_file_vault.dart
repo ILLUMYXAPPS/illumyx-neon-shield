@@ -71,6 +71,23 @@ class VaultEntry {
   }
 }
 
+
+/// A locally stored encrypted file that authenticated successfully but is not
+/// safely represented by the current vault index.
+class VaultOrphanCandidate {
+  const VaultOrphanCandidate({
+    required this.id,
+    required this.sizeBytes,
+    required this.createdAt,
+    required this.indexWasCorrupt,
+  });
+
+  final String id;
+  final int sizeBytes;
+  final DateTime createdAt;
+  final bool indexWasCorrupt;
+}
+
 /// Encrypted copy vault. It never deletes or modifies the user's original file.
 /// The AES-256-GCM key is stored separately in platform secure storage.
 class EncryptedFileVault {
@@ -209,19 +226,136 @@ class EncryptedFileVault {
   }
 
   Future<Uint8List> decryptEntry(String id) async {
-    if (!RegExp(r'^[a-f0-9]{32}$').hasMatch(id)) {
+    if (!_isValidId(id)) {
       throw ArgumentError.value(id, 'id', 'Invalid vault entry identifier.');
     }
     final entries = await listEntries();
     if (!entries.any((entry) => entry.id == id)) {
       throw StateError('That file is not listed in the vault.');
     }
+    return _decryptFile(id);
+  }
+
+  /// Finds encrypted files that are not represented by a readable index.
+  ///
+  /// Every candidate is authenticated with the existing device key before it
+  /// is returned. If the index is corrupt, all valid encrypted files are
+  /// surfaced for explicit customer review because the damaged index cannot
+  /// safely tell us which files were previously registered.
+  Future<List<VaultOrphanCandidate>> findRecoverableFiles() async {
     final encodedKey = await _keyStore.readKey();
     if (encodedKey == null) {
       throw StateError('The vault key is missing. Recovery is not possible without it.');
     }
     final keyBytes = base64Decode(encodedKey);
     if (keyBytes.length != 32) throw StateError('The vault key is invalid.');
+
+    var indexWasCorrupt = false;
+    var indexedIds = <String>{};
+    try {
+      indexedIds = (await listEntries()).map((entry) => entry.id).toSet();
+    } on StateError {
+      indexWasCorrupt = true;
+    }
+
+    final directory = await _vaultDirectory();
+    if (!await directory.exists()) return const [];
+    final candidates = <VaultOrphanCandidate>[];
+    await for (final entity in directory.list(followLinks: false)) {
+      if (entity is! File) continue;
+      final match = RegExp(r'^([a-f0-9]{32})\.nsvault$')
+          .firstMatch(entity.uri.pathSegments.last);
+      if (match == null) continue;
+      final id = match.group(1)!;
+      if (!indexWasCorrupt && indexedIds.contains(id)) continue;
+      try {
+        final clear = await _decryptFile(id);
+        candidates.add(VaultOrphanCandidate(
+          id: id,
+          sizeBytes: clear.length,
+          createdAt: await entity.lastModified(),
+          indexWasCorrupt: indexWasCorrupt,
+        ));
+      } catch (_) {
+        // Invalid, truncated or unauthenticated files are never offered for
+        // recovery. They remain untouched for later forensic inspection.
+      }
+    }
+    candidates.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return List.unmodifiable(candidates);
+  }
+
+  /// Authenticates and registers one customer-selected orphan without changing
+  /// its encrypted file. A corrupt index is preserved under a separate
+  /// timestamped preference key before a new index is written.
+  Future<VaultEntry> recoverOrphanedEntry({
+    required String id,
+    required String recoveredName,
+  }) async {
+    if (!_isValidId(id)) {
+      throw ArgumentError.value(id, 'id', 'Invalid vault entry identifier.');
+    }
+
+    var existingEntries = <VaultEntry>[];
+    var indexWasCorrupt = false;
+    try {
+      existingEntries = await listEntries();
+    } on StateError {
+      indexWasCorrupt = true;
+    }
+    if (existingEntries.any((entry) => entry.id == id)) {
+      throw StateError('That file is already listed in the vault.');
+    }
+
+    final safeName = _safeName(recoveredName);
+    if (safeName.isEmpty) {
+      throw ArgumentError.value(recoveredName, 'recoveredName', 'A filename is required.');
+    }
+
+    // Do not write any index metadata until the existing key has authenticated
+    // the exact encrypted file selected by the customer.
+    final clear = await _decryptFile(id);
+    final directory = await _vaultDirectory();
+    final file = File('${directory.path}/$id.nsvault');
+    final entry = VaultEntry(
+      id: id,
+      name: safeName,
+      sizeBytes: clear.length,
+      createdAt: await file.lastModified(),
+    );
+
+    final preferences = await SharedPreferences.getInstance();
+    if (indexWasCorrupt) {
+      final damagedIndex = preferences.getString(_indexKey);
+      if (damagedIndex != null) {
+        final backupKey =
+            'neon_shield.encrypted_vault_corrupt_index_backup_${DateTime.now().microsecondsSinceEpoch}';
+        final backedUp = await preferences.setString(backupKey, damagedIndex);
+        if (!backedUp) {
+          throw StateError('The damaged vault index could not be preserved. Recovery was not applied.');
+        }
+      }
+    }
+
+    final updated = [...existingEntries, entry];
+    final saved = await preferences.setString(
+      _indexKey,
+      jsonEncode(updated.map((item) => item.toJson()).toList()),
+    );
+    if (!saved) throw StateError('The vault index could not be updated.');
+    return entry;
+  }
+
+  bool _isValidId(String id) => RegExp(r'^[a-f0-9]{32}$').hasMatch(id);
+
+  Future<Uint8List> _decryptFile(String id) async {
+    final encodedKey = await _keyStore.readKey();
+    if (encodedKey == null) {
+      throw StateError('The vault key is missing. Recovery is not possible without it.');
+    }
+    final keyBytes = base64Decode(encodedKey);
+    if (keyBytes.length != 32) throw StateError('The vault key is invalid.');
+
     final directory = await _vaultDirectory();
     final file = File('${directory.path}/$id.nsvault');
     if (!await file.exists()) throw StateError('The encrypted file is missing.');
@@ -245,10 +379,10 @@ class EncryptedFileVault {
     final nonce = base64Decode(nonceValue);
     final mac = base64Decode(macValue);
     final ciphertext = base64Decode(ciphertextValue);
-    // AES-GCM uses a 96-bit nonce and a 128-bit authentication tag here.
-    // Validate the envelope before handing it to the cryptographic provider.
-    if (nonce.length != 12 || mac.length != 16 ||
-        ciphertext.isEmpty || ciphertext.length > maxFileBytes) {
+    if (nonce.length != 12 ||
+        mac.length != 16 ||
+        ciphertext.isEmpty ||
+        ciphertext.length > maxFileBytes) {
       throw const FormatException('Encrypted-file envelope has invalid lengths.');
     }
 
@@ -257,79 +391,6 @@ class EncryptedFileVault {
       secretKey: SecretKey(keyBytes),
     );
     return Uint8List.fromList(clear);
-  }
-
-
-  /// Re-registers an encrypted file left behind if the app stopped after the
-  /// atomic rename but before saving the index. The caller must supply a name;
-  /// the encrypted envelope intentionally does not contain original metadata.
-  /// This never deletes or overwrites the encrypted file.
-  Future<VaultEntry> recoverOrphanedEntry({
-    required String id,
-    required String recoveredName,
-  }) async {
-    if (!RegExp(r'^[a-f0-9]{32}$').hasMatch(id)) {
-      throw ArgumentError.value(id, 'id', 'Invalid vault entry identifier.');
-    }
-    final entries = await listEntries();
-    if (entries.any((entry) => entry.id == id)) {
-      throw StateError('That file is already listed in the vault.');
-    }
-
-    final safeName = _safeName(recoveredName);
-    final encodedKey = await _keyStore.readKey();
-    if (encodedKey == null) {
-      throw StateError('The vault key is missing. Recovery is not possible without it.');
-    }
-    final keyBytes = base64Decode(encodedKey);
-    if (keyBytes.length != 32) throw StateError('The vault key is invalid.');
-
-    final directory = await _vaultDirectory();
-    final file = File('${directory.path}/$id.nsvault');
-    if (!await file.exists()) throw StateError('The orphaned encrypted file was not found.');
-    if (await file.length() > maxVaultEnvelopeBytes) {
-      throw const FormatException('Encrypted file exceeds the supported vault size.');
-    }
-
-    final decoded = jsonDecode(await file.readAsString());
-    if (decoded is! Map<String, dynamic> || decoded['version'] != 1) {
-      throw const FormatException('Unsupported encrypted-file format.');
-    }
-    final nonceValue = decoded['nonce'];
-    final macValue = decoded['mac'];
-    final ciphertextValue = decoded['ciphertext'];
-    if (nonceValue is! String || macValue is! String || ciphertextValue is! String) {
-      throw const FormatException('Encrypted-file envelope is incomplete.');
-    }
-    final nonce = base64Decode(nonceValue);
-    final mac = base64Decode(macValue);
-    final ciphertext = base64Decode(ciphertextValue);
-    if (nonce.length != 12 || mac.length != 16 ||
-        ciphertext.isEmpty || ciphertext.length > maxFileBytes) {
-      throw const FormatException('Encrypted-file envelope has invalid lengths.');
-    }
-
-    // Authenticate/decrypt before registering metadata. A damaged or tampered
-    // file must not be presented as successfully recovered.
-    await _cipher.decrypt(
-      SecretBox(ciphertext, nonce: nonce, mac: Mac(mac)),
-      secretKey: SecretKey(keyBytes),
-    );
-
-    final entry = VaultEntry(
-      id: id,
-      name: safeName,
-      sizeBytes: ciphertext.length,
-      createdAt: DateTime.now().toUtc(),
-    );
-    final preferences = await SharedPreferences.getInstance();
-    final updated = [...entries, entry];
-    final saved = await preferences.setString(
-      _indexKey,
-      jsonEncode(updated.map((item) => item.toJson()).toList()),
-    );
-    if (!saved) throw StateError('The vault index could not be updated.');
-    return entry;
   }
 
   Future<void> removeEncryptedCopy(String id) async {
