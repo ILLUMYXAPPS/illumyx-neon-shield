@@ -302,26 +302,6 @@ class _EncryptedVaultScreenState extends State<EncryptedVaultScreen> {
             _notice(_loadError!, isError: true)
           else if (_entries.isEmpty)
             _notice('Your encrypted vault is empty. Choose “Encrypt a file” to store a protected copy.')
-          if (_recoveryCandidates.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _notice(
-              'RECOVERY REVIEW • These files authenticated with the existing vault key. Their original filenames are unavailable. Nothing is restored until you confirm each listing.',
-              isError: true,
-            ),
-            for (final candidate in _recoveryCandidates)
-              Card(
-                color: const Color(0xFF11172A),
-                child: ListTile(
-                  leading: const Icon(Icons.verified_user_outlined, color: Color(0xFFFFD27A)),
-                  title: const Text('Verified encrypted file'),
-                  subtitle: Text('${_formatSize(candidate.sizeBytes)} • ${candidate.id.substring(0, 8)}…'),
-                  trailing: TextButton(
-                    onPressed: _busy ? null : () => _recoverOrphanedFile(candidate),
-                    child: const Text('Review'),
-                  ),
-                ),
-              ),
-          ],
           else
             for (final entry in _entries)
               Card(
@@ -344,6 +324,26 @@ class _EncryptedVaultScreenState extends State<EncryptedVaultScreen> {
                   ),
                 ),
               ),
+          if (_recoveryCandidates.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _notice(
+              'RECOVERY REVIEW • These files authenticated with the existing vault key. Their original filenames are unavailable. Nothing is restored until you confirm each listing.',
+              isError: true,
+            ),
+            for (final candidate in _recoveryCandidates)
+              Card(
+                color: const Color(0xFF11172A),
+                child: ListTile(
+                  leading: const Icon(Icons.verified_user_outlined, color: Color(0xFFFFD27A)),
+                  title: const Text('Verified encrypted file'),
+                  subtitle: Text('${_formatSize(candidate.sizeBytes)} • ${candidate.id.substring(0, 8)}…'),
+                  trailing: TextButton(
+                    onPressed: _busy ? null : () => _recoverOrphanedFile(candidate),
+                    child: const Text('Review'),
+                  ),
+                ),
+              ),
+          ],
         ],
       ),
     );
