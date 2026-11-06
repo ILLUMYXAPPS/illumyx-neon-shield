@@ -61,7 +61,7 @@ jobs:
           PY
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
       - name: Analyze
         working-directory: mobile
         run: flutter analyze
@@ -89,7 +89,7 @@ jobs:
         run: flutter create --platforms=ios --org com.illumyx --project-name illumyx_neon_shield .
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
       - name: Analyze
         working-directory: mobile
         run: flutter analyze
