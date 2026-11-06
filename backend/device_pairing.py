@@ -111,7 +111,8 @@ class DevicePairingRepository:
         connection, close = self._connection(); cursor = connection.cursor()
         try:
             self._begin(connection)
-            cursor.execute(self._sql('SELECT subject_id, status, expires_at FROM device_pairing_requests WHERE request_id=?'), (request_id,))
+            lock = getattr(self.store, '_audit_lock_clause', '')
+            cursor.execute(self._sql('SELECT subject_id, status, expires_at FROM device_pairing_requests WHERE request_id=?' + lock), (request_id,))
             row = self._row_dict(cursor, cursor.fetchone())
             if row is None or row['subject_id'] != subject_id or row['status'] != 'pending':
                 connection.rollback(); raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
