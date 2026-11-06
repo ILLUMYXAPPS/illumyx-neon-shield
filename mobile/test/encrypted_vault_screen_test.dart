@@ -31,8 +31,7 @@ class _RecoveryFlowVault extends EncryptedFileVault {
   }
 
   @override
-  Future<List<VaultOrphanCandidate>> findRecoverableFiles() async =>
-      const [
+  Future<List<VaultOrphanCandidate>> findRecoverableFiles() async => [
         VaultOrphanCandidate(
           id: candidateId,
           sizeBytes: 32,
