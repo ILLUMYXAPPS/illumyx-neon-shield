@@ -8,15 +8,21 @@ class FakeAuthApi implements AuthApiContract {
 
   bool trusted;
   bool failRevoke;
+  String? signInResponseDeviceId;
+  String? refreshResponseDeviceId;
   int signInCalls = 0;
   int refreshCalls = 0;
   int revokeCalls = 0;
   int trustChecks = 0;
 
-  AuthSession _session(String token, {Duration ttl = const Duration(minutes: 10)}) => AuthSession(
+  AuthSession _session(
+    String token, {
+    Duration ttl = const Duration(minutes: 10),
+    String deviceId = 'device-1',
+  }) => AuthSession(
         token: token,
         expiresAt: DateTime.now().toUtc().add(ttl),
-        deviceId: 'device-1',
+        deviceId: deviceId,
       );
 
   @override
@@ -26,13 +32,19 @@ class FakeAuthApi implements AuthApiContract {
     required String deviceId,
   }) async {
     signInCalls++;
-    return _session('server-sign-in-token');
+    return _session(
+      'server-sign-in-token',
+      deviceId: signInResponseDeviceId ?? deviceId,
+    );
   }
 
   @override
   Future<AuthSession> refresh(AuthSession session) async {
     refreshCalls++;
-    return _session('server-refresh-token');
+    return _session(
+      'server-refresh-token',
+      deviceId: refreshResponseDeviceId ?? session.deviceId,
+    );
   }
 
   @override
@@ -94,6 +106,32 @@ void main() {
     expect(store.writes, 1);
   });
 
+  test('sign-in rejects a session bound to a different device', () async {
+    final api = FakeAuthApi()..signInResponseDeviceId = 'different-device';
+    final store = FakeStore();
+    final service = ServerBackedAuthService(api: api, store: store);
+
+    await expectLater(
+      service.signIn(
+        identity: 'user@example.test',
+        credential: 'credential',
+        deviceId: 'device-1',
+      ),
+      throwsA(
+        isA<AuthServiceException>().having(
+          (error) => error.failure,
+          'failure',
+          AuthFailure.untrustedDevice,
+        ),
+      ),
+    );
+
+    expect(store.session, isNull);
+    expect(store.writes, 0);
+    expect(store.clears, 1);
+    expect(api.trustChecks, 0);
+  });
+
   test('untrusted sign-in is rejected and never persisted', () async {
     final api = FakeAuthApi(trusted: false);
     final store = FakeStore();
@@ -147,6 +185,27 @@ void main() {
     expect(api.refreshCalls, 0);
     expect(store.session, isNull);
     expect(store.clears, 1);
+  });
+
+  test('refresh rejects a session rebound to a different device', () async {
+    final api = FakeAuthApi()..refreshResponseDeviceId = 'different-device';
+    final store = FakeStore()..session = liveSession();
+    final service = ServerBackedAuthService(api: api, store: store);
+
+    await expectLater(
+      service.refreshSession(),
+      throwsA(
+        isA<AuthServiceException>().having(
+          (error) => error.failure,
+          'failure',
+          AuthFailure.untrustedDevice,
+        ),
+      ),
+    );
+
+    expect(store.session, isNull);
+    expect(store.clears, 1);
+    expect(api.trustChecks, 0);
   });
 
   test('refresh rejects a device that is no longer trusted', () async {
