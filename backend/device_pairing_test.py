@@ -84,6 +84,26 @@ class DevicePairingTests(unittest.TestCase):
         self.assertEqual(caught.exception.failure, AuthFailure.RATE_LIMITED)
         self.assertFalse(self.store.device_trusted('subject-a', 'locked-device'))
 
+    def test_status_polling_is_rate_limited_per_pairing_request(self):
+        started = self.pairing.start('owner@example.test', 'correct-password', 'poll-device', 'Tablet')
+        for _ in range(self.pairing.MAX_STATUS_POLLS_PER_WINDOW):
+            self.assertEqual(
+                self.pairing.status(started['request_id'], started['pairing_secret']),
+                'pending',
+            )
+        with self.assertRaises(AuthenticationError) as caught:
+            self.pairing.status(started['request_id'], started['pairing_secret'])
+        self.assertEqual(caught.exception.failure, AuthFailure.RATE_LIMITED)
+
+    def test_invalid_polling_secret_does_not_consume_poll_allowance(self):
+        started = self.pairing.start('owner@example.test', 'correct-password', 'poll-secret-device', 'Phone')
+        with self.assertRaises(AuthenticationError):
+            self.pairing.status(started['request_id'], 'incorrect-secret')
+        self.assertEqual(
+            self.pairing.status(started['request_id'], started['pairing_secret']),
+            'pending',
+        )
+
     def test_expired_pairing_request_cannot_be_approved(self):
         started = self.pairing.start('owner@example.test', 'correct-password', 'expired-device', 'Tablet')
         expired_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
