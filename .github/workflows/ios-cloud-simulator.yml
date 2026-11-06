@@ -10,7 +10,7 @@ on:
       - "mobile/**"
       - ".github/workflows/ios-cloud-simulator.yml"
   push:
-    branches: ["main", "feat/ios-cloud-simulator-smoke-tests"]
+    branches: ["main", "feat/ios-cloud-simulator-smoke-tests", "integration/neon-shield-ios-smoke-2026-11-06"]
     paths:
       - "mobile/**"
       - ".github/workflows/ios-cloud-simulator.yml"
