@@ -116,3 +116,59 @@ jobs:
           name: ILLUMYX-Neon-Shield-iOS-unsigned-beta
           path: mobile/ILLUMYX-Neon-Shield-iOS-unsigned.zip
           if-no-files-found: error
+
+  windows:
+    name: Windows desktop beta
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Windows platform project
+        working-directory: mobile
+        run: flutter create --platforms=windows --org com.illumyx --project-name illumyxapp .
+      - name: Get dependencies
+        working-directory: mobile
+        run: flutter pub get
+      - name: Analyze
+        working-directory: mobile
+        run: flutter analyze
+      - name: Build Windows desktop
+        working-directory: mobile
+        run: flutter build windows --release
+      - name: Upload Windows beta
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ILLUMYX-Neon-Shield-Windows-beta
+          path: mobile/build/windows/x64/runner/Release/
+          if-no-files-found: error
+
+  macos:
+    name: macOS desktop beta
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate macOS platform project
+        working-directory: mobile
+        run: flutter create --platforms=macos --org com.illumyx --project-name illumyxapp .
+      - name: Get dependencies
+        working-directory: mobile
+        run: flutter pub get
+      - name: Analyze
+        working-directory: mobile
+        run: flutter analyze
+      - name: Build macOS desktop
+        working-directory: mobile
+        run: flutter build macos --release
+      - name: Upload macOS beta
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ILLUMYX-Neon-Shield-macOS-beta
+          path: mobile/build/macos/Build/Products/Release/
+          if-no-files-found: error
