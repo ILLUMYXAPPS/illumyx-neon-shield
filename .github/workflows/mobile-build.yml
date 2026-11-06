@@ -174,7 +174,7 @@ jobs:
         run: flutter build macos --release
       - name: Package macOS desktop beta
         working-directory: mobile
-        run: ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/Runner.app ILLUMYX-Neon-Shield-macOS-unsigned.zip
+        run: ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/illumyxapp.app ILLUMYX-Neon-Shield-macOS-unsigned.zip
       - name: Upload macOS desktop beta
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
