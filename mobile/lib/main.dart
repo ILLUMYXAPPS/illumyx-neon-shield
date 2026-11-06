@@ -311,9 +311,17 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
         final d = await info.iosInfo;
         nextDevice = d.name;
         nextPlatformStatus = '${d.systemName} ${d.systemVersion}';
+      } else if (Platform.isWindows) {
+        final d = await info.windowsInfo;
+        nextDevice = d.computerName;
+        nextPlatformStatus = 'Windows ${d.majorVersion}.${d.minorVersion}';
+      } else if (Platform.isMacOS) {
+        final d = await info.macOsInfo;
+        nextDevice = '${d.computerName} (${d.model})';
+        nextPlatformStatus = 'macOS ${d.osRelease}';
       } else {
         nextDevice = Platform.operatingSystem;
-        nextPlatformStatus = 'Unsupported mobile platform';
+        nextPlatformStatus = 'Platform details unavailable';
       }
     } catch (_) {}
 
@@ -392,11 +400,11 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('ILLUMYX NEON SHIELD', style: TextStyle(fontWeight: FontWeight.w800)),
-            Text('Mobile v1.0-beta', style: TextStyle(fontSize: 12, color: Color(0xFF21E6FF))),
+            Text('${Platform.isWindows ? 'Windows' : Platform.isMacOS ? 'macOS' : 'Mobile'} v1.0-beta', style: TextStyle(fontSize: 12, color: Color(0xFF21E6FF))),
           ],
         ),
         actions: [
@@ -440,7 +448,7 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             const SizedBox(height: 18),
             _card(Icons.lock_rounded, 'SECURITY', securityStatus, 'Shows local setup state only. Server-side authentication and trust must be verified separately.'),
             _card(Icons.phone_iphone_rounded, 'DEVICE', device, 'Local device identification only.'),
-            _card(Icons.shield_outlined, 'PLATFORM', platformStatus, 'Security capabilities follow iOS and Android permission boundaries.'),
+            _card(Icons.shield_outlined, 'PLATFORM', platformStatus, 'Security capabilities follow the permissions and safeguards of the current operating system.'),
             _card(Icons.wifi_rounded, 'NETWORK', network, 'Network information is shown only when the operating system permits access.'),
             _card(Icons.lock_outline_rounded, 'DATA HANDLING', 'Limited local data', 'Device and network details are displayed locally. Account credentials are used for sign-in through the configured authentication service.'),
             const SizedBox(height: 12),
