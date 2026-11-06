@@ -69,7 +69,7 @@ void main() {
     expect(find.text('123456'), findsOneWidget);
     expect(find.text('REQUEST REFERENCE'), findsOneWidget);
     expect(find.text('request-reference-123'), findsOneWidget);
-    expect(find.textContaining('six-digit code plus the request reference'), findsOneWidget);
+    expect(find.textContaining('enter this code plus the request reference below'), findsOneWidget);
     expect(find.textContaining('QR'), findsNothing);
     expect(find.textContaining('camera'), findsNothing);
   });
