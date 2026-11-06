@@ -263,6 +263,77 @@ void main() {
     expect(await File('${vaultDirectory.path}/${created.id}.nsvault').exists(), isTrue);
   });
 
+  test('discovers and recovers authenticated files when the index is corrupt without deleting data', () async {
+    final first = await vault.protectBytes(
+      originalName: 'first-original.txt',
+      bytes: utf8.encode('first encrypted payload'),
+    );
+    final second = await vault.protectBytes(
+      originalName: 'second-original.txt',
+      bytes: utf8.encode('second encrypted payload'),
+    );
+    const damagedIndex = '{not-valid-vault-index';
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('neon_shield.encrypted_vault_index_v1', damagedIndex);
+
+    final candidates = await vault.findRecoverableFiles();
+    expect(candidates.map((candidate) => candidate.id).toSet(),
+        {first.id, second.id});
+    expect(candidates.every((candidate) => candidate.indexWasCorrupt), isTrue);
+
+    final recovered = await vault.recoverOrphanedEntry(
+      id: first.id,
+      recoveredName: 'first-recovered.txt',
+    );
+    expect(recovered.sizeBytes, utf8.encode('first encrypted payload').length);
+    expect(await vault.listEntries(), hasLength(1));
+
+    final backupKeys = preferences.getKeys().where((key) =>
+        key.startsWith('neon_shield.encrypted_vault_corrupt_index_backup_'));
+    expect(backupKeys, hasLength(1));
+    expect(preferences.getString(backupKeys.single), damagedIndex);
+
+    final directory = Directory('${tempDirectory.path}/neon_shield_vault');
+    expect(await File('${directory.path}/${first.id}.nsvault').exists(), isTrue);
+    expect(await File('${directory.path}/${second.id}.nsvault').exists(), isTrue);
+    expect(await vault.decryptEntry(first.id),
+        utf8.encode('first encrypted payload'));
+
+    final remaining = await vault.findRecoverableFiles();
+    expect(remaining.map((candidate) => candidate.id), [second.id]);
+    await vault.recoverOrphanedEntry(
+      id: second.id,
+      recoveredName: 'second-recovered.txt',
+    );
+    expect(await vault.listEntries(), hasLength(2));
+    expect(await File('${directory.path}/${second.id}.nsvault').exists(), isTrue);
+  });
+
+  test('does not offer unauthenticated encrypted files for recovery', () async {
+    final entry = await vault.protectBytes(
+      originalName: 'tampered-orphan.txt',
+      bytes: utf8.encode('authenticated before tampering'),
+    );
+    final encryptedFile =
+        File('${tempDirectory.path}/neon_shield_vault/${entry.id}.nsvault');
+    final envelope =
+        jsonDecode(await encryptedFile.readAsString()) as Map<String, dynamic>;
+    final ciphertext = envelope['ciphertext'] as String;
+    envelope['ciphertext'] =
+        '${ciphertext.startsWith('A') ? 'B' : 'A'}${ciphertext.substring(1)}';
+    await encryptedFile.writeAsString(jsonEncode(envelope), flush: true);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(
+      'neon_shield.encrypted_vault_index_v1',
+      'corrupt-index',
+    );
+
+    expect(await vault.findRecoverableFiles(), isEmpty);
+    expect(await encryptedFile.exists(), isTrue);
+    expect(preferences.getString('neon_shield.encrypted_vault_index_v1'),
+        'corrupt-index');
+  });
+
   test('does not register an orphan when the encryption key is missing', () async {
     final created = await vault.protectBytes(
       originalName: 'orphan.txt',

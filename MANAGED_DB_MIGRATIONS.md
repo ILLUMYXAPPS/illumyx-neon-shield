@@ -22,3 +22,7 @@ The existing `ManagedDbAuthStore.migrate()` method remains a bootstrap/test sche
 A real production database, backup service, restore validation, connection pooling, TLS, credentials, encryption at rest, access controls and monitoring remain deployment responsibilities.
 
 Apple signing and release configuration remain outside this boundary.
+
+## Device pairing schema
+
+Migration version `4` (`create_device_pairing_tables`) adds the durable pairing-request and device-label tables plus the account/status lookup index. Deployments enabling universal device pairing must apply migration 4 before starting application instances that expose the pairing endpoints. The migration is additive and safe to re-run through the migration runner's version tracking; it does not run automatically at application startup.
