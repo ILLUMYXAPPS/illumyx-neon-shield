@@ -263,7 +263,7 @@ class EncryptedFileVault {
     final candidates = <VaultOrphanCandidate>[];
     await for (final entity in directory.list(followLinks: false)) {
       if (entity is! File) continue;
-      final match = RegExp(r'^([a-f0-9]{32})\.nsvault)
+      final match = RegExp(r'^([a-f0-9]{32})\.nsvault$')
           .firstMatch(entity.uri.pathSegments.last);
       if (match == null) continue;
       final id = match.group(1)!;
