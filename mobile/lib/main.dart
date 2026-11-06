@@ -16,6 +16,7 @@ import 'auth/secure_auth_session_store.dart';
 import 'onboarding/onboarding_screen.dart';
 import 'protection/protection_profile.dart';
 import 'protection/protection_profile_service.dart';
+import 'protection/protection_clipboard_screen.dart';
 import 'security/security_service.dart';
 import 'vault/encrypted_vault_screen.dart';
 
@@ -463,6 +464,14 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
             ],
             const SizedBox(height: 18),
             _profileCard(),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const ProtectionClipboardScreen()),
+              ),
+              icon: const Icon(Icons.assignment_turned_in_rounded),
+              label: const Text('Open Protection Clipboard'),
+            ),
             const SizedBox(height: 18),
             _commandCentre(),
             const SizedBox(height: 18),
