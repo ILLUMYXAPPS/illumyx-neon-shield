@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -20,18 +22,22 @@ class _RecoveryFlowVault extends EncryptedFileVault {
 
   static const candidateId = '0123456789abcdef0123456789abcdef';
   final List<VaultEntry> _entries = [];
+  final Completer<List<VaultEntry>> indexRead = Completer<List<VaultEntry>>();
+  final Completer<List<VaultOrphanCandidate>> recoveryScan =
+      Completer<List<VaultOrphanCandidate>>();
   String? recoveredName;
 
   @override
-  Future<List<VaultEntry>> listEntries() async {
-    if (_entries.isEmpty) {
-      throw StateError('Vault index is unreadable.');
-    }
-    return List.unmodifiable(_entries);
+  Future<List<VaultEntry>> listEntries() {
+    if (_entries.isNotEmpty) return Future.value(List.unmodifiable(_entries));
+    return indexRead.future;
   }
 
   @override
-  Future<List<VaultOrphanCandidate>> findRecoverableFiles() async => [
+  Future<List<VaultOrphanCandidate>> findRecoverableFiles() =>
+      recoveryScan.future;
+
+  List<VaultOrphanCandidate> get recoveryCandidates => [
         VaultOrphanCandidate(
           id: candidateId,
           sizeBytes: 32,
@@ -70,14 +76,14 @@ void main() {
         MaterialApp(home: EncryptedVaultScreen(vault: vault)),
       );
 
-      // _refresh performs two asynchronous reads (the failed index read,
-      // followed by authenticated orphan discovery). Advance the widget-test
-      // clock so both Future continuations and the resulting setState render
-      // before asserting on the recovery card. Avoid runAsync here: it moves
-      // work outside the fake-async zone and can return before the widget
-      // rebuild has consumed the completed recovery Future.
+      // Drive the two asynchronous reads explicitly. This verifies that the
+      // screen waits for the corrupt-index result, starts recovery discovery,
+      // and renders the authenticated candidate only after that scan returns.
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 10));
+      vault.indexRead.completeError(StateError('Vault index is unreadable.'));
+      await tester.pump();
+      vault.recoveryScan.complete(vault.recoveryCandidates);
+      await tester.pump();
       await tester.pumpAndSettle();
 
       expect(find.textContaining('vault index could not be read'), findsOneWidget);
