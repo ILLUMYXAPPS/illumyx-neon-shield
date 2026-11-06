@@ -2,7 +2,7 @@
 
 ## Status
 
-Design and implementation contract for the feature branch. This document is not evidence that pairing is implemented, deployed, or production-ready.
+Implementation is underway on `feature/universal-device-pairing`. The current increment adds backend pairing persistence and endpoints, Flutter manual-code pairing, and connected-device management. QR presentation/scanning, subscription device-limit enforcement, production deployment, and independent review remain outstanding. This is not production-ready.
 
 ## Customer experience
 
@@ -31,7 +31,7 @@ Design and implementation contract for the feature branch. This document is not 
 
 - POST /v1/device-pairing/start: new device submits account credentials, stable device identifier, and a display name. Server verifies credentials and creates a five-minute pending request without trusting the new device.
 - POST /v1/device-pairing/approve: existing trusted session submits the one-time pairing secret or scanned QR payload. Server verifies account ownership and consumes the request atomically.
-- GET /v1/device-pairing/status: new device polls using the one-time request handle and secret; response is limited to pending, approved, expired, or rejected.
+- POST /v1/device-pairing/status: new device polls using the one-time request handle and secret in the request body. Keeping the secret out of the URL reduces exposure in proxy and access logs. Response is limited to pending, approved, expired, or rejected.
 - GET /v1/devices: authenticated session lists the account's authorised devices, with safe display metadata only.
 - PATCH /v1/devices/{device_ref}: authenticated session renames a device after ownership validation.
 - DELETE /v1/devices/{device_ref}: authenticated session unlinks a different device and revokes its sessions. Require recent authentication or equivalent step-up verification before unlinking the current device or all devices.
@@ -48,10 +48,11 @@ The final route shapes may be adapted to existing API conventions, but the secur
 
 1. Backend persistence, pairing challenge lifecycle, atomic approval, revocation, audit events, and abuse controls.
 2. Backend API and contract tests, including expiry, replay, brute-force throttling, cross-account attempts, concurrent approvals, and revoked approvers.
-3. Flutter API contracts and a cross-platform **My Connected Devices** experience.
-4. QR rendering/scanning plus manual code entry, with platform permission handling and an accessible fallback.
-5. CI validation on Windows, macOS, Android, and iOS; then independent review and physical-device validation.
+3. Flutter API contracts, a manual-code pairing screen, approval from an existing trusted device, and a **My Connected Devices** screen for rename/unlink.
+4. QR rendering/scanning, platform permission handling, and an accessible fallback. QR payload support exists at the API boundary; the current mobile screen uses the manual code.
+5. Enforce approved Premium/Family device limits through the server-side entitlement service. Exact limits remain a product decision and are not hard-coded.
+6. Complete CI validation on Windows, macOS, Android, and iOS; then independent review and physical-device validation.
 
 ## Release boundaries
 
-A green unit-test or simulator build does not prove production pairing works. Production HTTPS, managed persistence, real account/entitlement integration, physical-device camera testing, session revocation, and independent security review remain separate gates. Do not merge this feature or describe it as production-ready until those gates are met.
+The current implementation hashes pairing secrets and six-digit codes with the deployment pepper, expires requests after five minutes, caps approval attempts at five per request, verifies the approving session server-side, consumes approval once, and revokes a device's sessions when it is unlinked. IP-based throttling, subscription entitlement/device-limit enforcement, step-up authentication for sensitive device management, QR presentation/scanning, and a managed-production deployment migration still need work. A green unit-test or simulator build does not prove production pairing works. Production HTTPS, managed persistence, real account/entitlement integration, physical-device validation, and independent security review remain separate gates. Do not merge this feature or describe it as production-ready until those gates are met.
