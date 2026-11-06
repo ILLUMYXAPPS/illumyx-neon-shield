@@ -34,6 +34,28 @@ class MigrationRunnerTests(unittest.TestCase):
                 (4, "create_device_pairing_tables"),
             ])
 
+    def test_existing_version_three_database_upgrades_to_pairing_schema(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "existing-production.sqlite3"
+            existing = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS[:3])
+            self.assertEqual(existing.apply_pending(), 3)
+
+            upgraded = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
+            self.assertEqual(upgraded.apply_pending(), 4)
+            connection = sqlite3.connect(path)
+            try:
+                tables = {row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()}
+                version = connection.execute(
+                    "SELECT MAX(version) FROM neon_schema_migrations"
+                ).fetchone()[0]
+            finally:
+                connection.close()
+            self.assertEqual(version, 4)
+            self.assertIn("device_pairing_requests", tables)
+            self.assertIn("device_labels", tables)
+
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "migrations.sqlite3"
