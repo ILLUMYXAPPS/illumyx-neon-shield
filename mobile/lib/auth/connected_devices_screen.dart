@@ -33,32 +33,39 @@ class _ConnectedDevicesScreenState extends State<ConnectedDevicesScreen> {
   Future<void> _approve() async {
     final requestController = TextEditingController();
     final codeController = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final decision = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Approve a device'),
+        title: const Text('Approve or reject a device'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Enter the request reference and six-digit code shown on the new device. Only approve a request you started.'),
+          const Text('Enter the request reference from the new device. Approve only if you started the request and the six-digit code matches. You can reject a request without entering its code.'),
           const SizedBox(height: 14),
           TextField(controller: requestController, decoration: const InputDecoration(labelText: 'Request reference')),
           const SizedBox(height: 10),
           TextField(controller: codeController, keyboardType: TextInputType.number, maxLength: 6, decoration: const InputDecoration(labelText: 'Six-digit code')),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Approve')),
+          TextButton(onPressed: () => Navigator.pop(context, 'cancel'), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, 'reject'), child: const Text('Reject request')),
+          FilledButton(onPressed: () => Navigator.pop(context, 'approve'), child: const Text('Approve')),
         ],
       ),
     );
-    if (accepted != true) { requestController.dispose(); codeController.dispose(); return; }
+    final requestId = requestController.text.trim();
+    final code = codeController.text.trim();
+    requestController.dispose();
+    codeController.dispose();
+    if (decision == null || decision == 'cancel' || requestId.isEmpty) return;
     try {
-      await widget.api.approvePairing(session: widget.session, requestId: requestController.text.trim(), code: codeController.text.trim());
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Device approved. It can now sign in.')));
+      if (decision == 'reject') {
+        await widget.api.rejectPairing(session: widget.session, requestId: requestId);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pairing request rejected.')));
+      } else {
+        await widget.api.approvePairing(session: widget.session, requestId: requestId, code: code);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Device approved. It can now sign in.')));
+      }
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Approval failed. Check the reference and code, then try again.')));
-    } finally {
-      requestController.dispose();
-      codeController.dispose();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(decision == 'reject' ? 'Rejection failed. Check the request reference and try again.' : 'Approval failed. Check the reference and code, then try again.')));
     }
     await _load();
   }
