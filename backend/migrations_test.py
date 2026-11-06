@@ -11,13 +11,13 @@ from backend.production_migrations import PRODUCTION_MIGRATIONS
 
 
 class MigrationRunnerTests(unittest.TestCase):
-    def test_production_migrations_are_contiguous_and_create_rate_limit_state(self) -> None:
+    def test_production_migrations_are_contiguous_and_create_pairing_state(self) -> None:
         self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3, 4])
         with TemporaryDirectory() as directory:
             path = Path(directory) / "production-migrations.sqlite3"
             runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
             self.assertEqual(runner.apply_pending(), 4)
-            self.assertEqual(runner.apply_pending(), 3)
+            self.assertEqual(runner.apply_pending(), 4)
             connection = sqlite3.connect(path)
             try:
                 tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
