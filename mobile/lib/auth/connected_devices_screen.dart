@@ -115,7 +115,7 @@ class _ConnectedDevicesScreenState extends State<ConnectedDevicesScreen> {
       body: RefreshIndicator(
         onRefresh: _load,
         child: _loading
-            ? const ListView(children: [SizedBox(height: 180), Center(child: CircularProgressIndicator())])
+            ? ListView(children: [const SizedBox(height: 180), Center(child: CircularProgressIndicator())])
             : ListView(
                 padding: const EdgeInsets.fromLTRB(18, 18, 18, 96),
                 children: [
