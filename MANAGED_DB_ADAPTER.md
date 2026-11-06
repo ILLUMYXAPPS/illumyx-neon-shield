@@ -19,11 +19,13 @@ This adapter does **not** provision a database or credentials. A production depl
 1. a managed durable database;
 2. TLS-protected database connections;
 3. a connection pool or equivalent safe connection lifecycle;
-4. credentials and `NEON_AUTH_PEPPER` from a deployment secret manager;
+4. database credentials and `NEON_DB_PEPPER` from a deployment secret manager;
 5. versioned schema migrations and rollback procedures;
 6. backups, encryption at rest, retention and access controls;
 7. a transaction/row-lock strategy that serializes audit-chain writes. PostgreSQL-style deployments should supply `audit_lock_clause=" FOR UPDATE"`;
 8. monitoring and alerting for connection failures, transaction failures and authentication-store errors.
+
+The production configuration contract uses `NEON_DB_PEPPER` for the managed database adapter. `NEON_AUTH_PEPPER` is a separate, optional setting used by the SQLite development/integration `AuthStore`; it is not the managed-production secret name. Production configuration also requires `NEON_IDP_CLIENT_SECRET`, resolved through the injected `SecretProvider`.
 
 The adapter intentionally has no production fallback to SQLite. The existing SQLite `AuthStore` remains the development/integration implementation. Production composition must continue to inject `ManagedDbAuthStore` or another `ManagedAuthStore` implementation.
 
