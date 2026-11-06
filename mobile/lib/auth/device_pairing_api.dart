@@ -6,14 +6,12 @@ class DevicePairingRequest {
     required this.code,
     required this.secret,
     required this.expiresAt,
-    required this.qrPayload,
   });
 
   final String requestId;
   final String code;
   final String secret;
   final DateTime expiresAt;
-  final String qrPayload;
 }
 
 class ConnectedDevice {
