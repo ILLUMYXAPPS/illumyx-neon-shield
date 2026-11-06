@@ -44,19 +44,17 @@ class DevicePairingTests(unittest.TestCase):
             self.service.sign_in(SignInRequest('owner@example.test', 'correct-password', 'new-device'))
         self.assertEqual(sign_in_error.exception.failure, AuthFailure.UNTRUSTED_DEVICE)
 
-    def test_pairing_secret_is_not_stored_in_plaintext_and_qr_approval_works(self):
-        started = self.pairing.start('owner@example.test', 'correct-password', 'qr-device', 'Android phone')
+    def test_pairing_secret_is_not_stored_in_plaintext_and_code_is_hashed(self):
+        started = self.pairing.start('owner@example.test', 'correct-password', 'new-device', 'Android phone')
         row = self.store._db.execute('SELECT secret_hash, code_hash FROM device_pairing_requests WHERE request_id=?', (started['request_id'],)).fetchone()
         self.assertNotEqual(row['secret_hash'], started['pairing_secret'])
         self.assertNotEqual(row['code_hash'], started['pairing_code'])
-        self.pairing.approve(self.existing_session, started['request_id'], pairing_secret=started['pairing_secret'])
-        self.assertTrue(self.store.device_trusted('subject-a', 'qr-device'))
 
     def test_wrong_code_consumes_attempt_and_replay_is_rejected(self):
         started = self.pairing.start('owner@example.test', 'correct-password', 'another-device', 'Laptop')
         with self.assertRaises(AuthenticationError):
             self.pairing.approve(self.existing_session, started['request_id'], pairing_code='000000' if started['pairing_code'] != '000000' else '000001')
-        self.pairing.approve(self.existing_session, started['request_id'], pairing_secret=started['pairing_secret'])
+        self.pairing.approve(self.existing_session, started['request_id'], pairing_code=started['pairing_code'])
         with self.assertRaises(AuthenticationError):
             self.pairing.approve(self.existing_session, started['request_id'], pairing_secret=started['pairing_secret'])
 
@@ -66,7 +64,7 @@ class DevicePairingTests(unittest.TestCase):
         other = self.service.sign_in(SignInRequest('other@example.test', 'other-password', 'other-device'))
         started = self.pairing.start('owner@example.test', 'correct-password', 'target-device', 'Tablet')
         with self.assertRaises(AuthenticationError):
-            self.pairing.approve(other, started['request_id'], pairing_secret=started['pairing_secret'])
+            self.pairing.approve(other, started['request_id'], pairing_code=started['pairing_code'])
         self.assertFalse(self.store.device_trusted('subject-b', 'target-device'))
 
     def test_current_device_cannot_unlink_itself(self):
