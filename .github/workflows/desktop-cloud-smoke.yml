@@ -26,6 +26,87 @@ env:
   APP_BUNDLE_ID: com.illumyx.illumyxapp
 
 jobs:
+  android-emulator-smoke:
+    name: Android emulator install and launch smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android project
+        working-directory: mobile
+        run: flutter create --platforms=android --org com.illumyx --project-name illumyxapp .
+
+      - name: Configure Android compile SDK
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          candidates = (Path("android/app/build.gradle.kts"), Path("android/app/build.gradle"))
+          gradle_file = next((path for path in candidates if path.is_file()), None)
+          if gradle_file is None:
+              raise SystemExit("Flutter did not generate an Android Gradle file.")
+          content = gradle_file.read_text()
+          replacements = (
+              ("compileSdk = flutter.compileSdkVersion", "compileSdk = 36"),
+              ("compileSdkVersion flutter.compileSdkVersion", "compileSdkVersion 36"),
+              ("compileSdkVersion = flutter.compileSdkVersion", "compileSdkVersion = 36"),
+          )
+          for old, new in replacements:
+              if old in content:
+                  content = content.replace(old, new, 1)
+                  break
+          else:
+              if not any(token in content for token in ("compileSdk = 36", "compileSdkVersion 36", "compileSdkVersion = 36")):
+                  raise SystemExit(f"Could not safely set compile SDK in {gradle_file}.")
+          gradle_file.write_text(content)
+          PY
+
+      - name: Resolve dependencies and build debug APK
+        working-directory: mobile
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter build apk --debug
+
+      - name: Boot Android emulator and verify app launch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            mkdir -p artifacts
+            adb wait-for-device
+            adb shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done'
+            adb install -r mobile/build/app/outputs/flutter-apk/app-debug.apk
+            adb shell monkey -p "$APP_BUNDLE_ID" 1
+            sleep 15
+            adb shell pidof "$APP_BUNDLE_ID" | tee artifacts/android-process-id.txt
+            adb logcat -d -t 3000 > artifacts/android-logcat.txt
+            echo "Neon Shield installed and remained running on the Android emulator." | tee artifacts/android-launch-result.txt
+
+      - name: Upload Android emulator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neon-shield-android-emulator-smoke-evidence
+          path: artifacts/
+          if-no-files-found: warn
+
   windows-desktop-smoke:
     name: Windows desktop launch smoke
     runs-on: windows-latest
@@ -60,22 +141,22 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $appPath = Join-Path $PWD "mobile\build\windows\x64\runner\Debug\illumyxapp.exe"
+          $appPath = Join-Path $PWD "mobile\\build\\windows\\x64\\runner\\Debug\\illumyxapp.exe"
           if (-not (Test-Path $appPath)) {
             throw "Expected Neon Shield executable was not produced: $appPath"
           }
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          $stdout = Join-Path $PWD "artifacts\windows-stdout.log"
-          $stderr = Join-Path $PWD "artifacts\windows-stderr.log"
+          $stdout = Join-Path $PWD "artifacts\\windows-stdout.log"
+          $stderr = Join-Path $PWD "artifacts\\windows-stderr.log"
           $process = Start-Process -FilePath $appPath -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           Start-Sleep -Seconds 10
           $running = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
           if ($null -eq $running) {
             throw "Neon Shield exited before the Windows startup smoke check completed."
           }
-          "Neon Shield launched successfully. PID=$($process.Id)" | Set-Content (Join-Path $PWD "artifacts\windows-launch-result.txt")
+          "Neon Shield launched successfully. PID=$($process.Id)" | Set-Content (Join-Path $PWD "artifacts\\windows-launch-result.txt")
           Stop-Process -Id $process.Id -Force
-          "Neon Shield process shut down after the smoke check." | Add-Content (Join-Path $PWD "artifacts\windows-launch-result.txt")
+          "Neon Shield process shut down after the smoke check." | Add-Content (Join-Path $PWD "artifacts\\windows-launch-result.txt")
 
       - name: Upload Windows startup evidence
         if: always()
