@@ -231,6 +231,15 @@ class DevicePairingTests(unittest.TestCase):
                 trusted, request['request_id'], pairing_code=request['pairing_code']
             )
             self.assertTrue(store.device_trusted('managed-subject', 'managed-new'))
+            rejected = service.device_pairing.start(
+                'managed@example.test', 'managed-password', 'managed-rejected', 'Old phone'
+            )
+            service.device_pairing.reject(trusted, rejected['request_id'])
+            self.assertEqual(
+                service.device_pairing.status(rejected['request_id'], rejected['pairing_secret']),
+                'rejected',
+            )
+            self.assertFalse(store.device_trusted('managed-subject', 'managed-rejected'))
 
 
 if __name__ == '__main__':
