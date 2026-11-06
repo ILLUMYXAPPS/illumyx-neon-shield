@@ -70,13 +70,14 @@ void main() {
         MaterialApp(home: EncryptedVaultScreen(vault: vault)),
       );
 
-      // Let the screen's initState-triggered asynchronous refresh finish
-      // outside the fake-async zone. The fake vault performs no filesystem or
-      // platform-channel work, so this only drains its Future continuations.
-      await tester.runAsync(() async {
-        await Future<void>.delayed(Duration.zero);
-      });
+      // _refresh performs two asynchronous reads (the failed index read,
+      // followed by authenticated orphan discovery). Advance the widget-test
+      // clock so both Future continuations and the resulting setState render
+      // before asserting on the recovery card. Avoid runAsync here: it moves
+      // work outside the fake-async zone and can return before the widget
+      // rebuild has consumed the completed recovery Future.
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 10));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('vault index could not be read'), findsOneWidget);
