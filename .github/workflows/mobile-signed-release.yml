@@ -93,7 +93,7 @@ jobs:
           test -f mobile/android/key.properties
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
       - name: Test
         working-directory: mobile
         run: flutter test
@@ -174,7 +174,7 @@ jobs:
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/NeonShield.mobileprovision"
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
       - name: Test
         working-directory: mobile
         run: flutter test
