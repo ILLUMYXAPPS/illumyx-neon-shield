@@ -1,7 +1,7 @@
 name: illumyx_neon_shield
 version: 1.0.0-beta.1+1
 publish_to: none
-description: ILLUMYX Neon Shield mobile security posture dashboard.
+description: ILLUMYX Neon Shield cross-platform security posture dashboard.
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
