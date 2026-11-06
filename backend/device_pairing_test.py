@@ -56,7 +56,7 @@ class DevicePairingTests(unittest.TestCase):
             self.pairing.approve(self.existing_session, started['request_id'], pairing_code='000000' if started['pairing_code'] != '000000' else '000001')
         self.pairing.approve(self.existing_session, started['request_id'], pairing_code=started['pairing_code'])
         with self.assertRaises(AuthenticationError):
-            self.pairing.approve(self.existing_session, started['request_id'], pairing_secret=started['pairing_secret'])
+            self.pairing.approve(self.existing_session, started['request_id'], pairing_code=started['pairing_code'])
 
     def test_other_account_cannot_approve_request(self):
         self.store.create_user('subject-b', 'other@example.test', 'other-password')
