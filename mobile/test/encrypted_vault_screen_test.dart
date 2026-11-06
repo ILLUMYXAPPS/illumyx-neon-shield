@@ -81,6 +81,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('vault index could not be read'), findsOneWidget);
+      // The recovery card is below the vault introduction in a scrolling
+      // ListView. Bring it into the viewport before asserting on its title.
+      await tester.scrollUntilVisible(
+        find.text('Verified encrypted file'),
+        200,
+        scrollable: find.byType(Scrollable),
+      );
       expect(find.text('Verified encrypted file'), findsOneWidget);
       expect(find.text('Review'), findsOneWidget);
 
