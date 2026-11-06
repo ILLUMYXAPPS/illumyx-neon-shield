@@ -19,7 +19,6 @@ class DevicePairingRepository:
         self.pepper = getattr(store, 'pepper', getattr(store, '_pepper', ''))
         if not self.pepper:
             raise RuntimeError('device pairing requires the deployment auth pepper')
-        self._migrate()
 
     def _connection(self):
         if hasattr(self.store, '_db'):
