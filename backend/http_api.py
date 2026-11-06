@@ -117,6 +117,10 @@ def make_handler(service):
                 if self.path == "/v1/auth/trusted-device":
                     self._json(200, {"trusted": service.is_device_trusted(session)})
                     return
+                if self.path == "/v1/device-pairing/reject":
+                    service.device_pairing.reject(session, str(data.get("request_id", "")))
+                    self._json(200, {"status": "rejected"})
+                    return
                 if self.path == "/v1/device-pairing/approve":
                     self._json(200, service.device_pairing.approve(
                         session,
