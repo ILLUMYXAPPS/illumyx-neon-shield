@@ -33,6 +33,15 @@ class PersistentIdentityService(IdentityService):
         self.session_ttl = session_ttl
         self.max_sign_ins = max_sign_ins
         self.security_event_sink = security_event_sink or NoopSecurityEventSink()
+        self._device_pairing = None
+
+    @property
+    def device_pairing(self):
+        """Initialize pairing persistence only when a pairing endpoint is first used."""
+        if self._device_pairing is None:
+            from backend.device_pairing import DevicePairingService
+            self._device_pairing = DevicePairingService(self)
+        return self._device_pairing
 
     @staticmethod
     def _observability_hash(value: str) -> str:
@@ -131,7 +140,7 @@ class PersistentIdentityService(IdentityService):
         return row
 
     def resolve_session(self, session_id: str) -> ServerSession:
-        """Resolve a bearer session through the authoritative validation path."""
+        """Resolve a bearer session through the same authoritative validation path."""
         row = self._load_row(session_id)
         return ServerSession(
             session_id,
