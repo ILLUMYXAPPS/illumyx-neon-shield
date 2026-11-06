@@ -8,10 +8,9 @@ import 'auth_session.dart';
 /// HTTPS backend without making local persistence an authority.
 class ServerBackedAuthService implements AuthService {
   ServerBackedAuthService({
-    required AuthApiContract api,
-    required AuthSessionStore store,
-  })  : _api = api,
-        _store = store;
+    required this._api,
+    required this._store,
+  });
 
   final AuthApiContract _api;
   final AuthSessionStore _store;

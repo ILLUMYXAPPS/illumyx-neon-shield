@@ -8,6 +8,12 @@ the mobile beta is built with Flutter.
 > not antivirus software, does not guarantee protection, and does not replace
 > operating-system updates or professional security review.
 
+## Dependency management
+
+See [the dependency management policy](docs/DEPENDENCY_MANAGEMENT.md) for
+automated update handling, vulnerability-audit scope, lockfile expectations,
+and dependency release acceptance checks.
+
 ## Desktop v2.0 beta
 
 - Device, operating-system, Python-runtime, hostname, and disk-space reporting
