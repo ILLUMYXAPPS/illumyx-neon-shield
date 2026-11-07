@@ -112,12 +112,16 @@ class FamilyInvitationService:
     def _audit(cursor: Any, placeholder: str, event_type: str, subject_id: str) -> None:
         """Append a privacy-safe event to the existing hash-chained audit ledger."""
         occurred_at = datetime.now(timezone.utc).isoformat()
+        # Serialize all writers on the same stable chain-head row. A SELECT of
+        # the latest event is not sufficient when the ledger is empty or two
+        # unrelated accounts append concurrently.
+        cursor.execute("UPDATE audit_chain_head SET event_hash=event_hash WHERE chain_id=1")
         lock = "" if placeholder == "?" else " FOR UPDATE"
-        cursor.execute(
-            "SELECT event_hash FROM audit_events ORDER BY occurred_at DESC,event_hash DESC LIMIT 1" + lock
-        )
+        cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1" + lock)
         row = cursor.fetchone()
-        previous_hash = (row[0] if not isinstance(row, dict) else row["event_hash"]) if row else "0" * 64
+        if row is None:
+            raise RuntimeError("audit chain head is missing; run production migrations")
+        previous_hash = row[0] if not isinstance(row, dict) else row["event_hash"]
         fingerprint = hashlib.sha256(f"family-actor:{subject_id}".encode("utf-8")).hexdigest()
         event_hash = hashlib.sha256(
             f"{event_type}|{occurred_at}|{subject_id}|{fingerprint}|{previous_hash}".encode("utf-8")
@@ -128,6 +132,12 @@ class FamilyInvitationService:
             f"VALUES({marker},{marker},{marker},{marker},{marker},{marker})",
             (event_hash, event_type, occurred_at, subject_id, fingerprint, previous_hash),
         )
+        cursor.execute(
+            "UPDATE audit_chain_head SET event_hash=? WHERE chain_id=1".replace("?", placeholder),
+            (event_hash,),
+        )
+        if getattr(cursor, "rowcount", 1) != 1:
+            raise RuntimeError("audit chain head update did not affect exactly one row")
 
     def _require_family_entitlement(self, connection: Any, owner_subject_id: str) -> None:
         reader = getattr(self._subscriptions, "get_subscription_snapshot_in_transaction", None)
