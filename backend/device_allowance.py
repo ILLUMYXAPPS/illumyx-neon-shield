@@ -114,16 +114,17 @@ class VerifiedDeviceAllowanceResolver:
                     "an account cannot be both a family owner and member"
                 )
 
-        cursor.execute(
-            self._sql(
-                "SELECT COUNT(*) FROM devices d "
-                "LEFT JOIN family_memberships fm "
-                "ON fm.member_subject_id=d.subject_id AND fm.status='active' "
-                "WHERE d.trusted=1 AND (d.subject_id=? OR fm.owner_subject_id=?) "
-                "AND (? IS NULL OR d.device_hash<>?)"
-            ),
-            (owner_subject_id, owner_subject_id, device_hash, device_hash),
+        family_count_sql = (
+            "SELECT COUNT(*) FROM devices d "
+            "LEFT JOIN family_memberships fm "
+            "ON fm.member_subject_id=d.subject_id AND fm.status='active' "
+            "WHERE d.trusted=1 AND (d.subject_id=? OR fm.owner_subject_id=?)"
         )
+        family_count_params = [owner_subject_id, owner_subject_id]
+        if device_hash is not None:
+            family_count_sql += " AND d.device_hash<>?"
+            family_count_params.append(device_hash)
+        cursor.execute(self._sql(family_count_sql), tuple(family_count_params))
         total_row = cursor.fetchone()
         family_total = int(total_row[0] if not isinstance(total_row, dict) else next(iter(total_row.values())))
         return DeviceAllowance(DevicePackage.PREMIUM_FAMILY, member_count, family_total)
