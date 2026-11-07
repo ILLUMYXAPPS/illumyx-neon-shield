@@ -218,5 +218,82 @@ class DevicePairingTests(unittest.TestCase):
             self.assertTrue(store.device_trusted('managed-subject', 'managed-new'))
 
 
+    def test_concurrent_managed_sqlite_pairing_cannot_exceed_premium_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / 'concurrent-pairing.sqlite3'
+            store = ManagedDbAuthStore(
+                lambda: sqlite3.connect(database_path, timeout=10),
+                pepper='concurrent-pairing-pepper',
+                placeholder='?',
+                audit_lock_clause='',
+            )
+            store.migrate()
+            store.create_user('concurrent-subject', 'concurrent@example.test', 'correct-password')
+            store.trust_device('concurrent-subject', 'existing-one')
+            store.trust_device('concurrent-subject', 'existing-two')
+
+            class CountBasedPremiumResolver:
+                def resolve_for_approval(self, connection, subject_id, request_id):
+                    cursor = connection.cursor()
+                    try:
+                        cursor.execute(
+                            'SELECT COUNT(*) FROM devices WHERE subject_id=? AND trusted=1',
+                            (subject_id,),
+                        )
+                        return DeviceAllowance(DevicePackage.PREMIUM, int(cursor.fetchone()[0]))
+                    finally:
+                        cursor.close()
+
+            service = PersistentIdentityService(
+                store, device_allowance_resolver=CountBasedPremiumResolver()
+            )
+            session = service.sign_in(SignInRequest(
+                'concurrent@example.test', 'correct-password', 'existing-one'
+            ))
+            pairing = service.device_pairing
+            requests = [
+                pairing.start(
+                    'concurrent@example.test', 'correct-password',
+                    f'concurrent-new-{index}', f'Concurrent device {index}'
+                )
+                for index in range(2)
+            ]
+            barrier = threading.Barrier(2)
+            outcomes = []
+            outcome_lock = threading.Lock()
+
+            def approve(request):
+                barrier.wait(timeout=5)
+                try:
+                    pairing.approve(
+                        session, request['request_id'],
+                        pairing_code=request['pairing_code'],
+                    )
+                    result = 'approved'
+                except DeviceLimitExceeded:
+                    result = 'limit_rejected'
+                except Exception as exc:  # preserve unexpected failures as test failures
+                    result = f'unexpected:{type(exc).__name__}:{exc}'
+                with outcome_lock:
+                    outcomes.append(result)
+
+            threads = [threading.Thread(target=approve, args=(request,)) for request in requests]
+            try:
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=15)
+                self.assertTrue(all(not thread.is_alive() for thread in threads))
+                self.assertCountEqual(outcomes, ['approved', 'limit_rejected'])
+                with store._connection() as (connection, cursor):
+                    cursor.execute(
+                        'SELECT COUNT(*) FROM devices WHERE subject_id=? AND trusted=1',
+                        ('concurrent-subject',),
+                    )
+                    self.assertEqual(int(cursor.fetchone()[0]), 3)
+            finally:
+                store.close()
+
+
 if __name__ == '__main__':
     unittest.main()
