@@ -11,6 +11,7 @@ from backend.production_config import validate_production_config
 from backend.security_monitoring import NoopSecurityAlertSink, ProductionSecurityMonitor, SecurityAlertSink
 from backend.secrets import EnvironmentSecretProvider, SecretProvider
 from backend.service import PersistentIdentityService
+from backend.subscription_store import StoreSubscriptionRepository
 from backend.store import AuthStore
 
 
@@ -23,6 +24,8 @@ def build_service(
     account_binding_repository: AccountBindingRepository | None = None,
     database_connection_factory=None,
     database_placeholder: str = "%s",
+    store_verification_service=None,
+    subscription_repository: StoreSubscriptionRepository | None = None,
 ) -> PersistentIdentityService:
     """Build auth service without permitting production secret, storage, or monitoring fallbacks."""
     if os.environ.get("NEON_AUTH_ENV") == "production":
@@ -42,6 +45,12 @@ def build_service(
                 database_connection_factory,
                 placeholder=database_placeholder,
             )
+        if subscription_repository is None and database_connection_factory is not None:
+            subscription_repository = StoreSubscriptionRepository(
+                database_connection_factory,
+                pepper=config.database_pepper,
+                placeholder=database_placeholder,
+            )
         if security_event_sink is None:
             raise RuntimeError("production requires an injected SecurityEventSink implementation")
         if security_alert_sink is None:
@@ -56,6 +65,8 @@ def build_service(
         service.store_account_binding_service = AuthenticatedStoreAccountBindingService(
             service, account_binding_repository
         )
+        service.store_verification_service = store_verification_service
+        service.store_subscription_repository = subscription_repository
         return service
 
     monitor = ProductionSecurityMonitor(
@@ -70,4 +81,6 @@ def build_service(
         service.store_account_binding_service = AuthenticatedStoreAccountBindingService(
             service, account_binding_repository
         )
+    service.store_verification_service = store_verification_service
+    service.store_subscription_repository = subscription_repository
     return service
