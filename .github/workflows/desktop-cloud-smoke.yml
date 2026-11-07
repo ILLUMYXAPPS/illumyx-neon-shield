@@ -23,7 +23,7 @@ env:
 
 jobs:
   android-emulator-smoke:
-    name: Android emulator install and launch smoke
+    name: Android simulator install and launch smoke
     # macOS hosted runners provide native hypervisor acceleration; the Linux runner
     # used here fell back to software emulation and repeatedly timed out during boot.
     runs-on: macos-latest
@@ -76,7 +76,7 @@ jobs:
           flutter analyze
           flutter build apk --debug
 
-      - name: Boot Android emulator and verify app launch
+      - name: Boot Android simulator and verify app launch
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -101,7 +101,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: neon-shield-android-emulator-smoke-evidence
+          name: neon-shield-android-simulator-smoke-evidence
           path: artifacts/
           if-no-files-found: warn
 
