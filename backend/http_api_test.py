@@ -15,7 +15,7 @@ from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, ServerSession
 from backend.http_api import make_handler
 from entitlements import Package
-from store_verification import StoreVerificationError, StoreVerificationUnavailable
+from store_verification import StoreVerificationError
 
 
 class StoreBindingHttpApiTests(unittest.TestCase):
