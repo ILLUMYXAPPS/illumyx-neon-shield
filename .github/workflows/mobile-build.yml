@@ -28,6 +28,9 @@ jobs:
       - name: Generate Android platform project
         working-directory: mobile
         run: flutter create --platforms=android --org com.illumyx --project-name illumyxapp .
+      - name: Register Android Family invitation links
+        working-directory: mobile
+        run: python3 tool/configure_family_deep_links.py --android-manifest android/app/src/main/AndroidManifest.xml
       - name: Validate Android application identity
         shell: bash
         run: |
@@ -93,6 +96,9 @@ jobs:
       - name: Generate iOS platform project
         working-directory: mobile
         run: flutter create --platforms=ios --org com.illumyx --project-name illumyxapp .
+      - name: Register iOS Family invitation links
+        working-directory: mobile
+        run: python3 tool/configure_family_deep_links.py --ios-info ios/Runner/Info.plist
       - name: Validate iOS bundle identity
         shell: bash
         run: |
