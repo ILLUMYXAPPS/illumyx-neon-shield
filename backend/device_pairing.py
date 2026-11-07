@@ -93,7 +93,7 @@ class DevicePairingRepository:
                 raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
             if allowance_resolver is not None:
                 if hasattr(allowance_resolver, 'resolve_in_transaction'):
-                    allowance = allowance_resolver.resolve_in_transaction(cursor, subject_id)
+                    allowance = allowance_resolver.resolve_in_transaction(cursor, subject_id, device_hash=row['device_hash'])
                 else:
                     allowance = allowance_resolver(subject_id, request_id)
             if allowance is not None:
