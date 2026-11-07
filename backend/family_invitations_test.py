@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from backend.family_invitations import FamilyInvitationError, FamilyInvitationService
+from backend.device_allowance import FamilyMembershipRepository
 from backend.migrations import MigrationRunner
 from backend.production_migrations import PRODUCTION_MIGRATIONS
 from backend.subscription_store import StoreSubscriptionRepository
@@ -131,6 +132,35 @@ class FamilyInvitationTests(unittest.TestCase):
             )
             connection.commit()
         with self.assertRaisesRegex(FamilyInvitationError, "account_already_in_a_family"):
+            self.invitations.accept_invitation("member-1", created["invitation_code"])
+
+    def test_removed_member_can_reaccept_invitation_to_the_same_household(self):
+        first = self.invitations.create_invitation("owner")
+        self.invitations.accept_invitation("member-1", first["invitation_code"])
+        memberships = FamilyMembershipRepository(self.connect, placeholder="?")
+        self.assertTrue(memberships.remove_member("owner", "member-1"))
+        second = self.invitations.create_invitation("owner")
+        self.invitations.accept_invitation("member-1", second["invitation_code"])
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT status FROM family_memberships WHERE owner_subject_id='owner' AND member_subject_id='member-1'"
+            ).fetchone()
+        self.assertEqual(row["status"], "active")
+
+    def test_removed_member_cannot_switch_to_a_different_household(self):
+        created = self.invitations.create_invitation("owner")
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO family_households(owner_subject_id,created_at) VALUES('other-owner',?)",
+                (NOW,),
+            )
+            connection.execute(
+                "INSERT INTO family_memberships(owner_subject_id,member_subject_id,role,status,created_at) "
+                "VALUES('other-owner','member-1','member','removed',?)",
+                (NOW,),
+            )
+            connection.commit()
+        with self.assertRaisesRegex(FamilyInvitationError, "account_has_previous_family_membership"):
             self.invitations.accept_invitation("member-1", created["invitation_code"])
 
     def test_owner_cannot_accept_own_invitation(self):
