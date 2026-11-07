@@ -77,16 +77,26 @@ class DevicePairingTests(unittest.TestCase):
             'pending',
         )
 
-    def test_approval_audit_failure_rolls_back_device_and_pairing_status(self):
+    def test_audit_write_failure_after_event_insert_rolls_back_approval(self):
         started = self.pairing.start(
             'owner@example.test', 'correct-password', 'audit-failure-device', 'Audit failure device'
         )
+        before = self.store._db.execute(
+            "SELECT COUNT(*) FROM audit_events WHERE event_type='device_pairing_approved'"
+        ).fetchone()[0]
+        self.store._db.execute(
+            """
+            CREATE TRIGGER reject_audit_head_advance
+            BEFORE UPDATE ON audit_chain_head
+            WHEN NEW.event_hash <> OLD.event_hash
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated audit head persistence failure');
+            END
+            """
+        )
+        self.store._db.commit()
 
-        def fail_audit(*args, **kwargs):
-            raise RuntimeError('simulated audit persistence failure')
-
-        self.pairing.repository._append_audit_fingerprint = fail_audit
-        with self.assertRaisesRegex(RuntimeError, 'simulated audit persistence failure'):
+        with self.assertRaisesRegex(sqlite3.IntegrityError, 'simulated audit head persistence failure'):
             self.pairing.approve(
                 self.existing_session,
                 started['request_id'],
@@ -98,14 +108,16 @@ class DevicePairingTests(unittest.TestCase):
             self.pairing.status(started['request_id'], started['pairing_secret']),
             'pending',
         )
+        after = self.store._db.execute(
+            "SELECT COUNT(*) FROM audit_events WHERE event_type='device_pairing_approved'"
+        ).fetchone()[0]
+        self.assertEqual(after, before)
 
-    def test_successful_approval_writes_audit_event(self):
+    def test_successful_approval_writes_audit_event_and_advances_chain_head(self):
         started = self.pairing.start(
             'owner@example.test', 'correct-password', 'audited-device', 'Audited device'
         )
-        before = self.store._db.execute(
-            "SELECT COUNT(*) FROM audit_events WHERE event_type='device_pairing_approved'"
-        ).fetchone()[0]
+        previous_head = self.store.last_audit_hash()
 
         self.pairing.approve(
             self.existing_session,
@@ -113,10 +125,13 @@ class DevicePairingTests(unittest.TestCase):
             pairing_code=started['pairing_code'],
         )
 
-        after = self.store._db.execute(
-            "SELECT COUNT(*) FROM audit_events WHERE event_type='device_pairing_approved'"
-        ).fetchone()[0]
-        self.assertEqual(after, before + 1)
+        event = self.store._db.execute(
+            "SELECT event_hash, previous_hash FROM audit_events "
+            "WHERE event_type='device_pairing_approved'"
+        ).fetchone()
+        self.assertIsNotNone(event)
+        self.assertEqual(event['previous_hash'], previous_head)
+        self.assertEqual(self.store.last_audit_hash(), event['event_hash'])
 
     def test_pairing_secret_is_not_stored_in_plaintext_and_code_is_hashed(self):
         started = self.pairing.start('owner@example.test', 'correct-password', 'new-device', 'Android phone')
