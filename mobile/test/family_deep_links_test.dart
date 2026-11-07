@@ -54,7 +54,7 @@ void main() {
     expect(
       FamilyInvitationLink.codeFrom(
         Uri(scheme: 'neonshield', host: 'family', path: '/invite',
-            queryParameters: {'code': 'x' * 129}),
+            queryParameters: {'code': List.filled(129, 'x').join()}),
       ),
       isNull,
     );
