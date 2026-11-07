@@ -44,6 +44,9 @@ class MigrationRunnerTests(unittest.TestCase):
                 labels_table = connection.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='device_labels'"
                 ).fetchone()
+                invitation_table = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='family_invitations'"
+                ).fetchone()
             finally:
                 connection.close()
             self.assertIsNotNone(table)
@@ -63,9 +66,6 @@ class MigrationRunnerTests(unittest.TestCase):
             self.assertIsNotNone(family_table)
             self.assertIsNotNone(pairing_table)
             self.assertIsNotNone(labels_table)
-            invitation_table = connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='family_invitations'"
-            ).fetchone()
             self.assertIsNotNone(invitation_table)
 
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
