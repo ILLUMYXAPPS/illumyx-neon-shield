@@ -295,6 +295,8 @@ class DevicePairingTests(unittest.TestCase):
                         self.assertEqual(int(cursor.fetchone()[0]), 3)
                     finally:
                         cursor.close()
+            finally:
+                store.close()
 
 
 if __name__ == '__main__':
