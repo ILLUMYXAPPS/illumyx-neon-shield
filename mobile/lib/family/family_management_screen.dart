@@ -149,8 +149,9 @@ class _FamilyManagementScreenState extends State<FamilyManagementScreen> {
   Future<void> _shareCode(FamilyInvitation invitation) async {
     final code = invitation.code;
     if (code == null) return;
+    final link = FamilyInvitationLink.create(code);
     await Share.share(
-      'Join my ILLUMYX Neon Shield Family. Open Neon Shield, choose Family Management, and enter this invitation code:\n\n$code\n\nThis code expires on ${invitation.expiresAt}.',
+      'Join my ILLUMYX Neon Shield Family. Tap this link to open Neon Shield and accept your invitation:\n\n$link\n\nIf the link does not open automatically, open Neon Shield, choose Family Management, and enter this code:\n$code\n\nThis code expires on ${invitation.expiresAt}.',
       subject: 'Neon Shield Family invitation',
     );
   }
@@ -284,7 +285,7 @@ class _FamilyManagementScreenState extends State<FamilyManagementScreen> {
               child: _sectionTitle('JOIN A FAMILY'),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               widget.initialInvitationCode == null
                   ? 'Have an invitation code? Sign in with your own Neon Shield account, then enter the code below to choose to join.'
                   : 'Your invitation link has opened Neon Shield. Check the code below, then choose Accept invitation to join.',
