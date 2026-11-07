@@ -230,13 +230,17 @@ class FamilyMembershipTests(unittest.TestCase):
 
     def test_eleventh_family_device_is_rejected_even_when_member_has_a_free_slot(self):
         resolver = self._family_resolver()
-        # The owner and four existing members use all ten household slots.
-        for subject in ("owner", "member-1", "member-2", "member-3", "member-4"):
-            self._add_trusted_devices(subject, 2)
+        # Legacy/previously linked devices can leave an account above its
+        # current per-member ceiling. The target member still has a free slot,
+        # but the household total must independently block device eleven.
+        for subject, count in (
+            ("owner", 3), ("member-1", 3), ("member-2", 2), ("member-3", 2)
+        ):
+            self._add_trusted_devices(subject, count)
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             allowance = resolver.resolve_for_approval(
-                connection, "member-5", "eleventh-device-request"
+                connection, "member-4", "eleventh-device-request"
             )
             self.assertEqual(allowance.member_device_count, 0)
             self.assertEqual(allowance.family_total_device_count, 10)
