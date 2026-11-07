@@ -251,7 +251,7 @@ class FamilyInvitationTests(unittest.TestCase):
         with self.connect() as connection:
             rows = connection.execute(
                 "SELECT event_type,subject_id,device_fingerprint,previous_hash,event_hash "
-                "FROM audit_events ORDER BY rowid"
+                "FROM audit_events ORDER BY occurred_at,event_hash"
             ).fetchall()
         event_types = [row["event_type"] for row in rows]
         self.assertEqual(event_types, [
