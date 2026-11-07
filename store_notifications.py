@@ -79,4 +79,13 @@ class AppleNotificationProcessor:
             payload=payload_bytes,
             received_at=received_at or datetime.now(timezone.utc),
         )
+        if inserted:
+            finalized = self._subscriptions.finish_notification(
+                provider=StoreProvider.APPLE,
+                event_id=str(event_id),
+                processed=True,
+                processed_at=received_at or datetime.now(timezone.utc),
+            )
+            if not finalized:
+                raise StoreVerificationError("Apple notification could not be finalized")
         return inserted
