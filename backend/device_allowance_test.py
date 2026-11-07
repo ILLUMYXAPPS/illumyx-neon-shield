@@ -94,8 +94,15 @@ class DeviceAllowanceResolverTests(unittest.TestCase):
                 ("owner", member, "active", "now", "now"),
             )
         self.db.commit()
-        for subject in ["owner", "member-0", "member-1", "member-2", "member-3"]:
+        for subject in ["owner", "member-0", "member-1", "member-2"]:
             self.devices(subject, 2)
+        self.devices("member-3", 1)
+        allowance = self.resolve("member-3")
+        self.assertEqual(allowance.member_device_count, 1)
+        self.assertEqual(allowance.family_total_device_count, 9)
+        DeviceLimitPolicy.assert_can_add_device(allowance)
+
+        self.devices("member-3", 1)
         allowance = self.resolve("member-3")
         self.assertEqual(allowance.member_device_count, 2)
         self.assertEqual(allowance.family_total_device_count, 10)
@@ -150,6 +157,12 @@ class FamilyMembershipRepositoryTests(unittest.TestCase):
             )
 
     def test_member_cannot_join_two_families(self):
+        self.db.execute(
+            "INSERT INTO verified_subscriptions VALUES(?,?,?,?,?)",
+            ("another-owner", "premium_family", 0, None,
+             datetime.now(timezone.utc).isoformat()),
+        )
+        self.db.commit()
         self.repository.add_member(
             owner_subject_id="owner", member_subject_id="member"
         )
