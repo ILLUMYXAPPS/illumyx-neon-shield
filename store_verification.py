@@ -120,6 +120,18 @@ class AppleStoreKitVerifier:
                 last_error = exc
         raise StoreVerificationError("Apple notification signature or certificate chain is invalid") from last_error
 
+    def verify_signed_notification_renewal(self, signed_renewal: str):
+        """Verify the signed renewal-information JWS from Notifications V2."""
+        if not signed_renewal or signed_renewal.count(".") != 2:
+            raise StoreVerificationError("Apple notification renewal JWS is malformed")
+        last_error = None
+        for verifier in self._verifiers:
+            try:
+                return verifier.verify_and_decode_renewal_info(signed_renewal)
+            except Exception as exc:
+                last_error = exc
+        raise StoreVerificationError("Apple notification renewal signature is invalid") from last_error
+
     def verify_signed_notification_transaction(self, signed_transaction: str) -> VerifiedStorePurchase:
         """Verify a nested Notifications V2 transaction JWS without trusting its claims."""
         if not signed_transaction or signed_transaction.count(".") != 2:
