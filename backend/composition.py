@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 
 from backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
-from backend.device_allowance import VerifiedDeviceAllowanceResolver
+from backend.device_allowance import FamilyMembershipRepository, VerifiedDeviceAllowanceResolver
 from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
 from backend.observability import NoopSecurityEventSink, SecurityEventSink
@@ -76,6 +76,12 @@ def build_service(
             managed_store, security_event_sink=monitor,
             device_allowance_resolver=device_allowance_resolver,
         )
+        if pairing_factory is not None:
+            service.family_membership_repository = FamilyMembershipRepository(
+                pairing_factory,
+                placeholder=pairing_placeholder,
+                lock_clause=getattr(managed_store, "_audit_lock_clause", " FOR UPDATE"),
+            )
         service.store_account_binding_service = AuthenticatedStoreAccountBindingService(
             service, account_binding_repository
         )
@@ -101,6 +107,12 @@ def build_service(
         local_store, security_event_sink=monitor,
         device_allowance_resolver=device_allowance_resolver,
     )
+    if pairing_factory is not None:
+        service.family_membership_repository = FamilyMembershipRepository(
+            pairing_factory,
+            placeholder=pairing_placeholder,
+            lock_clause=getattr(local_store, "_audit_lock_clause", ""),
+        )
     if account_binding_repository is not None:
         service.store_account_binding_service = AuthenticatedStoreAccountBindingService(
             service, account_binding_repository
