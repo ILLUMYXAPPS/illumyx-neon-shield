@@ -65,6 +65,96 @@ class StoreVerifier(Protocol):
         ...
 
 
+
+class AppleStoreKitVerifier:
+    """Verify StoreKit 2 transaction JWS with Apple's official server library.
+
+    Supply separate production and sandbox SignedDataVerifier instances. Root
+    certificates must come from Apple's PKI and be provisioned by deployment.
+    The library's online certificate checks are enabled by the factory below.
+    """
+
+    def __init__(self, *, production_verifier, sandbox_verifier) -> None:
+        if production_verifier is None or sandbox_verifier is None:
+            raise ValueError("Apple production and sandbox verifiers are required")
+        self._verifiers = (production_verifier, sandbox_verifier)
+
+    @classmethod
+    def from_root_certificates(
+        cls, *, root_certificates: list[bytes], bundle_id: str,
+        app_apple_id: int, enable_online_checks: bool = True,
+    ) -> "AppleStoreKitVerifier":
+        if not root_certificates or any(not isinstance(item, bytes) or not item for item in root_certificates):
+            raise ValueError("Apple root certificates must be supplied as non-empty bytes")
+        if not bundle_id or not bundle_id.strip() or not isinstance(app_apple_id, int) or app_apple_id <= 0:
+            raise ValueError("Apple bundle ID and numeric App Store app ID are required")
+        try:
+            from appstoreserverlibrary.models.Environment import Environment
+            from appstoreserverlibrary.signed_data_verifier import SignedDataVerifier
+        except ImportError as exc:
+            raise StoreVerificationUnavailable(
+                "install the Apple app-store-server-library dependency"
+            ) from exc
+        return cls(
+            production_verifier=SignedDataVerifier(
+                root_certificates, enable_online_checks, Environment.PRODUCTION,
+                bundle_id, app_apple_id,
+            ),
+            sandbox_verifier=SignedDataVerifier(
+                root_certificates, enable_online_checks, Environment.SANDBOX,
+                bundle_id, None,
+            ),
+        )
+
+    def verify(self, request: StorePurchaseRequest) -> VerifiedStorePurchase:
+        if request.provider is not StoreProvider.APPLE:
+            raise StoreVerificationError("Apple verifier received a non-Apple purchase")
+        if not request.purchase_token or request.purchase_token.count(".") != 2:
+            raise StoreVerificationError("StoreKit 2 signed transaction JWS is required")
+        decoded = None
+        environment = None
+        last_error = None
+        for candidate, label in zip(self._verifiers, ("production", "sandbox")):
+            try:
+                decoded = candidate.verify_and_decode_signed_transaction(request.purchase_token)
+                environment = label
+                break
+            except Exception as exc:
+                last_error = exc
+        if decoded is None:
+            raise StoreVerificationError("Apple transaction signature or certificate chain is invalid") from last_error
+
+        account_token = getattr(decoded, "appAccountToken", None)
+        if account_token is None or str(account_token).lower() != request.account_binding_id.lower():
+            raise StoreVerificationError("Apple appAccountToken does not match authenticated account")
+        if getattr(decoded, "bundleId", None) != request.application_id:
+            raise StoreVerificationError("Apple bundle identifier mismatch")
+        if getattr(decoded, "productId", None) != request.product_id:
+            raise StoreVerificationError("Apple product identifier mismatch")
+        transaction_id = getattr(decoded, "transactionId", None)
+        original_transaction_id = getattr(decoded, "originalTransactionId", None)
+        if not transaction_id or not original_transaction_id:
+            raise StoreVerificationError("Apple transaction identifiers are missing")
+
+        expires_ms = getattr(decoded, "expiresDate", None)
+        expires_at = (
+            datetime.fromtimestamp(expires_ms / 1000, tz=timezone.utc)
+            if expires_ms is not None else None
+        )
+        revoked = getattr(decoded, "revocationDate", None) is not None
+        return VerifiedStorePurchase(
+            provider=StoreProvider.APPLE,
+            product_id=decoded.productId,
+            application_id=decoded.bundleId,
+            account_binding_id=str(account_token),
+            transaction_id=str(transaction_id),
+            original_transaction_id=str(original_transaction_id),
+            expires_at=expires_at,
+            revoked=revoked,
+            environment=environment,
+        )
+
+
 class UnconfiguredStoreVerifier:
     def verify(self, request: StorePurchaseRequest) -> VerifiedStorePurchase:
         raise StoreVerificationUnavailable(
