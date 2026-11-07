@@ -49,3 +49,8 @@ The repository also records authenticated notification event IDs with a unique p
 `StoreVerificationService.verify_and_persist` is the integration seam: it invokes the configured provider verifier, validates the server product mapping and account binding, persists the verified result, then returns the package snapshot. This remains fail-closed when live provider verifiers are absent.
 
 **Security boundary:** `record_notification` is deliberately a persistence primitive, not a webhook endpoint. Callers must authenticate Apple's signed notification or Google's authenticated Pub/Sub delivery before recording the event. A production request handler, provider signature/API verification, durable account-binding issuance, and event-to-subscription reconciliation still need implementation.
+
+
+## Server-issued account binding
+
+Migration 5 adds `store_account_bindings`, with one unique opaque UUID per authenticated Neon Shield subject. `AccountBindingRepository.get_or_create` accepts only a subject ID supplied by the server after session validation; it does not accept a client-selected binding value. The stable UUID can be supplied to Apple's `appAccountToken` and Google's `obfuscatedExternalAccountId` when provider adapters are implemented. This is a server-side repository primitive, not an HTTP endpoint; the future authenticated API must resolve the bearer session first and pass only its verified subject ID.
