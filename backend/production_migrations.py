@@ -48,7 +48,7 @@ PRODUCTION_MIGRATIONS = (
         (
             "CREATE TABLE IF NOT EXISTS store_account_bindings (subject_id TEXT PRIMARY KEY, binding_id TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
         ),
-    ),,
+    ),
     Migration(
         6,
         "create_family_membership_records",
