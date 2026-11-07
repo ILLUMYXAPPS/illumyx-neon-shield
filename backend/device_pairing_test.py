@@ -52,9 +52,16 @@ class DevicePairingTests(unittest.TestCase):
         self.assertEqual(sign_in_error.exception.failure, AuthFailure.UNTRUSTED_DEVICE)
 
     def test_verified_premium_allowance_blocks_fourth_device_before_trust(self):
-        self.pairing.allowance_resolver = lambda subject_id, request_id: DeviceAllowance(
-            DevicePackage.PREMIUM, 3
-        )
+        class TransactionalResolver:
+            def __init__(self):
+                self.called_inside_transaction = False
+
+            def resolve_for_approval(self, connection, subject_id, request_id):
+                self.called_inside_transaction = connection.in_transaction
+                return DeviceAllowance(DevicePackage.PREMIUM, 3)
+
+        resolver = TransactionalResolver()
+        self.pairing.allowance_resolver = resolver
         started = self.pairing.start(
             'owner@example.test', 'correct-password', 'fourth-device', 'Fourth device'
         )
@@ -63,6 +70,7 @@ class DevicePairingTests(unittest.TestCase):
                 self.existing_session, started['request_id'],
                 pairing_code=started['pairing_code'],
             )
+        self.assertTrue(resolver.called_inside_transaction)
         self.assertFalse(self.store.device_trusted('subject-a', 'fourth-device'))
         self.assertEqual(
             self.pairing.status(started['request_id'], started['pairing_secret']),
