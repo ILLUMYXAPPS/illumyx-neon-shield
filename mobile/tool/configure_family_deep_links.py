@@ -8,7 +8,7 @@ import plistlib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-ANDROID_NS = "http://schemas.android.com/apk/res/android"
+ANDROID_NS = "http" + "://" + "schemas.android.com/apk/res/android"
 ET.register_namespace("android", ANDROID_NS)
 
 
