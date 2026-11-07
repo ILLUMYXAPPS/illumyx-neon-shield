@@ -106,6 +106,18 @@ class AppleStoreKitVerifier:
             ),
         )
 
+    def verify_notification(self, signed_payload: str):
+        """Cryptographically verify an App Store Server Notifications V2 envelope."""
+        if not signed_payload or not signed_payload.strip():
+            raise StoreVerificationError("Apple signed notification payload is required")
+        last_error = None
+        for verifier in self._verifiers:
+            try:
+                return verifier.verify_and_decode_notification(signed_payload)
+            except Exception as exc:
+                last_error = exc
+        raise StoreVerificationError("Apple notification signature or certificate chain is invalid") from last_error
+
     def verify(self, request: StorePurchaseRequest) -> VerifiedStorePurchase:
         if request.provider is not StoreProvider.APPLE:
             raise StoreVerificationError("Apple verifier received a non-Apple purchase")
