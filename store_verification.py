@@ -496,19 +496,19 @@ class StoreVerificationService:
         persistence_time = verified_at or current
         if persistence_time.tzinfo is None:
             raise ValueError("verified_at must be timezone-aware")
-        repository.save_verified_purchase(
+        persisted = repository.save_verified_purchase(
             subject_id=subject_id,
             request=request,
             purchase=verified,
             package=package,
             verified_at=persistence_time,
         )
-        # Return the repository's current authoritative snapshot. A delayed
-        # transaction may have been ignored because a newer provider event
-        # was already persisted while this verification was in flight.
-        snapshot_reader = getattr(repository, "get_subscription_snapshot", None)
-        if callable(snapshot_reader):
-            return snapshot_reader(subject_id, now=current)
+        # If a delayed event was ignored, return the repository's current
+        # authoritative snapshot instead of echoing stale transaction facts.
+        if persisted is False:
+            snapshot_reader = getattr(repository, "get_subscription_snapshot", None)
+            if callable(snapshot_reader):
+                return snapshot_reader(subject_id, now=current)
         active = not verified.revoked and (
             verified.expires_at is None or current < verified.expires_at
         )
