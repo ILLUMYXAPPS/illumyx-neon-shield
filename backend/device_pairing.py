@@ -42,7 +42,11 @@ class DevicePairingRepository:
             if close: connection.close()
 
     def _begin(self, connection):
-        if hasattr(self.store, '_db'):
+        # SQLite needs an explicit write reservation before reading the pairing
+        # request or allowance counts. This applies to both the in-memory AuthStore
+        # and managed SQLite adapters. Server databases use their row-locking
+        # transaction semantics and the resolver locks the household owner row.
+        if hasattr(self.store, '_db') or getattr(self.store, '_placeholder', None) == '?':
             connection.execute('BEGIN IMMEDIATE')
 
     def _row_dict(self, cursor, row):
