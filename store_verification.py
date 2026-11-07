@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import hmac
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Iterable, Protocol
@@ -210,6 +212,130 @@ class AppleStoreKitVerifier:
             expires_at=expires_at,
             revoked=revoked,
             environment=environment,
+        )
+
+
+class GooglePlayVerifier:
+    """Verify Google Play subscriptions with the Android Publisher API.
+
+    A Google service-account credential and a separate HMAC key for token
+    identity are supplied by deployment. Raw purchase tokens are never used
+    as the durable original transaction identifier.
+    """
+
+    ACTIVE_STATES = {
+        "SUBSCRIPTION_STATE_ACTIVE",
+        "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
+        "SUBSCRIPTION_STATE_CANCELED",
+    }
+
+    def __init__(self, *, publisher_client, token_hash_key: str) -> None:
+        if publisher_client is None or not token_hash_key:
+            raise ValueError("Google Publisher client and token hash key are required")
+        self._publisher = publisher_client
+        self._token_key = token_hash_key.encode("utf-8")
+
+    @classmethod
+    def from_service_account_info(cls, *, service_account_info: dict,
+                                  token_hash_key: str):
+        """Build the official Android Publisher v3 client from secret-managed credentials."""
+        if not isinstance(service_account_info, dict) or not service_account_info:
+            raise ValueError("Google service-account information is required")
+        try:
+            from google.oauth2.service_account import Credentials
+            from googleapiclient.discovery import build
+        except ImportError as exc:
+            raise StoreVerificationUnavailable(
+                "install Google API client and google-auth server dependencies"
+            ) from exc
+        credentials = Credentials.from_service_account_info(
+            service_account_info,
+            scopes=["https://www.googleapis.com/auth/androidpublisher"],
+        )
+        client = build("androidpublisher", "v3", credentials=credentials,
+                       cache_discovery=False)
+        return cls(publisher_client=client, token_hash_key=token_hash_key)
+
+    def _get_subscription(self, package_name: str, purchase_token: str) -> dict:
+        try:
+            result = self._publisher.purchases().subscriptionsv2().get(
+                packageName=package_name, token=purchase_token
+            ).execute()
+        except Exception as exc:
+            raise StoreVerificationError("Google Play subscription lookup failed") from exc
+        if not isinstance(result, dict):
+            raise StoreVerificationError("Google Play returned an invalid subscription response")
+        return result
+
+    def verify(self, request: StorePurchaseRequest) -> VerifiedStorePurchase:
+        if request.provider is not StoreProvider.GOOGLE_PLAY:
+            raise StoreVerificationError("Google Play verifier received a non-Google purchase")
+        if not request.purchase_token or not request.purchase_token.strip():
+            raise StoreVerificationError("Google Play purchase token is required")
+        if not request.application_id or not request.application_id.strip():
+            raise StoreVerificationError("Google Play package name is required")
+
+        response = self._get_subscription(request.application_id, request.purchase_token)
+        state = response.get("subscriptionState")
+        external = response.get("externalAccountIdentifiers") or {}
+        account_binding = external.get("obfuscatedExternalAccountId")
+        if not account_binding or not hmac.compare_digest(
+            str(account_binding), request.account_binding_id
+        ):
+            raise StoreVerificationError(
+                "Google Play obfuscatedExternalAccountId does not match authenticated account"
+            )
+        line_items = response.get("lineItems") or []
+        matching = [item for item in line_items
+                    if item.get("productId") == request.product_id]
+        if len(matching) != 1:
+            raise StoreVerificationError("Google Play product does not match verified subscription")
+        item = matching[0]
+        expiry_value = item.get("expiryTime")
+        if not expiry_value:
+            raise StoreVerificationError("Google Play subscription expiry is missing")
+        try:
+            expiry = datetime.fromisoformat(expiry_value.replace("Z", "+00:00"))
+        except (TypeError, ValueError) as exc:
+            raise StoreVerificationError("Google Play subscription expiry is invalid") from exc
+        if expiry.tzinfo is None:
+            raise StoreVerificationError("Google Play subscription expiry has no timezone")
+        if state not in self.ACTIVE_STATES:
+            raise StoreVerificationError("Google Play subscription is not entitled")
+        if expiry <= datetime.now(timezone.utc):
+            raise StoreVerificationError("Google Play subscription has expired")
+
+        acknowledgement = response.get("acknowledgementState")
+        if acknowledgement == "ACKNOWLEDGEMENT_STATE_PENDING":
+            try:
+                self._publisher.purchases().subscriptions().acknowledge(
+                    packageName=request.application_id,
+                    subscriptionId=request.product_id,
+                    token=request.purchase_token,
+                    body={},
+                ).execute()
+            except Exception as exc:
+                raise StoreVerificationError("Google Play purchase acknowledgement failed") from exc
+            response = self._get_subscription(request.application_id, request.purchase_token)
+            if response.get("acknowledgementState") != "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED":
+                raise StoreVerificationError("Google Play purchase remains unacknowledged")
+
+        order_id = item.get("latestSuccessfulOrderId") or response.get("latestOrderId")
+        if not order_id:
+            raise StoreVerificationError("Google Play order identifier is missing")
+        token_digest = hmac.new(
+            self._token_key, request.purchase_token.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+        return VerifiedStorePurchase(
+            provider=StoreProvider.GOOGLE_PLAY,
+            product_id=request.product_id,
+            application_id=request.application_id,
+            account_binding_id=str(account_binding),
+            transaction_id=str(order_id),
+            original_transaction_id=token_digest,
+            expires_at=expiry,
+            revoked=False,
+            environment="production",
         )
 
 
