@@ -103,26 +103,27 @@ class GooglePlayVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(StoreVerificationError, "product"):
             self.verifier.verify(self.request)
 
-    def test_pending_or_on_hold_subscription_rejected(self):
-        self.publisher.api.v2.response["subscriptionState"] = "SUBSCRIPTION_STATE_ON_HOLD"
-        with self.assertRaisesRegex(StoreVerificationError, "not entitled"):
-            self.verifier.verify(self.request)
+    def test_pending_subscription_is_returned_inactive_for_reconciliation(self):
+        self.publisher.api.v2.response["subscriptionState"] = "SUBSCRIPTION_STATE_PENDING"
+        result = self.verifier.verify(self.request)
+        self.assertTrue(result.revoked)
 
     def test_on_hold_subscription_is_returned_as_revoked_for_reconciliation(self):
         self.publisher.api.v2.response["subscriptionState"] = "SUBSCRIPTION_STATE_ON_HOLD"
         result = self.verifier.verify(self.request)
         self.assertTrue(result.revoked)
 
-    def test_expired_subscription_rejected(self):
+    def test_expired_subscription_is_returned_inactive_for_reconciliation(self):
         self.publisher.api.v2.response["lineItems"][0]["expiryTime"] = (
             datetime.now(timezone.utc) - timedelta(days=1)
         ).isoformat()
-        with self.assertRaisesRegex(StoreVerificationError, "expired"):
-            self.verifier.verify(self.request)
+        result = self.verifier.verify(self.request)
+        self.assertTrue(result.revoked)
 
     def test_pending_acknowledgement_is_acknowledged_server_side(self):
         self.publisher.api.v2.response["acknowledgementState"] = "ACKNOWLEDGEMENT_STATE_PENDING"
         def acknowledge(**kwargs):
+            self.publisher.api.legacy.acknowledged.append(kwargs)
             self.publisher.api.v2.response["acknowledgementState"] = "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED"
             return Request({})
         self.publisher.api.legacy.acknowledge = acknowledge
