@@ -22,6 +22,12 @@ class FakeAppleVerifier:
             raise self.error
         return self.payload
 
+    def verify_and_decode_notification(self, signed_payload):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return self.payload
+
 
 def apple_payload(**changes):
     values = {
@@ -89,6 +95,19 @@ class AppleStoreKitVerifierTests(unittest.TestCase):
     def test_revoked_transaction_is_marked_revoked(self):
         self.sandbox.payload = apple_payload(revocationDate=1_700_000_000_000)
         self.assertTrue(self.verifier.verify(self.request).revoked)
+
+    def test_signed_notification_envelope_is_verified(self):
+        self.sandbox.payload = {"notificationUUID": "event-1"}
+        result = self.verifier.verify_notification("signed-notification-jws")
+        self.assertEqual(result, {"notificationUUID": "event-1"})
+
+    def test_invalid_notification_signature_fails_closed(self):
+        verifier = AppleStoreKitVerifier(
+            production_verifier=FakeAppleVerifier(error=ValueError("invalid")),
+            sandbox_verifier=FakeAppleVerifier(error=ValueError("invalid")),
+        )
+        with self.assertRaisesRegex(StoreVerificationError, "notification signature"):
+            verifier.verify_notification("signed-notification-jws")
 
     def test_non_apple_request_rejected(self):
         request = StorePurchaseRequest(
