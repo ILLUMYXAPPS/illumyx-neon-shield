@@ -75,4 +75,12 @@ PRODUCTION_MIGRATIONS = (
             "CREATE INDEX IF NOT EXISTS idx_family_invitations_owner_status ON family_invitations(owner_subject_id,status,expires_at)",
         ),
     ),
+    Migration(
+        9,
+        "create_serialized_audit_chain_head",
+        (
+            "CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK(chain_id=1), event_hash TEXT NOT NULL)",
+            "INSERT INTO audit_chain_head(chain_id,event_hash) SELECT 1, COALESCE((SELECT event_hash FROM audit_events ORDER BY occurred_at DESC,event_hash DESC LIMIT 1), '0000000000000000000000000000000000000000000000000000000000000000') WHERE NOT EXISTS (SELECT 1 FROM audit_chain_head WHERE chain_id=1)",
+        ),
+    ),
 )
