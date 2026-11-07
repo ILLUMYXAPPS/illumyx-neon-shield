@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 
+from backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
 from backend.managed_store import ManagedAuthStore
 from backend.observability import NoopSecurityEventSink, SecurityEventSink
 from backend.production_config import validate_production_config
@@ -18,6 +19,7 @@ def build_service(
     security_event_sink: SecurityEventSink | None = None,
     security_alert_sink: SecurityAlertSink | None = None,
     secret_provider: SecretProvider | None = None,
+    account_binding_repository: AccountBindingRepository | None = None,
 ) -> PersistentIdentityService:
     """Build auth service without permitting production secret, storage, or monitoring fallbacks."""
     if os.environ.get("NEON_AUTH_ENV") == "production":
@@ -30,17 +32,28 @@ def build_service(
             raise RuntimeError("production requires an injected SecurityEventSink implementation")
         if security_alert_sink is None:
             raise RuntimeError("production requires an injected SecurityAlertSink implementation")
+        if account_binding_repository is None:
+            raise RuntimeError("production requires an injected durable AccountBindingRepository implementation")
         monitor = ProductionSecurityMonitor(
             security_event_sink,
             alert_sink=security_alert_sink,
         )
-        return PersistentIdentityService(managed_store, security_event_sink=monitor)
+        service = PersistentIdentityService(managed_store, security_event_sink=monitor)
+        service.store_account_binding_service = AuthenticatedStoreAccountBindingService(
+            service, account_binding_repository
+        )
+        return service
 
     monitor = ProductionSecurityMonitor(
         security_event_sink or NoopSecurityEventSink(),
         alert_sink=security_alert_sink or NoopSecurityAlertSink(),
     )
-    return PersistentIdentityService(
+    service = PersistentIdentityService(
         AuthStore(os.environ.get("NEON_AUTH_DB", "neon_shield_auth.sqlite3")),
         security_event_sink=monitor,
     )
+    if account_binding_repository is not None:
+        service.store_account_binding_service = AuthenticatedStoreAccountBindingService(
+            service, account_binding_repository
+        )
+    return service
