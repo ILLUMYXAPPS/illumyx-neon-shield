@@ -80,9 +80,9 @@ void main() {
     expect(controls['device_security'], isFalse);
     expect(controls['network_safety'], isFalse);
     expect(controls['privacy_protection'], isTrue);
-    expect(controls['app_monitoring'], isTrue);
-    expect(controls['family_safety'], isTrue);
-    expect(controls['security_notifications'], isTrue);
+    expect(controls['app_monitoring'], isFalse);
+    expect(controls['family_safety'], isFalse);
+    expect(controls['security_notifications'], isFalse);
 
     final preferences = await SharedPreferences.getInstance();
     expect(preferences.getString('customer.custom.future_setting'), 'keep-me');

@@ -51,28 +51,30 @@ class ProtectionClipboardService {
 
   Future<bool> loadEnabled() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getBool(_enabledKey) ?? true;
+    return preferences.getBool(_enabledKey) ?? false;
   }
 
-  Future<void> setEnabled(bool enabled) async {
+  Future<bool> setEnabled(bool enabled) async {
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setBool(_enabledKey, enabled);
+    final saved = await preferences.setBool(_enabledKey, enabled);
+    return saved && preferences.getBool(_enabledKey) == enabled;
   }
 
   Future<Map<String, bool>> loadControls() async {
     final preferences = await SharedPreferences.getInstance();
     return {
       for (final control in protectionClipboardControls)
-        control.key: preferences.getBool('$_controlPrefix${control.key}') ?? true,
+        control.key: preferences.getBool('$_controlPrefix${control.key}') ?? false,
     };
   }
 
-  Future<void> setControlEnabled(String key, bool enabled) async {
+  Future<bool> setControlEnabled(String key, bool enabled) async {
     final knownControl = protectionClipboardControls.any((control) => control.key == key);
     if (!knownControl) {
       throw ArgumentError.value(key, 'key', 'Unknown Protection Clipboard control');
     }
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setBool('$_controlPrefix$key', enabled);
+    final saved = await preferences.setBool('$_controlPrefix$key', enabled);
+    return saved && preferences.getBool('$_controlPrefix$key') == enabled;
   }
 }

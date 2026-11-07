@@ -55,10 +55,17 @@ class SettingsMigrationService {
       final before = _snapshot(preferences);
       try {
         await migration.migrate(preferences);
-        await preferences.setInt(schemaVersionKey, migration.toVersion);
+        final versionSaved = await preferences.setInt(schemaVersionKey, migration.toVersion);
+        if (!versionSaved || preferences.getInt(schemaVersionKey) != migration.toVersion) {
+          throw StateError('Settings schema version could not be saved and verified.');
+        }
         version = migration.toVersion;
-      } catch (_) {
-        await _restore(preferences, before);
+      } catch (migrationError) {
+        try {
+          await _restore(preferences, before);
+        } catch (restoreError) {
+          throw StateError('Settings migration failed ($migrationError) and rollback could not be verified ($restoreError). Stop startup and preserve the settings for recovery.');
+        }
         rethrow;
       }
     }
@@ -76,12 +83,23 @@ class SettingsMigrationService {
   ) async {
     final currentKeys = preferences.getKeys();
     for (final key in currentKeys.difference(before.keys.toSet())) {
-      await preferences.remove(key);
+      final removed = await preferences.remove(key);
+      if (!removed || preferences.containsKey(key)) {
+        throw StateError('Could not remove partially written preference $key during rollback.');
+      }
     }
     for (final entry in before.entries) {
       await _writeValue(preferences, entry.key, entry.value);
+      if (preferences.get(entry.key) != entry.value &&
+          !(entry.value is List<String> && preferences.get(entry.key) is List<String> &&
+            _sameStringList(preferences.get(entry.key) as List<String>, entry.value as List<String>))) {
+        throw StateError('Could not verify restored preference ${entry.key}.');
+      }
     }
   }
+
+  bool _sameStringList(List<String> left, List<String> right) =>
+      left.length == right.length && List.generate(left.length, (i) => left[i] == right[i]).every((same) => same);
 
   Future<void> _writeValue(
     SharedPreferences preferences,
@@ -89,15 +107,15 @@ class SettingsMigrationService {
     Object value,
   ) async {
     if (value is bool) {
-      await preferences.setBool(key, value);
+      if (!await preferences.setBool(key, value)) throw StateError('Could not restore $key.');
     } else if (value is int) {
-      await preferences.setInt(key, value);
+      if (!await preferences.setInt(key, value)) throw StateError('Could not restore $key.');
     } else if (value is double) {
-      await preferences.setDouble(key, value);
+      if (!await preferences.setDouble(key, value)) throw StateError('Could not restore $key.');
     } else if (value is String) {
-      await preferences.setString(key, value);
+      if (!await preferences.setString(key, value)) throw StateError('Could not restore $key.');
     } else if (value is List<String>) {
-      await preferences.setStringList(key, value);
+      if (!await preferences.setStringList(key, value)) throw StateError('Could not restore $key.');
     } else {
       throw StateError('Unsupported preference value for key $key.');
     }

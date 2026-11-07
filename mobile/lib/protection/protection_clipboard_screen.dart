@@ -12,7 +12,9 @@ class ProtectionClipboardScreen extends StatefulWidget {
 class _ProtectionClipboardScreenState extends State<ProtectionClipboardScreen> {
   final ProtectionClipboardService _service = ProtectionClipboardService();
   bool _loading = true;
-  bool _enabled = true;
+  bool _enabled = false;
+  bool _saving = false;
+  String? _loadError;
   Map<String, bool> _controls = const {};
 
   @override
@@ -30,41 +32,50 @@ class _ProtectionClipboardScreenState extends State<ProtectionClipboardScreen> {
         _enabled = enabled;
         _controls = controls;
         _loading = false;
+        _loadError = null;
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not load Protection Clipboard settings.')),
-      );
+      setState(() {
+        _loading = false;
+        _loadError = 'Your saved settings could not be loaded. Controls are unavailable until they can be checked.';
+      });
     }
   }
 
   Future<void> _setMaster(bool value) async {
     final previous = _enabled;
-    setState(() => _enabled = value);
+    if (_saving) return;
+    setState(() { _enabled = value; _saving = true; });
     try {
-      await _service.setEnabled(value);
+      final saved = await _service.setEnabled(value);
+      if (!saved) throw StateError('Preference save was not confirmed.');
     } catch (_) {
       if (!mounted) return;
       setState(() => _enabled = previous);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not save this setting. Please try again.')),
       );
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
   Future<void> _setControl(String key, bool value) async {
     final previous = _controls[key] ?? true;
-    setState(() => _controls = {..._controls, key: value});
+    if (_saving) return;
+    setState(() { _controls = {..._controls, key: value}; _saving = true; });
     try {
-      await _service.setControlEnabled(key, value);
+      final saved = await _service.setControlEnabled(key, value);
+      if (!saved) throw StateError('Preference save was not confirmed.');
     } catch (_) {
       if (!mounted) return;
       setState(() => _controls = {..._controls, key: previous});
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not save this setting. Please try again.')),
       );
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -74,6 +85,8 @@ class _ProtectionClipboardScreenState extends State<ProtectionClipboardScreen> {
       appBar: AppBar(title: const Text('Protection Clipboard')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
+          : _loadError != null
+          ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [Text(_loadError!, textAlign: TextAlign.center), const SizedBox(height: 16), FilledButton.icon(onPressed: _load, icon: const Icon(Icons.refresh), label: const Text('Retry loading settings'))])))
           : ListView(
               padding: const EdgeInsets.all(18),
               children: [
@@ -110,7 +123,7 @@ class _ProtectionClipboardScreenState extends State<ProtectionClipboardScreen> {
                           title: const Text('Protection Clipboard'),
                           subtitle: Text(_enabled ? 'Enabled' : 'Disabled'),
                           value: _enabled,
-                          onChanged: _setMaster,
+                          onChanged: _saving ? null : _setMaster,
                         ),
                       ),
                     ],
@@ -123,8 +136,8 @@ class _ProtectionClipboardScreenState extends State<ProtectionClipboardScreen> {
                     child: SwitchListTile(
                       title: Text(control.title),
                       subtitle: Text(control.description),
-                      value: _controls[control.key] ?? true,
-                      onChanged: _enabled ? (value) => _setControl(control.key, value) : null,
+                      value: _controls[control.key] ?? false,
+                      onChanged: _enabled && !_saving ? (value) => _setControl(control.key, value) : null,
                     ),
                   ),
                 const SizedBox(height: 12),

@@ -9,13 +9,13 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test('clipboard and all six customer choices default to enabled', () async {
+  test('clipboard and all six customer choices default to disabled', () async {
     final service = ProtectionClipboardService();
 
-    expect(await service.loadEnabled(), isTrue);
+    expect(await service.loadEnabled(), isFalse);
     final controls = await service.loadControls();
     expect(controls, hasLength(6));
-    expect(controls.values, everyElement(isTrue));
+    expect(controls.values, everyElement(isFalse));
   });
 
   test('master ON/OFF choice persists across service instances', () async {
@@ -37,10 +37,10 @@ void main() {
     final controls = await ProtectionClipboardService().loadControls();
     expect(controls['device_security'], isFalse);
     expect(controls['network_safety'], isFalse);
-    expect(controls['privacy_protection'], isTrue);
-    expect(controls['app_monitoring'], isTrue);
-    expect(controls['family_safety'], isTrue);
-    expect(controls['security_notifications'], isTrue);
+    expect(controls['privacy_protection'], isFalse);
+    expect(controls['app_monitoring'], isFalse);
+    expect(controls['family_safety'], isFalse);
+    expect(controls['security_notifications'], isFalse);
   });
 
   test('rejects unknown control keys', () async {
