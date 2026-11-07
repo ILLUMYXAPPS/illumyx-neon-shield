@@ -70,6 +70,9 @@ class FamilyInvitationService:
         cursor = connection.cursor()
         try:
             self._begin(connection)
+            # Lock the authenticated account first. This serializes first-use
+            # reservations too, when no rate-limit row exists yet.
+            self._lock_account(cursor, subject_id)
             lock = "" if self._placeholder == "?" else " FOR UPDATE"
             cursor.execute(self._sql(
                 "SELECT failure_count,window_started_at FROM sign_in_rate_limits WHERE identity_hash=?" + lock
