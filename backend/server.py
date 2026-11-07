@@ -12,4 +12,6 @@ if __name__ == "__main__":
     try:
         serve(service, os.environ.get("NEON_AUTH_HOST", "127.0.0.1"), int(os.environ.get("NEON_AUTH_PORT", "8080")))
     finally:
-        service.store.close()
+        close = getattr(service.store, "close", None)
+        if close is not None:
+            close()
