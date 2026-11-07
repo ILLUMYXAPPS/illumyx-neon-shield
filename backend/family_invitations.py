@@ -165,11 +165,17 @@ class FamilyInvitationService:
                 raise FamilyInvitationError("invitation_expired", 410)
             self._require_family_entitlement(connection, owner_subject_id)
             cursor.execute(self._sql(
-                "SELECT owner_subject_id FROM family_memberships "
-                "WHERE member_subject_id=? AND status='active'"
+                "SELECT owner_subject_id,role,status FROM family_memberships "
+                "WHERE member_subject_id=?"
             ), (member_subject_id,))
-            if cursor.fetchone() is not None:
+            prior_membership = self._row(cursor, cursor.fetchone())
+            if prior_membership is not None and prior_membership["status"] == "active":
                 raise FamilyInvitationError("account_already_in_a_family", 409)
+            if prior_membership is not None and (
+                prior_membership["owner_subject_id"] != owner_subject_id
+                or prior_membership["role"] != "member"
+            ):
+                raise FamilyInvitationError("account_has_previous_family_membership", 409)
             cursor.execute(self._sql(
                 "SELECT COUNT(*) FROM family_memberships WHERE owner_subject_id=? AND status='active'"
             ), (owner_subject_id,))
@@ -181,11 +187,19 @@ class FamilyInvitationService:
             ), (member_subject_id, now.isoformat(), invitation["invitation_id"]))
             if getattr(cursor, "rowcount", 1) != 1:
                 raise FamilyInvitationError("invalid_or_used_invitation", 409)
-            cursor.execute(self._sql(
-                "INSERT INTO family_memberships "
-                "(owner_subject_id,member_subject_id,role,status,created_at) "
-                "VALUES(?,?,'member','active',?)"
-            ), (owner_subject_id, member_subject_id, now.isoformat()))
+            if prior_membership is not None:
+                cursor.execute(self._sql(
+                    "UPDATE family_memberships SET status='active',created_at=? "
+                    "WHERE owner_subject_id=? AND member_subject_id=? AND role='member' AND status='removed'"
+                ), (now.isoformat(), owner_subject_id, member_subject_id))
+                if getattr(cursor, "rowcount", 1) != 1:
+                    raise FamilyInvitationError("account_membership_could_not_be_restored", 409)
+            else:
+                cursor.execute(self._sql(
+                    "INSERT INTO family_memberships "
+                    "(owner_subject_id,member_subject_id,role,status,created_at) "
+                    "VALUES(?,?,'member','active',?)"
+                ), (owner_subject_id, member_subject_id, now.isoformat()))
             connection.commit()
             return {"status": "accepted"}
         except Exception:
