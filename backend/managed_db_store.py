@@ -94,8 +94,12 @@ class ManagedDbAuthStore(ManagedAuthStore):
                 cursor.execute(statement)
             cursor.execute(
                 "INSERT INTO audit_chain_head(chain_id,event_hash) "
-                "SELECT 1, COALESCE((SELECT event_hash FROM audit_events ORDER BY occurred_at DESC,event_hash DESC LIMIT 1), ?) "
-                "WHERE NOT EXISTS (SELECT 1 FROM audit_chain_head WHERE chain_id=1)".replace("?", self._placeholder),
+                "SELECT 1, COALESCE((SELECT event_hash FROM audit_events e "
+                "WHERE NOT EXISTS (SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash) "
+                "LIMIT 1), ?) WHERE NOT EXISTS (SELECT 1 FROM audit_chain_head WHERE chain_id=1) "
+                "AND (NOT EXISTS (SELECT 1 FROM audit_events) OR "
+                "(SELECT COUNT(*) FROM audit_events e WHERE NOT EXISTS "
+                "(SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash))=1)".replace("?", self._placeholder),
                 ("0" * 64,),
             )
             connection.commit()
