@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, SignInRequest
+from store_verification import StoreProvider, StorePurchaseRequest, StoreVerificationError, StoreVerificationUnavailable
 
 
 def _session_json(session):
@@ -84,6 +85,41 @@ def make_handler(service):
                     binding_id = binding_service.get_or_create_for_session(session_id=session.session_id)
                     self._json(200, {"account_binding_id": binding_id})
                     return
+
+                if self.path == "/v1/store/verify-purchase":
+                    verifier = getattr(service, "store_verification_service", None)
+                    repository = getattr(service, "store_subscription_repository", None)
+                    binding_service = getattr(service, "store_account_binding_service", None)
+                    if verifier is None or repository is None or binding_service is None:
+                        self._json(503, {"error": "unavailable"})
+                        return
+                    try:
+                        provider = StoreProvider(str(data.get("provider", "")))
+                    except ValueError as exc:
+                        raise ValueError("unsupported provider") from exc
+                    binding_id = binding_service.get_or_create_for_session(
+                        session_id=session.session_id
+                    )
+                    purchase_request = StorePurchaseRequest(
+                        provider=provider,
+                        purchase_token=str(data.get("purchase_token", "")),
+                        product_id=str(data.get("product_id", "")),
+                        application_id=str(data.get("application_id", "")),
+                        account_binding_id=binding_id,
+                    )
+                    snapshot = verifier.verify_and_persist(
+                        purchase_request,
+                        subject_id=session.subject_id,
+                        expected_account_binding_id=binding_id,
+                        repository=repository,
+                    )
+                    self._json(200, {
+                        "package": snapshot.package.value,
+                        "active": snapshot.active,
+                        "expires_at": snapshot.expires_at.isoformat()
+                        if snapshot.expires_at else None,
+                    })
+                    return
                 if self.path == "/v1/auth/refresh":
                     self._json(200, {"session": _session_json(service.refresh(session))})
                     return
@@ -97,6 +133,10 @@ def make_handler(service):
                 self._json(404, {"error": "not_found"})
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
+            except StoreVerificationUnavailable:
+                self._json(503, {"error": "store_verification_unavailable"})
+            except StoreVerificationError:
+                self._json(400, {"error": "purchase_verification_failed"})
             except (ValueError, json.JSONDecodeError):
                 self._json(400, {"error": "invalid_request"})
             except Exception:
