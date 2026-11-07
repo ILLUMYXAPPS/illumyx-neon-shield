@@ -5,8 +5,11 @@ import os
 import unittest
 from unittest.mock import patch
 
+from backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
 from backend.composition import build_service
+from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
+from backend.subscription_store import StoreSubscriptionRepository
 from backend.observability import SecurityEvent, SecurityEventSink
 from backend.security_monitoring import SecurityAlert, SecurityAlertSink, ProductionSecurityMonitor
 from backend.secrets import MappingSecretProvider
@@ -62,13 +65,35 @@ class CompositionTests(unittest.TestCase):
             "NEON_MONITORING_ENDPOINT": "https://monitoring.example/events",
         }
 
+    def _binding_repository(self) -> AccountBindingRepository:
+        return AccountBindingRepository(lambda: None)
+
     def _secret_provider(self) -> MappingSecretProvider:
         return MappingSecretProvider({"NEON_IDP_CLIENT_SECRET": "client-secret", "NEON_DB_PEPPER": "db-pepper"})
 
     def test_production_requires_managed_store_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
-            with self.assertRaisesRegex(RuntimeError, "ManagedAuthStore"):
+            with self.assertRaisesRegex(RuntimeError, "database connection factory"):
                 build_service(secret_provider=self._secret_provider())
+
+
+    def test_production_builds_auth_and_binding_adapters_from_same_database_factory(self):
+        connections = []
+        def connection_factory():
+            connections.append(True)
+            raise AssertionError("composition must not run migrations or open a connection")
+        with patch.dict(os.environ, self._production_environment(), clear=True):
+            service = build_service(
+                security_event_sink=RecordingSink(),
+                security_alert_sink=RecordingAlertSink(),
+                secret_provider=self._secret_provider(),
+                database_connection_factory=connection_factory,
+            )
+        self.assertIsInstance(service.store, ManagedDbAuthStore)
+        self.assertIsInstance(service.store_account_binding_service, AuthenticatedStoreAccountBindingService)
+        self.assertIsInstance(service.store_subscription_repository, StoreSubscriptionRepository)
+        self.assertIsNone(service.store_verification_service)
+        self.assertEqual(connections, [])
 
     def test_production_requires_observability_sink_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
@@ -80,6 +105,11 @@ class CompositionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "SecurityAlertSink"):
                 build_service(managed_store=StubManagedStore(), security_event_sink=RecordingSink(), secret_provider=self._secret_provider())
 
+    def test_production_requires_account_binding_repository_injection(self):
+        with patch.dict(os.environ, self._production_environment(), clear=True):
+            with self.assertRaisesRegex(RuntimeError, "AccountBindingRepository"):
+                build_service(managed_store=StubManagedStore(), security_event_sink=RecordingSink(), security_alert_sink=RecordingAlertSink(), secret_provider=self._secret_provider())
+
     def test_production_requires_secret_provider_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
             with self.assertRaisesRegex(RuntimeError, "SecretProvider"):
@@ -89,8 +119,10 @@ class CompositionTests(unittest.TestCase):
         with patch.dict(os.environ, self._production_environment(), clear=True):
             sink = RecordingSink()
             alerts = RecordingAlertSink()
-            service = build_service(managed_store=StubManagedStore(), security_event_sink=sink, security_alert_sink=alerts, secret_provider=self._secret_provider())
+            service = build_service(managed_store=StubManagedStore(), security_event_sink=sink, security_alert_sink=alerts, secret_provider=self._secret_provider(), account_binding_repository=self._binding_repository())
             self.assertIsInstance(service.security_event_sink, ProductionSecurityMonitor)
+            self.assertIsInstance(service.store_account_binding_service, AuthenticatedStoreAccountBindingService)
+            self.assertIs(service.store_account_binding_service._identity_service, service)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,8 @@ class PersistentIdentityService(IdentityService):
         self.session_ttl = session_ttl
         self.max_sign_ins = max_sign_ins
         self.security_event_sink = security_event_sink or NoopSecurityEventSink()
+        # Installed by the production composition root when its durable binding repository is injected.
+        self.store_account_binding_service = None
 
     @staticmethod
     def _observability_hash(value: str) -> str:

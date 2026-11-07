@@ -31,4 +31,22 @@ PRODUCTION_MIGRATIONS = (
             "CREATE TABLE IF NOT EXISTS sign_in_rate_limits (identity_hash TEXT PRIMARY KEY, failure_count INTEGER NOT NULL, window_started_at TEXT NOT NULL)",
         ),
     ),
+    Migration(
+        4,
+        "create_store_subscription_records",
+        (
+            "CREATE TABLE IF NOT EXISTS verified_subscriptions (subscription_id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, provider TEXT NOT NULL CHECK(provider IN ('apple','google_play')), application_id TEXT NOT NULL, product_id TEXT NOT NULL, package TEXT NOT NULL CHECK(package IN ('premium','premium_family')), environment TEXT NOT NULL CHECK(environment IN ('production','sandbox')), account_binding_id TEXT NOT NULL, transaction_id TEXT NOT NULL, original_transaction_id TEXT NOT NULL, purchase_token_hash TEXT NOT NULL, expires_at TEXT, revoked INTEGER NOT NULL DEFAULT 0, verified_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE, UNIQUE(provider, original_transaction_id))",
+            "CREATE INDEX IF NOT EXISTS idx_verified_subscriptions_subject ON verified_subscriptions(subject_id)",
+            "CREATE INDEX IF NOT EXISTS idx_verified_subscriptions_expiry ON verified_subscriptions(expires_at)",
+            "CREATE TABLE IF NOT EXISTS store_notification_events (provider TEXT NOT NULL CHECK(provider IN ('apple','google_play')), event_id TEXT NOT NULL, event_type TEXT NOT NULL, payload_hash TEXT NOT NULL, received_at TEXT NOT NULL, processed_at TEXT, processing_status TEXT NOT NULL CHECK(processing_status IN ('received','processed','rejected')), PRIMARY KEY(provider, event_id))",
+            "CREATE INDEX IF NOT EXISTS idx_store_notification_status ON store_notification_events(processing_status, received_at)",
+        ),
+    ),
+    Migration(
+        5,
+        "create_store_account_bindings",
+        (
+            "CREATE TABLE IF NOT EXISTS store_account_bindings (subject_id TEXT PRIMARY KEY, binding_id TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
+        ),
+    ),
 )
