@@ -23,7 +23,18 @@ class MigrationRunnerTests(unittest.TestCase):
                 table = connection.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='sign_in_rate_limits'"
                 ).fetchone()
-                versions = connection.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version").fetchall()
+                versions = connection.execute(
+                    "SELECT version, name FROM neon_schema_migrations ORDER BY version"
+                ).fetchall()
+                subscription_table = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='verified_subscriptions'"
+                ).fetchone()
+                notification_table = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='store_notification_events'"
+                ).fetchone()
+                binding_table = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='store_account_bindings'"
+                ).fetchone()
             finally:
                 connection.close()
             self.assertIsNotNone(table)
@@ -34,12 +45,9 @@ class MigrationRunnerTests(unittest.TestCase):
                 (4, "create_store_subscription_records"),
                 (5, "create_store_account_bindings"),
             ])
-            self.assertIsNotNone(connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='verified_subscriptions'"
-            ).fetchone())
-            self.assertIsNotNone(connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='store_notification_events'"
-            ).fetchone())
+            self.assertIsNotNone(subscription_table)
+            self.assertIsNotNone(notification_table)
+            self.assertIsNotNone(binding_table)
 
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:
