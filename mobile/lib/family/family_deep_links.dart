@@ -45,14 +45,6 @@ class FamilyDeepLinkListener {
   StreamSubscription<Uri>? _subscription;
 
   Future<void> start(void Function(String code) onInvitationCode) async {
-    try {
-      final initial = await _appLinks.getInitialLink();
-      final initialCode = FamilyInvitationLink.codeFrom(initial);
-      if (initialCode != null) onInvitationCode(initialCode);
-    } catch (_) {
-      // A missing or malformed initial link must not prevent app startup.
-    }
-
     await _subscription?.cancel();
     _subscription = _appLinks.uriLinkStream.listen((uri) {
       final code = FamilyInvitationLink.codeFrom(uri);
@@ -60,6 +52,14 @@ class FamilyDeepLinkListener {
     }, onError: (Object _) {
       // Ignore malformed platform link events; normal app use continues.
     });
+
+    try {
+      final initial = await _appLinks.getInitialLink();
+      final initialCode = FamilyInvitationLink.codeFrom(initial);
+      if (initialCode != null) onInvitationCode(initialCode);
+    } catch (_) {
+      // A missing or malformed initial link must not prevent app startup.
+    }
   }
 
   Future<void> dispose() async {
