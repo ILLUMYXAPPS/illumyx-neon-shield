@@ -64,6 +64,17 @@ class StoreSubscriptionRepository:
         connection = self._connect()
         cursor = connection.cursor()
         try:
+            # Serialize entitlement changes with pairing approvals, which lock this
+            # account row before reading the verified subscription snapshot.
+            if self._placeholder == "?":
+                connection.execute("BEGIN IMMEDIATE")
+            else:
+                cursor.execute(
+                    self._sql("SELECT subject_id FROM users WHERE subject_id=? FOR UPDATE"),
+                    (subject_id,),
+                )
+                if cursor.fetchone() is None:
+                    raise SubscriptionPersistenceError("authenticated account does not exist")
             if (purchase.provider is StoreProvider.GOOGLE_PLAY
                     and purchase.replaces_original_transaction_id):
                 cursor.execute(self._sql(
