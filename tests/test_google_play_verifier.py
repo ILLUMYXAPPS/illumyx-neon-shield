@@ -117,6 +117,10 @@ class GooglePlayVerifierTests(unittest.TestCase):
 
     def test_pending_acknowledgement_is_acknowledged_server_side(self):
         self.publisher.api.v2.response["acknowledgementState"] = "ACKNOWLEDGEMENT_STATE_PENDING"
+        def acknowledge(**kwargs):
+            self.publisher.api.v2.response["acknowledgementState"] = "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED"
+            return Request({})
+        self.publisher.api.legacy.acknowledge = acknowledge
         result = self.verifier.verify(self.request)
         self.assertFalse(result.revoked)
         self.assertEqual(len(self.publisher.api.legacy.acknowledged), 1)
