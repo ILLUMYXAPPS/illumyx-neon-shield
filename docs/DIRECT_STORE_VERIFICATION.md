@@ -1,6 +1,6 @@
 # Direct Apple and Google subscription verification
 
-Status: verification boundary scaffold added; live provider adapters and durable subscription persistence remain outstanding.
+Status: Apple StoreKit 2 signed-transaction verification adapter added; Google Play live verification and store notification processing remain outstanding.
 
 ## Trust model
 
@@ -8,7 +8,7 @@ The authenticated Neon Shield server is the only authority that grants paid enti
 
 ## Apple adapter requirements
 
-Validate StoreKit 2 signed transaction data and/or App Store Server API responses, including signed payload chain, bundle ID, product ID, transaction and original transaction IDs, environment, expiry, refund/revocation, and appAccountToken binding. Authenticate App Store Server Notifications V2 and process renewals, billing retry/grace, expiry, refunds, and revocations idempotently.
+Implemented in `store_verification.py`: `AppleStoreKitVerifier` verifies StoreKit 2 signed transaction JWS using Apple's official `SignedDataVerifier` for production and sandbox, enables online certificate checks by default, and rejects invalid signatures/certificate chains, mismatched bundle/product IDs, missing transaction IDs, and mismatched `appAccountToken`. It maps expiry and revocation facts into the common verified-purchase model. The adapter also exposes cryptographic verification of App Store Server Notifications V2 envelopes, but webhook routing, notification inner-payload processing, event reconciliation and App Store Server API subscription-status refresh are not yet wired. Provision Apple Root Certificates from Apple's PKI to the server, the production numeric App Store app ID, and the exact App Store Connect product IDs. The account binding must be supplied by the app as StoreKit's `appAccountToken` before purchase. Do not enable local testing/Xcode environments for customer entitlement decisions.
 
 ## Google Play adapter requirements
 
@@ -20,9 +20,9 @@ store_verification.py defines normalized purchase request/result types, a produc
 
 ## Remaining gates
 
-1. Implement Apple signed-transaction verification and App Store Server API calls.
+1. Wire Apple App Store Server Notifications V2 webhook routing, nested signed transaction/renewal verification, and idempotent subscription reconciliation; add App Store Server API status/history refresh.
 2. Implement Google Play Developer API verification.
-3. Add authenticated, idempotent notification handlers for both stores.
+3. Add authenticated, idempotent Google RTDN handling.
 4. Configure store product IDs and app identifiers for each environment.
 5. Store Apple private keys and Google service-account credentials only in server secret management.
 6. Persist verified subscription state and notification event IDs durably.
@@ -54,3 +54,29 @@ The repository also records authenticated notification event IDs with a unique p
 ## Server-issued account binding
 
 Migration 5 adds `store_account_bindings`, with one unique opaque UUID per authenticated Neon Shield subject. `AccountBindingRepository.get_or_create` is the persistence primitive. `AuthenticatedStoreAccountBindingService.get_or_create_for_session` is the application boundary: it resolves the bearer session through the authoritative identity service, thereby applying session expiry, revocation, blocked-account and trusted-device checks, and passes only the resolved subject ID to the repository. The caller cannot supply a subject ID or choose the binding. Tests cover stable per-account issuance, distinct account bindings, unknown subjects, invalid/revoked sessions and untrusted devices. The stable UUID can be supplied to Apple's `appAccountToken` and Google's `obfuscatedExternalAccountId` when provider adapters are implemented. This is a server-side service boundary, not a deployed HTTP endpoint; production routing and managed identity/database adapters remain deployment integration work.
+
+
+## Apple StoreKit 2 adapter implementation
+
+`AppleStoreKitVerifier` uses Apple's official Python App Store Server Library. The
+server-only dependency is declared in `requirements-server.txt` with a minimum
+version of 3.1.2. This minimum is intentional: Apple published a security
+advisory for stale OCSP response handling in versions through 3.1.1, and 3.1.2
+contains the freshness fix. Production and sandbox verifiers are separate;
+production requires the numeric App Store app ID. Online certificate checks
+are enabled by default.
+
+The adapter expects the StoreKit 2 signed transaction JWS as the purchase
+evidence, not an unsigned client JSON object or the deprecated verifyReceipt
+response. It validates Apple's JWS certificate chain and signature through the
+official library, then checks the bundle ID, product ID and UUID
+`appAccountToken` against the authenticated Neon Shield account binding.
+Expiry and revocation are normalized before the existing product catalogue
+maps the purchase to Premium or Premium Family. No real Apple keys, app ID,
+root certificates or product IDs are embedded in the repository.
+
+The adapter can also cryptographically verify a Notifications V2 signed
+envelope. It does not yet expose a public notification endpoint or update
+subscription state from notification events. Those steps remain a separate
+server-side integration task. The official library's `verifyReceipt` legacy
+path is not used.
