@@ -81,7 +81,6 @@ jobs:
           if-no-files-found: error
 
   ios:
-    needs: android
     name: iOS unsigned beta
     runs-on: macos-latest
     steps:
@@ -118,7 +117,6 @@ jobs:
           if-no-files-found: error
 
   windows:
-    needs: ios
     name: Windows desktop beta
     runs-on: windows-latest
     steps:
@@ -147,7 +145,6 @@ jobs:
           if-no-files-found: error
 
   macos:
-    needs: windows
     name: macOS desktop beta
     runs-on: macos-latest
     steps:
