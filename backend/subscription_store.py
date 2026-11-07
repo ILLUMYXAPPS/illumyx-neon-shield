@@ -64,6 +64,28 @@ class StoreSubscriptionRepository:
         connection = self._connect()
         cursor = connection.cursor()
         try:
+            if (purchase.provider is StoreProvider.GOOGLE_PLAY
+                    and purchase.replaces_original_transaction_id):
+                cursor.execute(self._sql(
+                    "SELECT subject_id,account_binding_id FROM verified_subscriptions "
+                    "WHERE provider=? AND original_transaction_id=?"),
+                    (StoreProvider.GOOGLE_PLAY.value,
+                     purchase.replaces_original_transaction_id))
+                linked_row = self._row(cursor, cursor.fetchone())
+                if linked_row is not None and (
+                    linked_row["subject_id"] != subject_id
+                    or linked_row["account_binding_id"] != purchase.account_binding_id
+                ):
+                    raise SubscriptionPersistenceError(
+                        "linked Google purchase is already bound to another account"
+                    )
+                cursor.execute(self._sql(
+                    "UPDATE verified_subscriptions SET revoked=1,updated_at=? "
+                    "WHERE provider=? AND original_transaction_id=? "
+                    "AND subject_id=? AND account_binding_id=?"),
+                    (now.isoformat(), StoreProvider.GOOGLE_PLAY.value,
+                     purchase.replaces_original_transaction_id, subject_id,
+                     purchase.account_binding_id))
             cursor.execute(self._sql(
                 "INSERT INTO verified_subscriptions "
                 "(subscription_id,subject_id,provider,application_id,product_id,package,environment,"
