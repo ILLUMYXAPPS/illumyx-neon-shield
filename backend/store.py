@@ -71,9 +71,17 @@ class AuthStore(ManagedAuthStore):
             CREATE TABLE IF NOT EXISTS device_labels (subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, device_name TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(subject_id, device_hash));
             CREATE TABLE IF NOT EXISTS family_invitations (invitation_id TEXT PRIMARY KEY, owner_subject_id TEXT NOT NULL, token_hash TEXT UNIQUE NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','accepted','revoked','expired')), created_at TEXT NOT NULL, expires_at TEXT NOT NULL, accepted_by TEXT, accepted_at TEXT);
         """)
+        # Seed only from a unique chain tip. Row insertion order is not a
+        # trustworthy proxy for the hash-chain head after imports or recovery.
         self._db.execute(
             "INSERT OR IGNORE INTO audit_chain_head(chain_id,event_hash) "
-            "SELECT 1, COALESCE((SELECT event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1), ?) ",
+            "SELECT 1, COALESCE((SELECT event_hash FROM audit_events e "
+            "WHERE NOT EXISTS (SELECT 1 FROM audit_events child "
+            "WHERE child.previous_hash=e.event_hash) LIMIT 1), ?) "
+            "WHERE NOT EXISTS (SELECT 1 FROM audit_chain_head WHERE chain_id=1) "
+            "AND (NOT EXISTS (SELECT 1 FROM audit_events) OR "
+            "(SELECT COUNT(*) FROM audit_events e WHERE NOT EXISTS "
+            "(SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash))=1)",
             ("0" * 64,),
         )
         self._db.commit()
