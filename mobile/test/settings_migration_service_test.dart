@@ -164,4 +164,56 @@ void main() {
     expect(preferences.getInt(SettingsMigrationService.schemaVersionKey), 99);
     expect(preferences.getBool('customer.preference'), isFalse);
   });
+
+  test('failed migration restores list preferences and preserves unknown customer keys', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'customer.favourites': <String>['shield', 'vault'],
+      'customer.future_flag': true,
+      'neon_shield.settings_schema_version': 0,
+    });
+
+    final service = SettingsMigrationService(migrations: [
+      SettingsMigration(
+        fromVersion: 0,
+        toVersion: 1,
+        migrate: (preferences) async {
+          await preferences.setStringList('customer.favourites', ['changed']);
+          await preferences.setBool('customer.future_flag', false);
+          await preferences.setString('partial.migration_key', 'partial');
+          throw StateError('Simulated failure after several writes');
+        },
+      ),
+    ]);
+
+    await expectLater(service.migrate(), throwsStateError);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getStringList('customer.favourites'), ['shield', 'vault']);
+    expect(preferences.getBool('customer.future_flag'), isTrue);
+    expect(preferences.containsKey('partial.migration_key'), isFalse);
+    expect(preferences.getInt(SettingsMigrationService.schemaVersionKey), 0);
+  });
+
+  test('failed migration leaves an existing schema marker unchanged', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      SettingsMigrationService.schemaVersionKey: 0,
+      'customer.preference': 'original',
+    });
+
+    final service = SettingsMigrationService(migrations: [
+      SettingsMigration(
+        fromVersion: 0,
+        toVersion: 1,
+        migrate: (preferences) async {
+          await preferences.setString('customer.preference', 'partially changed');
+          throw StateError('Stop before schema marker update');
+        },
+      ),
+    ]);
+
+    await expectLater(service.migrate(), throwsStateError);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getInt(SettingsMigrationService.schemaVersionKey), 0);
+    expect(preferences.getString('customer.preference'), 'original');
+  });
+
 }
