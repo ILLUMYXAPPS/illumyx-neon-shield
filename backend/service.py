@@ -26,6 +26,7 @@ class PersistentIdentityService(IdentityService):
         session_ttl: timedelta = timedelta(minutes=15),
         max_sign_ins: int = 5,
         security_event_sink: SecurityEventSink | None = None,
+        device_allowance_resolver=None,
     ) -> None:
         if session_ttl <= timedelta(0) or max_sign_ins < 1:
             raise ValueError("invalid authentication limits")
@@ -33,6 +34,7 @@ class PersistentIdentityService(IdentityService):
         self.session_ttl = session_ttl
         self.max_sign_ins = max_sign_ins
         self.security_event_sink = security_event_sink or NoopSecurityEventSink()
+        self.device_allowance_resolver = device_allowance_resolver
         self._device_pairing = None
 
     @property

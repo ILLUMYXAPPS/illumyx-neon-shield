@@ -16,6 +16,7 @@ from auth_server_contract import AuthFailure, SignInRequest
 from backend.managed_db_store import ManagedDbAuthStore
 from backend.service import PersistentIdentityService
 from backend.store import AuthStore
+from backend.device_limits import DeviceAllowance, DevicePackage, DeviceLimitExceeded
 from backend.http_api import make_handler
 
 
@@ -49,6 +50,24 @@ class DevicePairingTests(unittest.TestCase):
         with self.assertRaises(AuthenticationError) as sign_in_error:
             self.service.sign_in(SignInRequest('owner@example.test', 'correct-password', 'new-device'))
         self.assertEqual(sign_in_error.exception.failure, AuthFailure.UNTRUSTED_DEVICE)
+
+    def test_verified_premium_allowance_blocks_fourth_device_before_trust(self):
+        self.pairing.allowance_resolver = lambda subject_id, request_id: DeviceAllowance(
+            DevicePackage.PREMIUM, 3
+        )
+        started = self.pairing.start(
+            'owner@example.test', 'correct-password', 'fourth-device', 'Fourth device'
+        )
+        with self.assertRaises(DeviceLimitExceeded):
+            self.pairing.approve(
+                self.existing_session, started['request_id'],
+                pairing_code=started['pairing_code'],
+            )
+        self.assertFalse(self.store.device_trusted('subject-a', 'fourth-device'))
+        self.assertEqual(
+            self.pairing.status(started['request_id'], started['pairing_secret']),
+            'pending',
+        )
 
     def test_pairing_secret_is_not_stored_in_plaintext_and_code_is_hashed(self):
         started = self.pairing.start('owner@example.test', 'correct-password', 'new-device', 'Android phone')
