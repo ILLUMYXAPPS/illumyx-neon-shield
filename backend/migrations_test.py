@@ -9,9 +9,44 @@ from tempfile import TemporaryDirectory
 
 from backend.migrations import Migration, MigrationRunner
 from backend.production_migrations import PRODUCTION_MIGRATIONS
+from backend.store import AuthStore
 
 
 class MigrationRunnerTests(unittest.TestCase):
+
+    def test_sqlite_auth_store_audit_head_seeds_only_from_unique_chain_tip(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "auth-store-audit.sqlite3"
+            store = AuthStore(str(path), pepper="test-pepper")
+            try:
+                store._db.execute("DELETE FROM audit_chain_head")
+                store._db.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) "
+                    "VALUES('first','test','2030-01-02T00:00:00+00:00',NULL,'fingerprint','genesis')"
+                )
+                store._db.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) "
+                    "VALUES('tip','test','2030-01-01T00:00:00+00:00',NULL,'fingerprint','first')"
+                )
+                store._db.commit()
+                store._migrate()
+                self.assertEqual(
+                    store._db.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()[0],
+                    "tip",
+                )
+                store._db.execute("DELETE FROM audit_chain_head")
+                store._db.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) "
+                    "VALUES('other-genesis','test','2030-01-03T00:00:00+00:00',NULL,'fingerprint','other-root')"
+                )
+                store._db.commit()
+                store._migrate()
+                self.assertIsNone(
+                    store._db.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()
+                )
+            finally:
+                store.close()
+
     def test_production_migrations_are_contiguous_and_create_pairing_and_family_state(self) -> None:
         self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3, 4, 5, 6, 7, 8, 9])
         with TemporaryDirectory() as directory:
