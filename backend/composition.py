@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 from backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
+from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
 from backend.observability import NoopSecurityEventSink, SecurityEventSink
 from backend.production_config import validate_production_config
@@ -20,14 +21,27 @@ def build_service(
     security_alert_sink: SecurityAlertSink | None = None,
     secret_provider: SecretProvider | None = None,
     account_binding_repository: AccountBindingRepository | None = None,
+    database_connection_factory=None,
+    database_placeholder: str = "%s",
 ) -> PersistentIdentityService:
     """Build auth service without permitting production secret, storage, or monitoring fallbacks."""
     if os.environ.get("NEON_AUTH_ENV") == "production":
         if secret_provider is None:
             raise RuntimeError("production requires an injected SecretProvider implementation")
-        validate_production_config(secret_provider=secret_provider)
+        config = validate_production_config(secret_provider=secret_provider)
+        if managed_store is None and database_connection_factory is None:
+            raise RuntimeError("production requires an injected ManagedAuthStore or database connection factory")
         if managed_store is None:
-            raise RuntimeError("production requires an injected ManagedAuthStore implementation")
+            managed_store = ManagedDbAuthStore(
+                database_connection_factory,
+                pepper=config.database_pepper,
+                placeholder=database_placeholder,
+            )
+        if account_binding_repository is None and database_connection_factory is not None:
+            account_binding_repository = AccountBindingRepository(
+                database_connection_factory,
+                placeholder=database_placeholder,
+            )
         if security_event_sink is None:
             raise RuntimeError("production requires an injected SecurityEventSink implementation")
         if security_alert_sink is None:
