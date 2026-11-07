@@ -285,14 +285,16 @@ class DevicePairingTests(unittest.TestCase):
                     thread.join(timeout=15)
                 self.assertTrue(all(not thread.is_alive() for thread in threads))
                 self.assertCountEqual(outcomes, ['approved', 'limit_rejected'])
-                with store._connection() as (connection, cursor):
-                    cursor.execute(
-                        'SELECT COUNT(*) FROM devices WHERE subject_id=? AND trusted=1',
-                        ('concurrent-subject',),
-                    )
-                    self.assertEqual(int(cursor.fetchone()[0]), 3)
-            finally:
-                store.close()
+                with store._connection() as connection:
+                    cursor = connection.cursor()
+                    try:
+                        cursor.execute(
+                            'SELECT COUNT(*) FROM devices WHERE subject_id=? AND trusted=1',
+                            ('concurrent-subject',),
+                        )
+                        self.assertEqual(int(cursor.fetchone()[0]), 3)
+                    finally:
+                        cursor.close()
 
 
 if __name__ == '__main__':
