@@ -60,7 +60,10 @@ class StoreSubscriptionRepository:
         now = verified_at or datetime.now(timezone.utc)
         if now.tzinfo is None:
             raise ValueError("verified_at must be timezone-aware")
-        expiry = purchase.expires_at.isoformat() if purchase.expires_at else None
+        # Normalize ordering timestamps so text comparisons are chronological
+        # across PostgreSQL/SQLite and callers using different UTC offsets.
+        now = now.astimezone(timezone.utc)
+        expiry = purchase.expires_at.astimezone(timezone.utc).isoformat() if purchase.expires_at else None
         connection = self._connect()
         cursor = connection.cursor()
         try:
@@ -90,13 +93,6 @@ class StoreSubscriptionRepository:
                     raise SubscriptionPersistenceError(
                         "linked Google purchase is already bound to another account"
                     )
-                cursor.execute(self._sql(
-                    "UPDATE verified_subscriptions SET revoked=1,updated_at=? "
-                    "WHERE provider=? AND original_transaction_id=? "
-                    "AND subject_id=? AND account_binding_id=?"),
-                    (now.isoformat(), StoreProvider.GOOGLE_PLAY.value,
-                     purchase.replaces_original_transaction_id, subject_id,
-                     purchase.account_binding_id))
             cursor.execute(self._sql(
                 "INSERT INTO verified_subscriptions "
                 "(subscription_id,subject_id,provider,application_id,product_id,package,environment,"
@@ -109,15 +105,49 @@ class StoreSubscriptionRepository:
                 "expires_at=excluded.expires_at,revoked=excluded.revoked,"
                 "verified_at=excluded.verified_at,updated_at=excluded.updated_at "
                 "WHERE verified_subscriptions.subject_id=excluded.subject_id "
-                "AND verified_subscriptions.account_binding_id=excluded.account_binding_id"),
+                "AND verified_subscriptions.account_binding_id=excluded.account_binding_id "
+                "AND verified_subscriptions.verified_at<=excluded.verified_at"),
                 (purchase.original_transaction_id, subject_id, purchase.provider.value,
                  purchase.application_id, purchase.product_id, package.value,
                  purchase.environment.lower(), purchase.account_binding_id,
                  purchase.transaction_id, purchase.original_transaction_id,
                  self._token_hash(request.purchase_token), expiry, int(purchase.revoked),
                  now.isoformat(), now.isoformat()))
-            if getattr(cursor, "rowcount", 1) == 0:
-                raise SubscriptionPersistenceError("transaction is already bound to another account")
+            changed = getattr(cursor, "rowcount", 1)
+            if changed == 0:
+                cursor.execute(self._sql(
+                    "SELECT subject_id,account_binding_id,verified_at FROM verified_subscriptions "
+                    "WHERE provider=? AND original_transaction_id=?"
+                ), (purchase.provider.value, purchase.original_transaction_id))
+                existing = self._row(cursor, cursor.fetchone())
+                if existing is None or (
+                    existing["subject_id"] != subject_id
+                    or existing["account_binding_id"] != purchase.account_binding_id
+                ):
+                    raise SubscriptionPersistenceError(
+                        "transaction is already bound to another account"
+                    )
+                existing_time = datetime.fromisoformat(existing["verified_at"])
+                if existing_time > now:
+                    # A delayed provider notification must never roll back a
+                    # newer verified state for the same subscription chain.
+                    connection.commit()
+                    return
+                raise SubscriptionPersistenceError(
+                    "verified subscription update was not applied"
+                )
+
+            # Only revoke a superseded Google token after the replacement
+            # purchase won the monotonic update check above.
+            if (purchase.provider is StoreProvider.GOOGLE_PLAY
+                    and purchase.replaces_original_transaction_id):
+                cursor.execute(self._sql(
+                    "UPDATE verified_subscriptions SET revoked=1,updated_at=? "
+                    "WHERE provider=? AND original_transaction_id=? "
+                    "AND subject_id=? AND account_binding_id=?"
+                ), (now.isoformat(), StoreProvider.GOOGLE_PLAY.value,
+                    purchase.replaces_original_transaction_id, subject_id,
+                    purchase.account_binding_id))
             connection.commit()
         except Exception:
             connection.rollback()
