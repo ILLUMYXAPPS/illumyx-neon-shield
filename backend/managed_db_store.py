@@ -18,6 +18,7 @@ _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS sessions (session_hash TEXT PRIMARY KEY, subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
     "CREATE TABLE IF NOT EXISTS sign_in_rate_limits (identity_hash TEXT PRIMARY KEY, failure_count INTEGER NOT NULL, window_started_at TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS audit_events (event_hash TEXT PRIMARY KEY, event_type TEXT NOT NULL, occurred_at TEXT NOT NULL, subject_id TEXT, device_fingerprint TEXT NOT NULL, previous_hash TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK(chain_id=1), event_hash TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS device_pairing_requests (request_id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, device_name TEXT NOT NULL, secret_hash TEXT NOT NULL, code_hash TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, expires_at TEXT NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_managed_pairing_subject ON device_pairing_requests(subject_id, status)",
     "CREATE TABLE IF NOT EXISTS device_labels (subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, device_name TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(subject_id, device_hash))",
@@ -91,6 +92,12 @@ class ManagedDbAuthStore(ManagedAuthStore):
         with self._cursor() as (connection, cursor):
             for statement in _SCHEMA:
                 cursor.execute(statement)
+            cursor.execute(
+                "INSERT INTO audit_chain_head(chain_id,event_hash) "
+                "SELECT 1, COALESCE((SELECT event_hash FROM audit_events ORDER BY occurred_at DESC,event_hash DESC LIMIT 1), ?) "
+                "WHERE NOT EXISTS (SELECT 1 FROM audit_chain_head WHERE chain_id=1)".replace("?", self._placeholder),
+                ("0" * 64,),
+            )
             connection.commit()
 
     def create_user(self, subject_id: str, identity: str, credential: str) -> None:
