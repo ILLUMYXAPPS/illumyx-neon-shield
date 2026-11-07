@@ -103,13 +103,13 @@ class StoreVerificationService:
         if len(self._products) != len(product_list):
             raise ValueError("duplicate store product mapping")
 
-    def verify(
+    def verify_purchase(
         self,
         request: StorePurchaseRequest,
         *,
         expected_account_binding_id: str,
-        now: datetime | None = None,
-    ) -> SubscriptionSnapshot:
+    ) -> tuple[VerifiedStorePurchase, Package]:
+        """Return provider-verified purchase facts and the server product mapping."""
         if not isinstance(request.provider, StoreProvider):
             raise StoreVerificationError("unsupported store provider")
         if not request.purchase_token or not request.purchase_token.strip():
@@ -128,20 +128,50 @@ class StoreVerificationService:
         verified = self._verifiers[request.provider].verify(request)
         if verified.provider is not request.provider:
             raise StoreVerificationError("provider mismatch")
-        if (
-            verified.product_id != product.product_id
-            or verified.application_id != product.application_id
-        ):
+        if verified.product_id != product.product_id or verified.application_id != product.application_id:
             raise StoreVerificationError("verified product or application mismatch")
         if verified.account_binding_id != expected_account_binding_id:
             raise StoreVerificationError("verified account binding mismatch")
         if verified.revoked:
             raise StoreVerificationError("purchase was refunded or revoked")
+        return verified, product.package
 
+    def verify(
+        self,
+        request: StorePurchaseRequest,
+        *,
+        expected_account_binding_id: str,
+        now: datetime | None = None,
+    ) -> SubscriptionSnapshot:
+        verified, package = self.verify_purchase(
+            request, expected_account_binding_id=expected_account_binding_id
+        )
         current = now or datetime.now(timezone.utc)
         active = verified.expires_at is None or current < verified.expires_at
-        return SubscriptionSnapshot(
-            product.package,
-            active=active,
-            expires_at=verified.expires_at,
+        return SubscriptionSnapshot(package, active=active, expires_at=verified.expires_at)
+
+    def verify_and_persist(
+        self,
+        request: StorePurchaseRequest,
+        *,
+        subject_id: str,
+        expected_account_binding_id: str,
+        repository,
+        now: datetime | None = None,
+    ) -> SubscriptionSnapshot:
+        """Verify with the provider first, persist facts second, then return the entitlement."""
+        verified, package = self.verify_purchase(
+            request, expected_account_binding_id=expected_account_binding_id
         )
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            raise ValueError("now must be timezone-aware")
+        repository.save_verified_purchase(
+            subject_id=subject_id,
+            request=request,
+            purchase=verified,
+            package=package,
+            verified_at=current,
+        )
+        active = verified.expires_at is None or current < verified.expires_at
+        return SubscriptionSnapshot(package, active=active, expires_at=verified.expires_at)
