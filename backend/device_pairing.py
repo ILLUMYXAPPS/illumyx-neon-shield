@@ -77,7 +77,38 @@ class DevicePairingRepository:
             cursor.close()
             if close: connection.close()
 
-    def approve(self, request_id, subject_id, code_hash, now, allowance=None, allowance_resolver=None):
+    def _append_audit_fingerprint(self, connection, event_type, subject_id, device_fingerprint, occurred_at):
+        """Append an audit event using the caller's transaction and connection."""
+        cursor = connection.cursor()
+        try:
+            lock = getattr(self.store, '_audit_lock_clause', '')
+            # Serialize audit-chain writers on the stable singleton row. The
+            # pairing transaction already owns this connection, so a failure
+            # here also rolls back the device approval.
+            cursor.execute(self._sql('UPDATE audit_chain_head SET event_hash=event_hash WHERE chain_id=1'))
+            cursor.execute(self._sql('SELECT event_hash FROM audit_chain_head WHERE chain_id=1' + lock))
+            row = cursor.fetchone()
+            if row is None:
+                raise RuntimeError('audit chain head is missing; run migrations')
+            previous_hash = row[0] if not isinstance(row, dict) else row['event_hash']
+            event_hash = hashlib.sha256(
+                f"{event_type}|{occurred_at}|{subject_id or ''}|{device_fingerprint}|{previous_hash}".encode()
+            ).hexdigest()
+            cursor.execute(
+                self._sql('INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)'),
+                (event_hash, event_type, occurred_at, subject_id, device_fingerprint, previous_hash),
+            )
+            cursor.execute(
+                self._sql('UPDATE audit_chain_head SET event_hash=? WHERE chain_id=1'),
+                (event_hash,),
+            )
+            if getattr(cursor, 'rowcount', 1) != 1:
+                raise RuntimeError('audit chain head update did not affect exactly one row')
+            return event_hash
+        finally:
+            cursor.close()
+
+    def approve(self, request_id, subject_id, code_hash, now, allowance=None, allowance_resolver=None, audit_fingerprint=None):
         connection, close = self._connection(); cursor = connection.cursor()
         try:
             self._begin(connection)
@@ -115,6 +146,14 @@ class DevicePairingRepository:
                 connection.rollback(); raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
             cursor.execute(self._sql('INSERT INTO devices(subject_id,device_hash,trusted,created_at) VALUES(?,?,1,?) ON CONFLICT(subject_id,device_hash) DO UPDATE SET trusted=1,created_at=excluded.created_at'), (subject_id, row['device_hash'], now.isoformat()))
             cursor.execute(self._sql('INSERT INTO device_labels(subject_id,device_hash,device_name,updated_at) VALUES(?,?,?,?) ON CONFLICT(subject_id,device_hash) DO UPDATE SET device_name=excluded.device_name,updated_at=excluded.updated_at'), (subject_id, row['device_hash'], row['device_name'], now.isoformat()))
+            if audit_fingerprint is not None:
+                self._append_audit_fingerprint(
+                    connection,
+                    'device_pairing_approved',
+                    subject_id,
+                    audit_fingerprint,
+                    datetime.now(timezone.utc).isoformat(),
+                )
             connection.commit()
             return row['device_hash']
         except Exception:
@@ -253,8 +292,8 @@ class DevicePairingService:
             code_hash,
             datetime.now(timezone.utc),
             allowance_resolver=self.allowance_resolver,
+            audit_fingerprint=session.device_id,
         )
-        self.store.add_audit_fingerprint('device_pairing_approved', session.subject_id, session.device_id)
         return {'status': 'approved'}
 
     def devices(self, session):
