@@ -91,6 +91,13 @@ class GooglePlayVerifierTests(unittest.TestCase):
         self.assertEqual(len(result.original_transaction_id), 64)
         self.assertEqual(result.account_binding_id, "server-account-binding")
 
+    def test_linked_purchase_token_is_returned_as_keyed_digest(self):
+        self.publisher.api.v2.response["linkedPurchaseToken"] = "previous-token"
+        result = self.verifier.verify(self.request)
+        self.assertIsNotNone(result.replaces_original_transaction_id)
+        self.assertEqual(len(result.replaces_original_transaction_id), 64)
+        self.assertNotEqual(result.replaces_original_transaction_id, "previous-token")
+
     def test_account_binding_mismatch_rejected(self):
         self.publisher.api.v2.response["externalAccountIdentifiers"][
             "obfuscatedExternalAccountId"
