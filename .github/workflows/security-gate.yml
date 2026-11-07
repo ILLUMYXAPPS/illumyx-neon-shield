@@ -58,6 +58,12 @@ jobs:
           backend.composition_test
           backend.security_monitoring_test
 
+      - name: Run subscription, Family and device-pairing tests
+        run: >-
+          python -m unittest -v
+          backend.device_allowance_test
+          backend.device_pairing_test
+
       - name: Reject obvious private-key material
         shell: bash
         run: |
