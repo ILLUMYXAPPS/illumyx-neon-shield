@@ -106,9 +106,9 @@ class DeviceAllowanceResolverTests(unittest.TestCase):
         self.assertEqual(allowance.family_total_device_count, 9)
         DeviceLimitPolicy.assert_can_add_device(allowance)
 
-        self.devices("member-3", 1)
+        self.devices("owner", 1)
         allowance = self.resolve("member-3")
-        self.assertEqual(allowance.member_device_count, 2)
+        self.assertEqual(allowance.member_device_count, 1)
         self.assertEqual(allowance.family_total_device_count, 10)
         with self.assertRaises(DeviceLimitExceeded):
             DeviceLimitPolicy.assert_can_add_device(allowance)
