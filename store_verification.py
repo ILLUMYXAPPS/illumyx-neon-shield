@@ -44,6 +44,7 @@ class VerifiedStorePurchase:
     expires_at: datetime | None
     revoked: bool = False
     environment: str = "production"
+    replaces_original_transaction_id: str | None = None
 
     def __post_init__(self) -> None:
         required = (
@@ -351,6 +352,11 @@ class GooglePlayVerifier:
         token_digest = hmac.new(
             self._token_key, request.purchase_token.encode("utf-8"), hashlib.sha256
         ).hexdigest()
+        linked_token = response.get("linkedPurchaseToken")
+        linked_digest = (
+            hmac.new(self._token_key, linked_token.encode("utf-8"), hashlib.sha256).hexdigest()
+            if isinstance(linked_token, str) and linked_token.strip() else None
+        )
         return VerifiedStorePurchase(
             provider=StoreProvider.GOOGLE_PLAY,
             product_id=request.product_id,
@@ -361,6 +367,7 @@ class GooglePlayVerifier:
             expires_at=expiry,
             revoked=revoked,
             environment="production",
+            replaces_original_transaction_id=linked_digest,
         )
 
 
