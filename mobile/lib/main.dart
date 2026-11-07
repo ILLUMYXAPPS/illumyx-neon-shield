@@ -317,7 +317,9 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
   @override
   void didUpdateWidget(covariant ShieldDashboard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialFamilyInvitationCode != widget.initialFamilyInvitationCode) {
+    if (widget.initialFamilyInvitationCode == null) {
+      _handledFamilyInvitationCode = null;
+    } else if (oldWidget.initialFamilyInvitationCode != widget.initialFamilyInvitationCode) {
       _openFamilyInvitationIfNeeded();
     }
   }
