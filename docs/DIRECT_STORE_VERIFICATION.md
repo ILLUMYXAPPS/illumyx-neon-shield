@@ -80,3 +80,26 @@ envelope. It does not yet expose a public notification endpoint or update
 subscription state from notification events. Those steps remain a separate
 server-side integration task. The official library's `verifyReceipt` legacy
 path is not used.
+
+
+## Authenticated purchase verification API
+
+`POST /v1/store/verify-purchase` requires a live Neon Shield bearer session.
+The request contains the provider, signed purchase evidence, product ID and
+application ID. The server resolves the authenticated session, obtains the
+stable account binding from `AuthenticatedStoreAccountBindingService`, and
+constructs the verification request itself. Client-supplied subject IDs and
+account-binding IDs are ignored. The normalized verified purchase is saved
+through `StoreSubscriptionRepository` before a package snapshot is returned.
+An absent provider verifier or repository fails closed with HTTP 503; rejected
+purchase evidence returns HTTP 400 and never grants paid access.
+
+Production composition can construct `StoreSubscriptionRepository` from the
+same injected managed database connection factory used by authentication and
+account bindings. A provider-configured `StoreVerificationService` must still
+be injected with the exact App Store Connect product catalogue and an
+`AppleStoreKitVerifier` built from provisioned Apple Root Certificates and
+the real numeric App Store app ID. These values are deliberately not guessed
+or committed. The API route is now implemented, but it is not production-live
+until hosting, database migrations, provider configuration, and HTTPS
+deployment are completed.
