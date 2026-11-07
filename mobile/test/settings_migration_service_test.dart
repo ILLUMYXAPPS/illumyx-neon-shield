@@ -88,6 +88,39 @@ void main() {
     expect(preferences.getString('customer.custom.future_setting'), 'keep-me');
   });
 
+  test('an unset legacy Protection Clipboard choice remains opted out', () async {
+    // Existing installs with no explicit saved choice must not inherit the
+    // historical ON default as implied customer consent.
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'neon_shield.settings_schema_version': 0,
+      'neon_shield.protection_profile': 'balanced',
+      'neon_shield.onboarding_complete': true,
+    });
+
+    await SettingsMigrationService().migrate();
+
+    final clipboard = ProtectionClipboardService();
+    expect(await clipboard.loadEnabled(), isFalse);
+    expect((await clipboard.loadControls()).values, everyElement(isFalse));
+  });
+
+  test('an explicitly enabled legacy choice survives migration unchanged', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'neon_shield.settings_schema_version': 0,
+      'neon_shield.protection_clipboard.enabled': true,
+      'neon_shield.protection_clipboard.control.device_security': true,
+      'neon_shield.protection_clipboard.control.privacy_protection': false,
+    });
+
+    await SettingsMigrationService().migrate();
+
+    final clipboard = ProtectionClipboardService();
+    expect(await clipboard.loadEnabled(), isTrue);
+    final controls = await clipboard.loadControls();
+    expect(controls['device_security'], isTrue);
+    expect(controls['privacy_protection'], isFalse);
+  });
+
   test('successful migrations run only once', () async {
     var calls = 0;
     final service = SettingsMigrationService(migrations: [
