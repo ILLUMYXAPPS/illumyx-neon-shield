@@ -90,6 +90,10 @@ class MigrationRunner:
         cursor = connection.cursor()
         try:
             self._create_metadata_table(cursor)
+            # Keep metadata-table bootstrap separate, then make every pending
+            # schema change and its version record one atomic transaction.
+            connection.commit()
+            cursor.execute("BEGIN")
             cursor.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version")
             applied = tuple((int(version), name) for version, name in cursor.fetchall())
             known = {migration.version: migration.name for migration in self._migrations}
