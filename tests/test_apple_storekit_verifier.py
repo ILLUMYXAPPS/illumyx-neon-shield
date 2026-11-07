@@ -1,5 +1,4 @@
 """Tests for the Apple StoreKit 2 signed transaction adapter."""
-from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
 
