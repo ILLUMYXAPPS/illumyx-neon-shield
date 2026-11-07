@@ -40,6 +40,16 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Cache Android Gradle dependencies
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-android-gradle-${{ hashFiles('mobile/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-android-gradle-
+
       - name: Generate Android project
         working-directory: mobile
         run: flutter create --platforms=android --org com.illumyx --project-name illumyxapp .
@@ -71,12 +81,19 @@ jobs:
           gradle_file.write_text(content)
           PY
 
-      - name: Resolve dependencies and build debug APK
+      - name: Resolve Flutter dependencies
         working-directory: mobile
-        run: |
-          flutter pub get
-          flutter analyze
-          flutter build apk --debug
+        run: flutter pub get
+
+      - name: Analyze Flutter code
+        working-directory: mobile
+        run: flutter analyze
+
+      - name: Build Android debug APK
+        working-directory: mobile
+        env:
+          GRADLE_OPTS: -Dorg.gradle.parallel=true -Dorg.gradle.caching=true
+        run: flutter build apk --debug
 
       - name: Boot Android emulator and verify app launch
         uses: reactivecircus/android-emulator-runner@v2
@@ -85,7 +102,11 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          cores: 4
+          ram-size: 4096M
+          heap-size: 1024M
+          emulator-boot-timeout: 300
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-metrics
           disable-animations: true
           script: |
             set -euo pipefail
