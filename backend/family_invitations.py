@@ -23,6 +23,12 @@ class FamilyInvitationService:
 
     MAX_MEMBERS = 5
     INVITATION_TTL = timedelta(days=7)
+    RATE_LIMITS = {
+        "create": (5, 3600),
+        "accept": (10, 900),
+        "list": (60, 60),
+        "revoke": (20, 3600),
+    }
 
     def __init__(self, connection_factory, subscription_repository, *, placeholder: str = "%s") -> None:
         if placeholder not in {"%s", "?", ":1"}:
@@ -52,6 +58,74 @@ class FamilyInvitationService:
         if cursor.fetchone() is None:
             raise FamilyInvitationError("account_not_found", 404)
 
+    def _reserve_rate_limit(self, action: str, subject_id: str) -> None:
+        """Persist an operation reservation independently so rejected requests count too."""
+        limit, window_seconds = self.RATE_LIMITS[action]
+        identity_hash = hashlib.sha256(
+            f"family-invitations:{action}:{subject_id}".encode("utf-8")
+        ).hexdigest()
+        now = datetime.now(timezone.utc)
+        now_text = now.isoformat()
+        connection = self._connect()
+        cursor = connection.cursor()
+        try:
+            self._begin(connection)
+            lock = "" if self._placeholder == "?" else " FOR UPDATE"
+            cursor.execute(self._sql(
+                "SELECT failure_count,window_started_at FROM sign_in_rate_limits WHERE identity_hash=?" + lock
+            ), (identity_hash,))
+            row = cursor.fetchone()
+            if row is None:
+                count = 1
+                cursor.execute(self._sql(
+                    "INSERT INTO sign_in_rate_limits(identity_hash,failure_count,window_started_at) VALUES(?,?,?)"
+                ), (identity_hash, count, now_text))
+            else:
+                count_value = row[0] if not isinstance(row, dict) else row["failure_count"]
+                started_value = row[1] if not isinstance(row, dict) else row["window_started_at"]
+                if now.timestamp() - datetime.fromisoformat(started_value).timestamp() >= window_seconds:
+                    count = 1
+                    cursor.execute(self._sql(
+                        "UPDATE sign_in_rate_limits SET failure_count=1,window_started_at=? WHERE identity_hash=?"
+                    ), (now_text, identity_hash))
+                else:
+                    count = int(count_value) + 1
+                    cursor.execute(self._sql(
+                        "UPDATE sign_in_rate_limits SET failure_count=? WHERE identity_hash=?"
+                    ), (count, identity_hash))
+            connection.commit()
+            if count > limit:
+                raise FamilyInvitationError("family_invitation_rate_limited", 429)
+        except FamilyInvitationError:
+            raise
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            cursor.close()
+            connection.close()
+
+    @staticmethod
+    def _audit(cursor: Any, placeholder: str, event_type: str, subject_id: str) -> None:
+        """Append a privacy-safe event to the existing hash-chained audit ledger."""
+        occurred_at = datetime.now(timezone.utc).isoformat()
+        lock = "" if placeholder == "?" else " FOR UPDATE"
+        cursor.execute(
+            "SELECT event_hash FROM audit_events ORDER BY occurred_at DESC,event_hash DESC LIMIT 1" + lock
+        )
+        row = cursor.fetchone()
+        previous_hash = (row[0] if not isinstance(row, dict) else row["event_hash"]) if row else "0" * 64
+        fingerprint = hashlib.sha256(f"family-actor:{subject_id}".encode("utf-8")).hexdigest()
+        event_hash = hashlib.sha256(
+            f"{event_type}|{occurred_at}|{subject_id}|{fingerprint}|{previous_hash}".encode("utf-8")
+        ).hexdigest()
+        marker = placeholder
+        cursor.execute(
+            "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) "
+            f"VALUES({marker},{marker},{marker},{marker},{marker},{marker})",
+            (event_hash, event_type, occurred_at, subject_id, fingerprint, previous_hash),
+        )
+
     def _require_family_entitlement(self, connection: Any, owner_subject_id: str) -> None:
         reader = getattr(self._subscriptions, "get_subscription_snapshot_in_transaction", None)
         if not callable(reader):
@@ -63,6 +137,7 @@ class FamilyInvitationService:
     def create_invitation(self, owner_subject_id: str) -> dict[str, str]:
         if not owner_subject_id or not owner_subject_id.strip():
             raise ValueError("authenticated owner is required")
+        self._reserve_rate_limit("create", owner_subject_id)
         now = datetime.now(timezone.utc)
         created_at = now.isoformat()
         expires_at = (now + self.INVITATION_TTL).isoformat()
@@ -109,6 +184,7 @@ class FamilyInvitationService:
                 "(invitation_id,owner_subject_id,token_hash,status,created_at,expires_at) "
                 "VALUES(?,?,?,'pending',?,?)"
             ), (invitation_id, owner_subject_id, token_hash, created_at, expires_at))
+            self._audit(cursor, self._placeholder, "family_invitation_created", owner_subject_id)
             connection.commit()
             # The raw code is returned exactly once. Only its SHA-256 hash is stored.
             return {
@@ -128,6 +204,7 @@ class FamilyInvitationService:
             raise ValueError("authenticated member is required")
         if not isinstance(invitation_code, str) or not invitation_code or len(invitation_code) > 128:
             raise FamilyInvitationError("invalid_invitation")
+        self._reserve_rate_limit("accept", member_subject_id)
         token_hash = hashlib.sha256(invitation_code.encode("utf-8")).hexdigest()
         connection = self._connect()
         cursor = connection.cursor()
@@ -161,6 +238,7 @@ class FamilyInvitationService:
                 cursor.execute(self._sql(
                     "UPDATE family_invitations SET status='expired' WHERE invitation_id=? AND status='pending'"
                 ), (invitation["invitation_id"],))
+                self._audit(cursor, self._placeholder, "family_invitation_expired", owner_subject_id)
                 connection.commit()
                 raise FamilyInvitationError("invitation_expired", 410)
             self._require_family_entitlement(connection, owner_subject_id)
@@ -200,6 +278,7 @@ class FamilyInvitationService:
                     "(owner_subject_id,member_subject_id,role,status,created_at) "
                     "VALUES(?,?,'member','active',?)"
                 ), (owner_subject_id, member_subject_id, now.isoformat()))
+            self._audit(cursor, self._placeholder, "family_invitation_accepted", member_subject_id)
             connection.commit()
             return {"status": "accepted"}
         except Exception:
@@ -213,6 +292,7 @@ class FamilyInvitationService:
         """List only non-secret invitation metadata for the authenticated household owner."""
         if not owner_subject_id or not owner_subject_id.strip():
             raise ValueError("authenticated owner is required")
+        self._reserve_rate_limit("list", owner_subject_id)
         connection = self._connect()
         cursor = connection.cursor()
         try:
@@ -242,6 +322,7 @@ class FamilyInvitationService:
     def revoke_invitation(self, owner_subject_id: str, invitation_id: str) -> bool:
         if not owner_subject_id or not owner_subject_id.strip() or not invitation_id:
             raise ValueError("authenticated owner and invitation are required")
+        self._reserve_rate_limit("revoke", owner_subject_id)
         connection = self._connect()
         cursor = connection.cursor()
         try:
@@ -252,6 +333,8 @@ class FamilyInvitationService:
                 "WHERE invitation_id=? AND owner_subject_id=? AND status='pending'"
             ), (invitation_id, owner_subject_id))
             changed = getattr(cursor, "rowcount", 0) == 1
+            if changed:
+                self._audit(cursor, self._placeholder, "family_invitation_revoked", owner_subject_id)
             connection.commit()
             return changed
         except Exception:
