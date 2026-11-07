@@ -187,7 +187,7 @@ class DevicePairingRepository:
             cursor.close()
             if close: connection.close()
 
-    def unlink_device(self, subject_id, device_ref):
+    def unlink_device(self, subject_id, device_ref, audit_fingerprint=None):
         devices = self._device_rows(subject_id)
         match = next((row for row in devices if hmac.compare_digest(self._ref(row['device_hash']), device_ref)), None)
         if match is None: raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
@@ -196,6 +196,14 @@ class DevicePairingRepository:
             self._begin(connection)
             cursor.execute(self._sql('UPDATE devices SET trusted=0 WHERE subject_id=? AND device_hash=?'), (subject_id, match['device_hash']))
             cursor.execute(self._sql('UPDATE sessions SET revoked=1 WHERE subject_id=? AND device_hash=? AND revoked=0'), (subject_id, match['device_hash']))
+            if audit_fingerprint is not None:
+                self._append_audit_fingerprint(
+                    connection,
+                    'device_unlinked',
+                    subject_id,
+                    audit_fingerprint,
+                    datetime.now(timezone.utc).isoformat(),
+                )
             connection.commit()
         except Exception:
             connection.rollback(); raise
@@ -311,5 +319,6 @@ class DevicePairingService:
         own_ref = self.repository._ref(session.device_id)
         if hmac.compare_digest(own_ref, device_ref):
             raise ValueError('current device cannot unlink itself')
-        self.repository.unlink_device(session.subject_id, device_ref)
-        self.store.add_audit_fingerprint('device_unlinked', session.subject_id, session.device_id)
+        self.repository.unlink_device(
+            session.subject_id, device_ref, audit_fingerprint=session.device_id
+        )
