@@ -52,7 +52,7 @@ class DevicePairingTests(unittest.TestCase):
         self.assertEqual(sign_in_error.exception.failure, AuthFailure.UNTRUSTED_DEVICE)
 
     def test_verified_premium_allowance_blocks_fourth_device_before_trust(self):
-        self.service.device_allowance_resolver = lambda subject_id, request_id: DeviceAllowance(
+        self.pairing.allowance_resolver = lambda subject_id, request_id: DeviceAllowance(
             DevicePackage.PREMIUM, 3
         )
         started = self.pairing.start(
