@@ -87,6 +87,35 @@ class VerifiedDeviceAllowanceResolver:
 
         cursor.execute(
             self._sql(
+                "SELECT COUNT(*) FROM family_memberships "
+                "WHERE owner_subject_id=? AND status='active'"
+            ),
+            (owner_subject_id,),
+        )
+        member_rows = cursor.fetchone()
+        active_members = int(
+            member_rows[0] if not isinstance(member_rows, dict)
+            else next(iter(member_rows.values()))
+        )
+        if active_members > 4:
+            raise DeviceAllowanceConfigurationError(
+                "family membership exceeds the five-person household limit"
+            )
+        if membership:
+            cursor.execute(
+                self._sql(
+                    "SELECT 1 FROM family_memberships "
+                    "WHERE owner_subject_id=? AND status='active'"
+                ),
+                (subject_id,),
+            )
+            if cursor.fetchone() is not None:
+                raise DeviceAllowanceConfigurationError(
+                    "an account cannot be both a family owner and member"
+                )
+
+        cursor.execute(
+            self._sql(
                 "SELECT COUNT(*) FROM devices d "
                 "LEFT JOIN family_memberships fm "
                 "ON fm.member_subject_id=d.subject_id AND fm.status='active' "
