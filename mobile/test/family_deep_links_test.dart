@@ -50,6 +50,16 @@ void main() {
     );
   });
 
+  test('rejects invitation codes longer than the backend limit', () {
+    expect(
+      FamilyInvitationLink.codeFrom(
+        Uri(scheme: 'neonshield', host: 'family', path: '/invite',
+            queryParameters: {'code': 'x' * 129}),
+      ),
+      isNull,
+    );
+  });
+
   test('rejects empty invitation code when creating a link', () {
     expect(() => FamilyInvitationLink.create(' '), throwsArgumentError);
   });
