@@ -1,5 +1,8 @@
 name: Neon Shield iOS Cloud Simulator
 
+env:
+  APP_BUNDLE_ID: com.illumyx.illumyxapp
+
 on:
   workflow_dispatch:
   schedule:
