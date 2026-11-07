@@ -1,14 +1,11 @@
 name: Neon Shield Desktop Cloud Smoke
 
 on:
+  workflow_call:
   workflow_dispatch:
   schedule:
     # Weekly desktop regression check, Monday 12:30 Brisbane (UTC+10).
     - cron: '30 2 * * 1'
-  pull_request:
-    paths:
-      - "mobile/**"
-      - ".github/workflows/desktop-cloud-smoke.yml"
   push:
     branches:
       - "main"
