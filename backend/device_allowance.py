@@ -107,3 +107,142 @@ class VerifiedDeviceAllowanceResolver:
         row = cursor.fetchone()
         return int(row[0] if not isinstance(row, dict) else next(iter(row.values())))
 
+
+class FamilyMembershipRepository:
+    """Trusted server-side family membership writes after invitation acceptance.
+
+    This repository intentionally exposes no client-controlled subject-ID
+    endpoint. The calling invitation workflow must authenticate acceptance
+    before invoking add_member().
+    """
+
+    def __init__(
+        self, connection_factory, *, placeholder: str = "%s",
+        lock_clause: str = " FOR UPDATE",
+    ):
+        if placeholder not in {"%s", "?", ":1"}:
+            raise ValueError("unsupported DB-API placeholder")
+        if lock_clause not in {"", " FOR UPDATE"}:
+            raise ValueError("unsupported row lock clause")
+        self._connect = connection_factory
+        self._placeholder = placeholder
+        self._lock_clause = lock_clause
+
+    def _sql(self, query: str) -> str:
+        return query.replace("?", self._placeholder)
+
+    def add_member(self, *, owner_subject_id: str, member_subject_id: str) -> None:
+        if (not owner_subject_id or not member_subject_id
+                or owner_subject_id == member_subject_id):
+            raise ValueError("distinct owner and member accounts are required")
+        connection = self._connect()
+        cursor = connection.cursor()
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            cursor.execute(
+                self._sql(
+                    "SELECT package FROM verified_subscriptions "
+                    "WHERE subject_id=? AND revoked=0 "
+                    "AND (expires_at IS NULL OR expires_at>?) "
+                    "ORDER BY verified_at DESC LIMIT 1" + self._lock_clause
+                ),
+                (owner_subject_id, now),
+            )
+            subscription = cursor.fetchone()
+            if subscription is None or (
+                subscription[0] if not isinstance(subscription, dict)
+                else subscription["package"]
+            ) != DevicePackage.PREMIUM_FAMILY.value:
+                raise DeviceAllowanceConfigurationError(
+                    "an active verified Premium Family subscription is required"
+                )
+
+            cursor.execute(
+                self._sql(
+                    "SELECT COUNT(*) FROM family_memberships "
+                    "WHERE owner_subject_id=? AND status='active'"
+                ),
+                (owner_subject_id,),
+            )
+            count_row = cursor.fetchone()
+            count = int(count_row[0] if not isinstance(count_row, dict)
+                        else next(iter(count_row.values())))
+            if count >= 4:
+                raise DeviceAllowanceConfigurationError(
+                    "Premium Family is limited to five people including the owner"
+                )
+
+            cursor.execute(
+                self._sql(
+                    "SELECT 1 FROM family_memberships "
+                    "WHERE member_subject_id=? AND status='active'"
+                ),
+                (owner_subject_id,),
+            )
+            if cursor.fetchone() is not None:
+                raise DeviceAllowanceConfigurationError(
+                    "a family member cannot also own a family household"
+                )
+            cursor.execute(
+                self._sql(
+                    "SELECT 1 FROM family_memberships "
+                    "WHERE member_subject_id=? AND status='active'"
+                ),
+                (member_subject_id,),
+            )
+            if cursor.fetchone() is not None:
+                raise DeviceAllowanceConfigurationError(
+                    "this account already belongs to a family"
+                )
+            cursor.execute(
+                self._sql(
+                    "SELECT 1 FROM family_memberships "
+                    "WHERE owner_subject_id=? AND status='active'"
+                ),
+                (member_subject_id,),
+            )
+            if cursor.fetchone() is not None:
+                raise DeviceAllowanceConfigurationError(
+                    "a family owner cannot join another household"
+                )
+
+            cursor.execute(
+                self._sql(
+                    "INSERT INTO family_memberships "
+                    "(owner_subject_id,member_subject_id,status,created_at,updated_at) "
+                    "VALUES(?,?,'active',?,?) "
+                    "ON CONFLICT(member_subject_id) DO UPDATE SET "
+                    "owner_subject_id=excluded.owner_subject_id,status='active',"
+                    "updated_at=excluded.updated_at"
+                ),
+                (owner_subject_id, member_subject_id, now, now),
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            cursor.close()
+            connection.close()
+
+    def remove_member(self, *, owner_subject_id: str, member_subject_id: str) -> None:
+        connection = self._connect()
+        cursor = connection.cursor()
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            cursor.execute(
+                self._sql(
+                    "UPDATE family_memberships SET status='removed',updated_at=? "
+                    "WHERE owner_subject_id=? AND member_subject_id=? AND status='active'"
+                ),
+                (now, owner_subject_id, member_subject_id),
+            )
+            if getattr(cursor, "rowcount", 1) != 1:
+                raise DeviceAllowanceConfigurationError("active family membership not found")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            cursor.close()
+            connection.close()
