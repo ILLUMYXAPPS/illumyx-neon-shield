@@ -41,7 +41,7 @@ PRODUCTION_MIGRATIONS = (
             "CREATE TABLE IF NOT EXISTS store_notification_events (provider TEXT NOT NULL CHECK(provider IN ('apple','google_play')), event_id TEXT NOT NULL, event_type TEXT NOT NULL, payload_hash TEXT NOT NULL, received_at TEXT NOT NULL, processed_at TEXT, processing_status TEXT NOT NULL CHECK(processing_status IN ('received','processed','rejected')), PRIMARY KEY(provider, event_id))",
             "CREATE INDEX IF NOT EXISTS idx_store_notification_status ON store_notification_events(processing_status, received_at)",
         ),
-    ),,
+    ),
     Migration(
         5,
         "create_store_account_bindings",
