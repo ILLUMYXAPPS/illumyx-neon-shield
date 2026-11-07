@@ -73,7 +73,7 @@ class DevicePairingRepository:
             cursor.close()
             if close: connection.close()
 
-    def approve(self, request_id, subject_id, code_hash, now, allowance=None):
+    def approve(self, request_id, subject_id, code_hash, now, allowance=None, allowance_resolver=None):
         connection, close = self._connection(); cursor = connection.cursor()
         try:
             self._begin(connection)
@@ -91,6 +91,16 @@ class DevicePairingRepository:
             if not valid:
                 cursor.execute(self._sql('UPDATE device_pairing_requests SET attempts=attempts+1 WHERE request_id=?'), (request_id,)); connection.commit()
                 raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
+            # Resolve authoritative entitlements and device counts while the pairing
+            # approval transaction is holding its database lock. Production resolvers
+            # should implement resolve_for_approval(connection, subject_id, request_id)
+            # so the trusted-device counts are read from this same transaction.
+            if allowance_resolver is not None:
+                transactional_resolver = getattr(allowance_resolver, 'resolve_for_approval', None)
+                if transactional_resolver is None:
+                    connection.rollback()
+                    raise RuntimeError('device allowance resolver must support transactional approval')
+                allowance = transactional_resolver(connection, subject_id, request_id)
             if allowance is not None:
                 if not isinstance(allowance, DeviceAllowance):
                     connection.rollback()
@@ -172,8 +182,11 @@ class DevicePairingService:
         self.identity_service = identity_service
         self.allowance_resolver = getattr(identity_service, 'device_allowance_resolver', None)
         import os
-        if os.environ.get('NEON_AUTH_ENV') == 'production' and self.allowance_resolver is None:
-            raise RuntimeError('production device pairing requires a verified device allowance resolver')
+        if os.environ.get('NEON_AUTH_ENV') == 'production':
+            if self.allowance_resolver is None:
+                raise RuntimeError('production device pairing requires a verified device allowance resolver')
+            if not callable(getattr(self.allowance_resolver, 'resolve_for_approval', None)):
+                raise RuntimeError('production device allowance resolver must support transactional approval')
         self.store = identity_service.store
         self.repository = DevicePairingRepository(self.store)
         self.pepper = self.repository.pepper
@@ -230,11 +243,12 @@ class DevicePairingService:
         if not isinstance(pairing_code, str) or not pairing_code.isdigit() or len(pairing_code) != 6:
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         code_hash = hmac.new(self.pepper.encode(), ('pair-code:' + pairing_code).encode(), hashlib.sha256).hexdigest()
-        allowance = None
-        if self.allowance_resolver is not None:
-            allowance = self.allowance_resolver(session.subject_id, request_id)
         self.repository.approve(
-            request_id, session.subject_id, code_hash, datetime.now(timezone.utc), allowance=allowance
+            request_id,
+            session.subject_id,
+            code_hash,
+            datetime.now(timezone.utc),
+            allowance_resolver=self.allowance_resolver,
         )
         self.store.add_audit_fingerprint('device_pairing_approved', session.subject_id, session.device_id)
         return {'status': 'approved'}
