@@ -17,7 +17,7 @@ class MigrationRunnerTests(unittest.TestCase):
             path = Path(directory) / "production-migrations.sqlite3"
             runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
             self.assertEqual(runner.apply_pending(), 7)
-            self.assertEqual(runner.apply_pending(), 5)
+            self.assertEqual(runner.apply_pending(), 7)
             connection = sqlite3.connect(path)
             try:
                 table = connection.execute(
