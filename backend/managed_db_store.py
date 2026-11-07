@@ -263,9 +263,11 @@ class ManagedDbAuthStore(ManagedAuthStore):
 
     def last_audit_hash(self) -> str:
         with self._cursor() as (_, cursor):
-            cursor.execute("SELECT event_hash FROM audit_events ORDER BY occurred_at DESC, event_hash DESC LIMIT 1")
+            cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1")
             row = cursor.fetchone()
-            return row[0] if row else "0" * 64
+            if row is None:
+                raise RuntimeError("audit chain head is missing; run production migrations")
+            return row[0]
 
     def add_audit(self, event_type: str, subject_id: str | None, device_id: str) -> str:
         return self.add_audit_fingerprint(event_type, subject_id, _hash(device_id, self._pepper))
@@ -273,10 +275,17 @@ class ManagedDbAuthStore(ManagedAuthStore):
     def add_audit_fingerprint(self, event_type: str, subject_id: str | None, device_fingerprint: str) -> str:
         occurred_at = _now()
         with self._cursor() as (connection, cursor):
-            cursor.execute("SELECT event_hash FROM audit_events ORDER BY occurred_at DESC, event_hash DESC LIMIT 1" + self._audit_lock_clause)
+            # Lock the stable singleton row, including when the event ledger is empty.
+            cursor.execute("UPDATE audit_chain_head SET event_hash=event_hash WHERE chain_id=1")
+            cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1" + self._audit_lock_clause)
             row = cursor.fetchone()
-            previous_hash = row[0] if row else "0" * 64
+            if row is None:
+                raise RuntimeError("audit chain head is missing; run production migrations")
+            previous_hash = row[0]
             event_hash = hashlib.sha256(f"{event_type}|{occurred_at}|{subject_id or ''}|{device_fingerprint}|{previous_hash}".encode()).hexdigest()
             cursor.execute(self._sql("INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)"), (event_hash, event_type, occurred_at, subject_id, device_fingerprint, previous_hash))
+            cursor.execute(self._sql("UPDATE audit_chain_head SET event_hash=? WHERE chain_id=1"), (event_hash,))
+            if getattr(cursor, "rowcount", 1) != 1:
+                raise RuntimeError("audit chain head update did not affect exactly one row")
             connection.commit()
             return event_hash
