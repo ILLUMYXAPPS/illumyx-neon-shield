@@ -11,7 +11,7 @@ from backend.migrations import MigrationRunner
 from backend.production_migrations import PRODUCTION_MIGRATIONS
 from backend.subscription_store import StoreSubscriptionRepository, SubscriptionPersistenceError
 from entitlements import Package
-from store_verification import StoreProvider, StorePurchaseRequest, VerifiedStorePurchase
+from store_verification import (StoreProduct, StoreProvider, StorePurchaseRequest, StoreVerificationService, VerifiedStorePurchase)
 
 
 NOW = datetime(2026, 11, 7, 10, 0, tzinfo=timezone.utc)
@@ -103,6 +103,32 @@ class StoreSubscriptionRepositoryTests(unittest.TestCase):
         self.assertIs(
             self.repository.get_subscription_snapshot("subject-1", now=NOW).package,
             Package.FREE,
+        )
+
+
+    def test_verification_service_persists_before_returning_entitlement(self):
+        class Verifier:
+            def verify(inner_self, request):
+                return self.purchase
+
+        service = StoreVerificationService(
+            apple_verifier=Verifier(),
+            products=(StoreProduct(
+                StoreProvider.APPLE, "premium.monthly",
+                "com.illumyx.illumyxapp", Package.PREMIUM,
+            ),),
+        )
+        snapshot = service.verify_and_persist(
+            self.request,
+            subject_id="subject-1",
+            expected_account_binding_id="account-binding-1",
+            repository=self.repository,
+            now=NOW,
+        )
+        self.assertIs(snapshot.package, Package.PREMIUM)
+        self.assertIs(
+            self.repository.get_subscription_snapshot("subject-1", now=NOW).package,
+            Package.PREMIUM,
         )
 
 
