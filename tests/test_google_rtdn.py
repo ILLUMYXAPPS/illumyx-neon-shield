@@ -2,6 +2,7 @@
 import base64
 import json
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import Mock
 
 from store_notifications import GoogleRtdnProcessor
@@ -48,6 +49,7 @@ class GoogleRtdnProcessorTests(unittest.TestCase):
     def test_authenticated_rtdn_reconciles_purchase_and_records_event(self):
         payload = {
             "packageName": "com.illumyx.illumyxapp",
+            "eventTimeMillis": "1893456000000",
             "subscriptionNotification": {
                 "notificationType": 2,
                 "purchaseToken": "google-token",
@@ -62,6 +64,10 @@ class GoogleRtdnProcessorTests(unittest.TestCase):
         self.assertEqual(
             self.verification.verify_and_persist.call_args.kwargs["subject_id"],
             "subject-1",
+        )
+        self.assertEqual(
+            self.verification.verify_and_persist.call_args.kwargs["verified_at"],
+            datetime(2030, 1, 1, tzinfo=timezone.utc),
         )
         self.repository.record_notification.assert_called_once()
 
@@ -90,6 +96,7 @@ class GoogleRtdnProcessorTests(unittest.TestCase):
         self.bindings.get_subject_for_binding.return_value = None
         payload = {
             "packageName": "com.illumyx.illumyxapp",
+            "eventTimeMillis": "1893456000000",
             "subscriptionNotification": {
                 "notificationType": 2, "purchaseToken": "google-token",
                 "subscriptionId": "premium.monthly",
