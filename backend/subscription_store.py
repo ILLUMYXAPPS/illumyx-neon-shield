@@ -46,7 +46,7 @@ class StoreSubscriptionRepository:
         self, *, subject_id: str, request: StorePurchaseRequest,
         purchase: VerifiedStorePurchase, package: Package,
         verified_at: datetime | None = None,
-    ) -> None:
+    ) -> bool:
         """Save verified facts, never raw purchase tokens; transaction IDs cannot move accounts."""
         if not subject_id or not subject_id.strip():
             raise ValueError("authenticated subject_id is required")
