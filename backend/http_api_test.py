@@ -64,7 +64,7 @@ class StoreBindingHttpApiTests(unittest.TestCase):
     def test_returns_stable_binding_for_authenticated_session(self):
         with self.request() as response:
             self.assertEqual(response.status, 200)
-            self.assertEqual(json.loads(response.read()), {"account_binding_id": "opaque-server-binding"})
+            self.assertEqual(json.loads(response.read()), {"account_binding_id": "8e03978e-40d5-43e8-bc93-6894a57f9324"})
         self.service.resolve_session.assert_called_once_with("valid-bearer-token")
         self.binding_service.get_or_create_for_session.assert_called_once_with(
             session_id="valid-bearer-token"
@@ -75,7 +75,7 @@ class StoreBindingHttpApiTests(unittest.TestCase):
             "subject_id": "attacker-selected-subject",
             "account_binding_id": "attacker-selected-binding",
         }) as response:
-            self.assertEqual(json.loads(response.read()), {"account_binding_id": "opaque-server-binding"})
+            self.assertEqual(json.loads(response.read()), {"account_binding_id": "8e03978e-40d5-43e8-bc93-6894a57f9324"})
         self.binding_service.get_or_create_for_session.assert_called_once_with(
             session_id="valid-bearer-token"
         )
