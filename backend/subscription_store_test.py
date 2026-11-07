@@ -84,6 +84,76 @@ class StoreSubscriptionRepositoryTests(unittest.TestCase):
             Package.FREE,
         )
 
+    def test_linked_google_purchase_revokes_superseded_purchase_atomically(self):
+        old_request = StorePurchaseRequest(
+            StoreProvider.GOOGLE_PLAY, "old-google-token", "premium.monthly",
+            "com.illumyx.illumyxapp", "account-binding-1",
+        )
+        old_purchase = VerifiedStorePurchase(
+            StoreProvider.GOOGLE_PLAY, "premium.monthly", "com.illumyx.illumyxapp",
+            "account-binding-1", "old-order", "old-token-digest",
+            NOW + timedelta(days=30),
+        )
+        self.repository.save_verified_purchase(
+            subject_id="subject-1", request=old_request, purchase=old_purchase,
+            package=Package.PREMIUM, verified_at=NOW,
+        )
+        new_request = StorePurchaseRequest(
+            StoreProvider.GOOGLE_PLAY, "new-google-token", "premium.monthly",
+            "com.illumyx.illumyxapp", "account-binding-1",
+        )
+        new_purchase = VerifiedStorePurchase(
+            StoreProvider.GOOGLE_PLAY, "premium.monthly", "com.illumyx.illumyxapp",
+            "account-binding-1", "new-order", "new-token-digest",
+            NOW + timedelta(days=60),
+            replaces_original_transaction_id="old-token-digest",
+        )
+        self.repository.save_verified_purchase(
+            subject_id="subject-1", request=new_request, purchase=new_purchase,
+            package=Package.PREMIUM, verified_at=NOW,
+        )
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT original_transaction_id,revoked FROM verified_subscriptions "
+                "WHERE provider='google_play' ORDER BY original_transaction_id"
+            ).fetchall()
+        self.assertEqual(rows, [("new-token-digest", 0), ("old-token-digest", 1)])
+
+    def test_linked_google_purchase_cannot_revoke_another_accounts_purchase(self):
+        old_request = StorePurchaseRequest(
+            StoreProvider.GOOGLE_PLAY, "old-google-token", "premium.monthly",
+            "com.illumyx.illumyxapp", "account-binding-1",
+        )
+        old_purchase = VerifiedStorePurchase(
+            StoreProvider.GOOGLE_PLAY, "premium.monthly", "com.illumyx.illumyxapp",
+            "account-binding-1", "old-order", "old-token-digest",
+            NOW + timedelta(days=30),
+        )
+        self.repository.save_verified_purchase(
+            subject_id="subject-1", request=old_request, purchase=old_purchase,
+            package=Package.PREMIUM, verified_at=NOW,
+        )
+        new_request = StorePurchaseRequest(
+            StoreProvider.GOOGLE_PLAY, "new-google-token", "premium.monthly",
+            "com.illumyx.illumyxapp", "account-binding-2",
+        )
+        new_purchase = VerifiedStorePurchase(
+            StoreProvider.GOOGLE_PLAY, "premium.monthly", "com.illumyx.illumyxapp",
+            "account-binding-2", "new-order", "new-token-digest",
+            NOW + timedelta(days=60),
+            replaces_original_transaction_id="old-token-digest",
+        )
+        with self.assertRaises(SubscriptionPersistenceError):
+            self.repository.save_verified_purchase(
+                subject_id="subject-2", request=new_request, purchase=new_purchase,
+                package=Package.PREMIUM, verified_at=NOW,
+            )
+        with self.connect() as connection:
+            revoked = connection.execute(
+                "SELECT revoked FROM verified_subscriptions WHERE original_transaction_id='old-token-digest'"
+            ).fetchone()[0]
+        self.assertEqual(revoked, 0)
+
     def test_notification_is_idempotent_and_finalized_once(self):
         args = dict(provider=StoreProvider.GOOGLE_PLAY, event_id="event-1",
                     event_type="subscription.updated", payload=b"authenticated-payload", received_at=NOW)
