@@ -169,10 +169,11 @@ class StoreSubscriptionRepositoryTests(unittest.TestCase):
             subject_id="subject-1", request=self.request, purchase=newer,
             package=Package.PREMIUM, verified_at=NOW + timedelta(hours=2),
         )
-        self.repository.save_verified_purchase(
+        applied = self.repository.save_verified_purchase(
             subject_id="subject-1", request=self.request, purchase=older,
             package=Package.PREMIUM, verified_at=NOW + timedelta(hours=1),
         )
+        self.assertFalse(applied)
         with self.connect() as connection:
             row = connection.execute(
                 "SELECT transaction_id,expires_at,verified_at FROM verified_subscriptions "
