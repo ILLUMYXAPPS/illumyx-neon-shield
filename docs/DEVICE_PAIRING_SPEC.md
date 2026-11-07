@@ -42,7 +42,10 @@ The final route shapes may be adapted to existing API conventions, but the secur
 ## Entitlements and family boundary
 
 - Device limits must be checked by the server against the current subscription entitlement, never enforced only in Flutter.
-- Premium and Family device/member limits remain configurable policy values until the product owner approves exact numbers. Do not invent or hard-code a commercial limit in this feature.
+- Premium is limited to 3 active linked devices per account.
+- Premium Family supports up to 5 separate members, with 2 active linked devices per member and 10 active linked devices across the household.
+- These limits were approved by the product owner on 2026-11-07 and are represented in `backend/device_limits.py`.
+- The policy module is not yet connected to the pairing transaction. Production integration must obtain package and family-membership state from a verified server-side subscription/identity source, then count active trusted devices atomically before approval.
 - Family invitations and family-member profiles are a separate workflow. A family member must not see another member's devices, account identity, files, or security history unless explicitly shared through a defined permission model.
 
 ## Delivery sequence
@@ -50,7 +53,7 @@ The final route shapes may be adapted to existing API conventions, but the secur
 1. Backend persistence, six-digit challenge lifecycle, atomic code approval, revocation, audit events, and abuse controls.
 2. Backend API and contract tests, including expiry, replay, brute-force throttling, cross-account attempts, concurrent approvals, and revoked approvers.
 3. Flutter API contracts, a manual six-digit pairing screen, approval from an existing trusted device, and a **My Connected Devices** screen for rename/unlink.
-4. Enforce approved Premium/Family device limits through the server-side entitlement service. Exact limits remain a product decision and are not hard-coded.
+4. Connect `backend/device_limits.py` to the pairing approval transaction using verified subscription and family-membership data; perform atomic per-member and household device counts, and test concurrent approvals.
 5. Complete CI validation on Windows, macOS, Android, and iOS; then independent review and physical-device validation.
 
 ## Release boundaries
