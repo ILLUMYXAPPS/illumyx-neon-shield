@@ -56,6 +56,16 @@ class MigrationRunner:
             "name TEXT NOT NULL, "
             "applied_at TEXT NOT NULL)"
         )
+        # A stable singleton row lets concurrent deployment processes serialize
+        # migration planning even when the migration history is still empty.
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS neon_schema_migration_lock ("
+            "lock_id INTEGER PRIMARY KEY CHECK(lock_id=1))"
+        )
+        cursor.execute(
+            "INSERT INTO neon_schema_migration_lock(lock_id) VALUES(1) "
+            "ON CONFLICT(lock_id) DO NOTHING"
+        )
 
     def _insert_applied(self, cursor, migration: Migration) -> None:
         p = self._placeholder
@@ -90,10 +100,19 @@ class MigrationRunner:
         cursor = connection.cursor()
         try:
             self._create_metadata_table(cursor)
-            # Keep metadata-table bootstrap separate, then make every pending
-            # schema change and its version record one atomic transaction.
+            # Keep metadata/lock bootstrap separate. SQLite reserves the write
+            # transaction up front; PostgreSQL locks the stable singleton row.
+            # This serializes concurrent deployers even when history is empty.
             connection.commit()
-            cursor.execute("BEGIN")
+            if self._placeholder == "?":
+                cursor.execute("BEGIN IMMEDIATE")
+            else:
+                cursor.execute("BEGIN")
+                cursor.execute(
+                    "SELECT lock_id FROM neon_schema_migration_lock WHERE lock_id=1 FOR UPDATE"
+                )
+                if cursor.fetchone() is None:
+                    raise RuntimeError("migration lock row is missing")
             cursor.execute("SELECT version, name FROM neon_schema_migrations ORDER BY version")
             applied = tuple((int(version), name) for version, name in cursor.fetchall())
             known = {migration.version: migration.name for migration in self._migrations}
