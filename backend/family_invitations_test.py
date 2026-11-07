@@ -125,6 +125,15 @@ class FamilyInvitationTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(count, 1)
 
+    def test_owner_can_list_pending_invitation_metadata_without_secret_codes(self):
+        created = self.invitations.create_invitation("owner")
+        listed = self.invitations.list_invitations("owner")
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["invitation_id"], created["invitation_id"])
+        self.assertNotIn("invitation_code", listed[0])
+        self.assertNotIn("token_hash", listed[0])
+        self.assertEqual(self.invitations.list_invitations("member-1"), ())
+
     def test_invitation_requires_verified_active_family_subscription(self):
         with self.connect() as connection:
             connection.execute("UPDATE verified_subscriptions SET revoked=1 WHERE subject_id='owner'")
