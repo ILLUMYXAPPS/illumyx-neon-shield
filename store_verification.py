@@ -267,6 +267,22 @@ class GooglePlayVerifier:
             raise StoreVerificationError("Google Play returned an invalid subscription response")
         return result
 
+    def request_from_notification(self, *, package_name: str, product_id: str,
+                                  purchase_token: str) -> StorePurchaseRequest:
+        """Resolve the account binding from Google's authenticated subscription API."""
+        response = self._get_subscription(package_name, purchase_token)
+        external = response.get("externalAccountIdentifiers") or {}
+        binding = external.get("obfuscatedExternalAccountId")
+        if not binding:
+            raise StoreVerificationError("Google RTDN purchase has no obfuscated account binding")
+        return StorePurchaseRequest(
+            provider=StoreProvider.GOOGLE_PLAY,
+            purchase_token=purchase_token,
+            product_id=product_id,
+            application_id=package_name,
+            account_binding_id=str(binding),
+        )
+
     def verify(self, request: StorePurchaseRequest) -> VerifiedStorePurchase:
         if request.provider is not StoreProvider.GOOGLE_PLAY:
             raise StoreVerificationError("Google Play verifier received a non-Google purchase")
@@ -300,13 +316,10 @@ class GooglePlayVerifier:
             raise StoreVerificationError("Google Play subscription expiry is invalid") from exc
         if expiry.tzinfo is None:
             raise StoreVerificationError("Google Play subscription expiry has no timezone")
-        if state not in self.ACTIVE_STATES:
-            raise StoreVerificationError("Google Play subscription is not entitled")
-        if expiry <= datetime.now(timezone.utc):
-            raise StoreVerificationError("Google Play subscription has expired")
+        revoked = state not in self.ACTIVE_STATES or expiry <= datetime.now(timezone.utc)
 
         acknowledgement = response.get("acknowledgementState")
-        if acknowledgement == "ACKNOWLEDGEMENT_STATE_PENDING":
+        if not revoked and acknowledgement == "ACKNOWLEDGEMENT_STATE_PENDING":
             try:
                 self._publisher.purchases().subscriptions().acknowledge(
                     packageName=request.application_id,
@@ -334,7 +347,7 @@ class GooglePlayVerifier:
             transaction_id=str(order_id),
             original_transaction_id=token_digest,
             expires_at=expiry,
-            revoked=False,
+            revoked=revoked,
             environment="production",
         )
 
