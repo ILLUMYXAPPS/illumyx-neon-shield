@@ -4,16 +4,19 @@ import 'package:share_plus/share_plus.dart';
 
 import '../auth/auth_session.dart';
 import 'family_api.dart';
+import 'family_deep_links.dart';
 
 class FamilyManagementScreen extends StatefulWidget {
   const FamilyManagementScreen({
     super.key,
     required this.api,
     required this.session,
+    this.initialInvitationCode,
   });
 
   final FamilyInvitationsApi api;
   final AuthSession session;
+  final String? initialInvitationCode;
 
   @override
   State<FamilyManagementScreen> createState() => _FamilyManagementScreenState();
@@ -21,6 +24,8 @@ class FamilyManagementScreen extends StatefulWidget {
 
 class _FamilyManagementScreenState extends State<FamilyManagementScreen> {
   final _invitationCode = TextEditingController();
+  final _scrollController = ScrollController();
+  final _joinSectionKey = GlobalKey();
   List<FamilyInvitation> _pending = const [];
   FamilyInvitation? _newInvitation;
   bool _loading = true;
@@ -31,12 +36,28 @@ class _FamilyManagementScreenState extends State<FamilyManagementScreen> {
   @override
   void initState() {
     super.initState();
+    final initialCode = widget.initialInvitationCode?.trim();
+    if (initialCode != null && initialCode.isNotEmpty) {
+      _invitationCode.text = initialCode;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = _joinSectionKey.currentContext;
+        if (mounted && target != null) {
+          Scrollable.ensureVisible(
+            target,
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOut,
+            alignment: 0.08,
+          );
+        }
+      });
+    }
     _refresh();
   }
 
   @override
   void dispose() {
     _invitationCode.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -178,6 +199,7 @@ class _FamilyManagementScreenState extends State<FamilyManagementScreen> {
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
+          controller: _scrollController,
           padding: const EdgeInsets.all(18),
           children: [
             Container(
@@ -257,10 +279,15 @@ class _FamilyManagementScreenState extends State<FamilyManagementScreen> {
                   ),
                 ),
             const SizedBox(height: 24),
-            _sectionTitle('JOIN A FAMILY'),
+            Container(
+              key: _joinSectionKey,
+              child: _sectionTitle('JOIN A FAMILY'),
+            ),
             const SizedBox(height: 8),
             const Text(
-              'Have an invitation code? Sign in with your own Neon Shield account, then enter the code below to choose to join.',
+              widget.initialInvitationCode == null
+                  ? 'Have an invitation code? Sign in with your own Neon Shield account, then enter the code below to choose to join.'
+                  : 'Your invitation link has opened Neon Shield. Check the code below, then choose Accept invitation to join.',
               style: TextStyle(color: muted, height: 1.4),
             ),
             const SizedBox(height: 12),
