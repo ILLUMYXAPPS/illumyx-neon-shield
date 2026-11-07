@@ -207,13 +207,14 @@ class StoreVerificationService:
         if len(self._products) != len(product_list):
             raise ValueError("duplicate store product mapping")
 
-    def verify_purchase(
+    def _verify_purchase(
         self,
         request: StorePurchaseRequest,
         *,
         expected_account_binding_id: str,
+        reject_revoked: bool,
     ) -> tuple[VerifiedStorePurchase, Package]:
-        """Return provider-verified purchase facts and the server product mapping."""
+        """Verify provider evidence and enforce the server-owned product catalogue."""
         if not isinstance(request.provider, StoreProvider):
             raise StoreVerificationError("unsupported store provider")
         if not request.purchase_token or not request.purchase_token.strip():
@@ -236,9 +237,22 @@ class StoreVerificationService:
             raise StoreVerificationError("verified product or application mismatch")
         if verified.account_binding_id != expected_account_binding_id:
             raise StoreVerificationError("verified account binding mismatch")
-        if verified.revoked:
+        if reject_revoked and verified.revoked:
             raise StoreVerificationError("purchase was refunded or revoked")
         return verified, product.package
+
+    def verify_purchase(
+        self,
+        request: StorePurchaseRequest,
+        *,
+        expected_account_binding_id: str,
+    ) -> tuple[VerifiedStorePurchase, Package]:
+        """Return provider-verified active purchase facts and package mapping."""
+        return self._verify_purchase(
+            request,
+            expected_account_binding_id=expected_account_binding_id,
+            reject_revoked=True,
+        )
 
     def verify(
         self,
@@ -251,7 +265,7 @@ class StoreVerificationService:
             request, expected_account_binding_id=expected_account_binding_id
         )
         current = now or datetime.now(timezone.utc)
-        active = verified.expires_at is None or current < verified.expires_at
+        active = not verified.revoked and (verified.expires_at is None or current < verified.expires_at)
         return SubscriptionSnapshot(package, active=active, expires_at=verified.expires_at)
 
     def verify_and_persist(
@@ -264,8 +278,10 @@ class StoreVerificationService:
         now: datetime | None = None,
     ) -> SubscriptionSnapshot:
         """Verify with the provider first, persist facts second, then return the entitlement."""
-        verified, package = self.verify_purchase(
-            request, expected_account_binding_id=expected_account_binding_id
+        verified, package = self._verify_purchase(
+            request,
+            expected_account_binding_id=expected_account_binding_id,
+            reject_revoked=False,
         )
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None:
