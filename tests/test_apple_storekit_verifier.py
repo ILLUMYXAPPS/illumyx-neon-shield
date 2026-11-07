@@ -92,6 +92,11 @@ class AppleStoreKitVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(StoreVerificationError, "product"):
             self.verifier.verify(self.request)
 
+    def test_missing_subscription_expiry_is_rejected(self):
+        self.sandbox.payload = apple_payload(expiresDate=None)
+        with self.assertRaisesRegex(StoreVerificationError, "expiry is missing"):
+            self.verifier.verify(self.request)
+
     def test_revoked_transaction_is_marked_revoked(self):
         self.sandbox.payload = apple_payload(revocationDate=1_700_000_000_000)
         self.assertTrue(self.verifier.verify(self.request).revoked)
