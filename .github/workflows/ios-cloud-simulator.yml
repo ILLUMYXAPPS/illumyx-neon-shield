@@ -30,6 +30,7 @@ jobs:
     timeout-minutes: 35
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         device_family: [iPhone, iPad]
     steps:
