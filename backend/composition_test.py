@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
 from backend.composition import build_service
+from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
 from backend.observability import SecurityEvent, SecurityEventSink
 from backend.security_monitoring import SecurityAlert, SecurityAlertSink, ProductionSecurityMonitor
@@ -71,8 +72,25 @@ class CompositionTests(unittest.TestCase):
 
     def test_production_requires_managed_store_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
-            with self.assertRaisesRegex(RuntimeError, "ManagedAuthStore"):
+            with self.assertRaisesRegex(RuntimeError, "database connection factory"):
                 build_service(secret_provider=self._secret_provider())
+
+
+    def test_production_builds_auth_and_binding_adapters_from_same_database_factory(self):
+        connections = []
+        def connection_factory():
+            connections.append(True)
+            raise AssertionError("composition must not run migrations or open a connection")
+        with patch.dict(os.environ, self._production_environment(), clear=True):
+            service = build_service(
+                security_event_sink=RecordingSink(),
+                security_alert_sink=RecordingAlertSink(),
+                secret_provider=self._secret_provider(),
+                database_connection_factory=connection_factory,
+            )
+        self.assertIsInstance(service.store, ManagedDbAuthStore)
+        self.assertIsInstance(service.store_account_binding_service, AuthenticatedStoreAccountBindingService)
+        self.assertEqual(connections, [])
 
     def test_production_requires_observability_sink_injection(self):
         with patch.dict(os.environ, self._production_environment(), clear=True):
