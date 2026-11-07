@@ -1,8 +1,9 @@
 name: Neon Shield Mobile Builds
 
 on:
+  workflow_call:
   push:
-    branches: ["main", "agent/neon-shield-mobile-v1", "feat/mobile-server-auth-gate", "feature/**"]
+    branches: ["main"]
     paths: ["mobile/**", ".github/workflows/mobile-build.yml", ".github/workflows/mobile-signed-release.yml"]
   pull_request:
     paths: ["mobile/**", ".github/workflows/mobile-build.yml", ".github/workflows/mobile-signed-release.yml"]
@@ -82,6 +83,7 @@ jobs:
           if-no-files-found: error
 
   ios:
+    needs: android
     name: iOS unsigned beta
     runs-on: macos-latest
     steps:
@@ -118,6 +120,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    needs: ios
     name: Windows desktop beta
     runs-on: windows-latest
     steps:
@@ -146,6 +149,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    needs: windows
     name: macOS desktop beta
     runs-on: macos-latest
     steps:
