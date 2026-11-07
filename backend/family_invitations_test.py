@@ -230,7 +230,7 @@ class FamilyInvitationTests(unittest.TestCase):
 
 
     def test_invitation_operations_are_rate_limited_and_rejections_count(self):
-        self.invitations.RATE_LIMITS["create"] = (2, 3600)
+        self.invitations.RATE_LIMITS = {**self.invitations.RATE_LIMITS, "create": (2, 3600)}
         self.invitations.create_invitation("owner")
         self.invitations.create_invitation("owner")
         with self.assertRaisesRegex(FamilyInvitationError, "family_invitation_rate_limited") as raised:
