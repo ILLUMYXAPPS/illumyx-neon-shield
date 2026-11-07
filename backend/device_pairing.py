@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure
 from backend.store import _hash, verify_secret
+from backend.device_limits import DeviceAllowance, DeviceLimitPolicy
 
 
 class DevicePairingRepository:
@@ -72,7 +73,7 @@ class DevicePairingRepository:
             cursor.close()
             if close: connection.close()
 
-    def approve(self, request_id, subject_id, code_hash, now):
+    def approve(self, request_id, subject_id, code_hash, now, allowance=None):
         connection, close = self._connection(); cursor = connection.cursor()
         try:
             self._begin(connection)
@@ -90,6 +91,11 @@ class DevicePairingRepository:
             if not valid:
                 cursor.execute(self._sql('UPDATE device_pairing_requests SET attempts=attempts+1 WHERE request_id=?'), (request_id,)); connection.commit()
                 raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
+            if allowance is not None:
+                if not isinstance(allowance, DeviceAllowance):
+                    connection.rollback()
+                    raise RuntimeError('device allowance resolver returned invalid data')
+                DeviceLimitPolicy.assert_can_add_device(allowance)
             cursor.execute(self._sql('UPDATE device_pairing_requests SET status=\'approved\' WHERE request_id=? AND status=\'pending\''), (request_id,))
             if getattr(cursor, 'rowcount', 1) != 1:
                 connection.rollback(); raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
@@ -164,6 +170,10 @@ class DevicePairingService:
 
     def __init__(self, identity_service):
         self.identity_service = identity_service
+        self.allowance_resolver = getattr(identity_service, 'device_allowance_resolver', None)
+        import os
+        if os.environ.get('NEON_AUTH_ENV') == 'production' and self.allowance_resolver is None:
+            raise RuntimeError('production device pairing requires a verified device allowance resolver')
         self.store = identity_service.store
         self.repository = DevicePairingRepository(self.store)
         self.pepper = self.repository.pepper
@@ -220,7 +230,12 @@ class DevicePairingService:
         if not isinstance(pairing_code, str) or not pairing_code.isdigit() or len(pairing_code) != 6:
             raise AuthenticationError(AuthFailure.INVALID_CREDENTIALS)
         code_hash = hmac.new(self.pepper.encode(), ('pair-code:' + pairing_code).encode(), hashlib.sha256).hexdigest()
-        self.repository.approve(request_id, session.subject_id, code_hash, datetime.now(timezone.utc))
+        allowance = None
+        if self.allowance_resolver is not None:
+            allowance = self.allowance_resolver(session.subject_id, request_id)
+        self.repository.approve(
+            request_id, session.subject_id, code_hash, datetime.now(timezone.utc), allowance=allowance
+        )
         self.store.add_audit_fingerprint('device_pairing_approved', session.subject_id, session.device_id)
         return {'status': 'approved'}
 
