@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -90,6 +91,39 @@ class FamilyInvitationTests(unittest.TestCase):
         self.assertEqual(tuple(invite), ("accepted", "member-1"))
         with self.assertRaises(FamilyInvitationError):
             self.invitations.accept_invitation("member-2", created["invitation_code"])
+
+    def test_two_recipients_cannot_consume_the_same_invitation_concurrently(self):
+        created = self.invitations.create_invitation("owner")
+        barrier = threading.Barrier(2)
+        outcomes = []
+        lock = threading.Lock()
+
+        def accept(member):
+            barrier.wait(timeout=5)
+            try:
+                self.invitations.accept_invitation(member, created["invitation_code"])
+                result = "accepted"
+            except FamilyInvitationError:
+                result = "rejected"
+            with lock:
+                outcomes.append((member, result))
+
+        threads = [
+            threading.Thread(target=accept, args=("member-1",)),
+            threading.Thread(target=accept, args=("member-2",)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual([result for _, result in outcomes].count("accepted"), 1)
+        self.assertEqual([result for _, result in outcomes].count("rejected"), 1)
+        with self.connect() as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM family_memberships WHERE owner_subject_id='owner' AND role='member' AND status='active'"
+            ).fetchone()[0]
+        self.assertEqual(count, 1)
 
     def test_invitation_requires_verified_active_family_subscription(self):
         with self.connect() as connection:
