@@ -115,14 +115,15 @@ class StoreSubscriptionRepository:
             cursor.close()
             connection.close()
 
-    def get_subscription_snapshot(self, subject_id: str, *, now: datetime | None = None) -> SubscriptionSnapshot:
-        """Read an active server-stored paid package; otherwise return Basic/Free."""
+    def get_subscription_snapshot_in_transaction(
+        self, connection: Any, subject_id: str, *, now: datetime | None = None
+    ) -> SubscriptionSnapshot:
+        """Read the authoritative active package using a caller-owned transaction."""
         if not subject_id or not subject_id.strip():
             raise ValueError("authenticated subject_id is required")
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None:
             raise ValueError("now must be timezone-aware")
-        connection = self._connect()
         cursor = connection.cursor()
         try:
             cursor.execute(self._sql(
@@ -137,6 +138,15 @@ class StoreSubscriptionRepository:
             return SubscriptionSnapshot(Package(row["package"]), active=True, expires_at=expiry)
         finally:
             cursor.close()
+
+    def get_subscription_snapshot(self, subject_id: str, *, now: datetime | None = None) -> SubscriptionSnapshot:
+        """Read an active server-stored paid package; otherwise return Basic/Free."""
+        connection = self._connect()
+        try:
+            return self.get_subscription_snapshot_in_transaction(
+                connection, subject_id, now=now
+            )
+        finally:
             connection.close()
 
     def record_notification(
