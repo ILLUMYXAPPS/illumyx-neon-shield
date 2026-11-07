@@ -11,7 +11,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-import psycopg
+import psycopg  # pylint: disable=import-error
 
 from backend.managed_db_store import ManagedDbAuthStore
 
