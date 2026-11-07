@@ -74,6 +74,71 @@ class MigrationRunnerTests(unittest.TestCase):
             self.assertIsNotNone(invitation_table)
             self.assertEqual(audit_head, ("0000000000000000000000000000000000000000000000000000000000000000",))
 
+
+    def test_audit_chain_head_migration_uses_chain_tip_not_latest_timestamp(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "audit-chain-tip.sqlite3"
+            connection = sqlite3.connect(path)
+            try:
+                runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS[:8])
+                self.assertEqual(runner.apply_pending(), 8)
+                connection.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) "
+                    "VALUES(?,?,?,?,?,?)",
+                    ("a" * 64, "first", "2030-01-02T00:00:00+00:00", "user", "f" * 64, "0" * 64),
+                )
+                connection.execute(
+                    "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) "
+                    "VALUES(?,?,?,?,?,?)",
+                    ("b" * 64, "second", "2029-01-01T00:00:00+00:00", "user", "f" * 64, "a" * 64),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            self.assertEqual(
+                MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS).apply_pending(),
+                9,
+            )
+            connection = sqlite3.connect(path)
+            try:
+                head = connection.execute(
+                    "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
+                ).fetchone()
+            finally:
+                connection.close()
+            self.assertEqual(head, ("b" * 64,))
+
+    def test_audit_chain_head_migration_fails_closed_on_multiple_chain_tips(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "forked-audit-chain.sqlite3"
+            runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS[:8])
+            self.assertEqual(runner.apply_pending(), 8)
+            connection = sqlite3.connect(path)
+            try:
+                for event_hash in ("a" * 64, "b" * 64):
+                    connection.execute(
+                        "INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (event_hash, "legacy", "2026-01-01T00:00:00+00:00", "user", "f" * 64, "0" * 64),
+                    )
+                connection.commit()
+            finally:
+                connection.close()
+
+            self.assertEqual(
+                MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS).apply_pending(),
+                9,
+            )
+            connection = sqlite3.connect(path)
+            try:
+                head = connection.execute(
+                    "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
+                ).fetchone()
+            finally:
+                connection.close()
+            self.assertIsNone(head)
+
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "migrations.sqlite3"
