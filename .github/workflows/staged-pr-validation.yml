@@ -27,7 +27,7 @@ jobs:
 
   platform-builds:
     name: Mobile 2 - Platform beta builds
-    needs: core-mobile
+    needs: [core-mobile, core-python-tests]
     uses: ./.github/workflows/mobile-build.yml
 
   platform-smoke:
