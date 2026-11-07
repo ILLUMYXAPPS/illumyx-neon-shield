@@ -45,7 +45,7 @@ class AppleNotificationProcessorTests(unittest.TestCase):
         self.verification.verify_and_persist.assert_called_once()
         kwargs = self.verification.verify_and_persist.call_args.kwargs
         self.assertEqual(kwargs["subject_id"], "account-1")
-        self.assertEqual(kwargs["request"].purchase_token, "signed.transaction.jws")
+        self.assertEqual(self.verification.verify_and_persist.call_args.args[0].purchase_token, "signed.transaction.jws")
         self.assertEqual(kwargs["expected_account_binding_id"], self.purchase.account_binding_id)
         self.repository.record_notification.assert_called_once()
         self.assertEqual(self.repository.record_notification.call_args.kwargs["event_id"], "event-1")
