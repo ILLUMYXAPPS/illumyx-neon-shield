@@ -48,7 +48,9 @@ def make_handler(service):
 
         def _error(self, exc: Exception) -> None:
             """Map expected request failures without exposing internal details."""
-            if isinstance(exc, AuthenticationError):
+            if isinstance(exc, FamilyInvitationError):
+                self._json(exc.status, {"error": exc.reason})
+            elif isinstance(exc, AuthenticationError):
                 self._json(401, {"error": exc.failure.value})
             elif isinstance(exc, StoreVerificationUnavailable):
                 self._json(503, {"error": "store_verification_unavailable"})
