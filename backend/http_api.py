@@ -45,6 +45,19 @@ def make_handler(service):
                 raise ValueError("JSON object required")
             return value
 
+        def _error(self, exc: Exception) -> None:
+            """Map expected request failures without exposing internal details."""
+            if isinstance(exc, AuthenticationError):
+                self._json(401, {"error": exc.failure.value})
+            elif isinstance(exc, StoreVerificationUnavailable):
+                self._json(503, {"error": "store_verification_unavailable"})
+            elif isinstance(exc, StoreVerificationError):
+                self._json(400, {"error": "purchase_verification_failed"})
+            elif isinstance(exc, (ValueError, json.JSONDecodeError)):
+                self._json(400, {"error": "invalid_request"})
+            else:
+                self._json(503, {"error": "unavailable"})
+
         def _session(self):
             value = self.headers.get("Authorization", "")
             if not value.startswith("Bearer "):
