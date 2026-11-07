@@ -76,6 +76,18 @@ def make_handler(service):
                     self._json(200, {"session": _session_json(session)})
                     return
 
+                if self.path == "/v1/store/apple/notifications":
+                    processor = getattr(service, "apple_notification_processor", None)
+                    if processor is None:
+                        self._json(503, {"error": "apple_notifications_unavailable"})
+                        return
+                    signed_payload = data.get("signedPayload")
+                    if not isinstance(signed_payload, str) or not signed_payload.strip():
+                        raise ValueError("signedPayload is required")
+                    inserted = processor.process(signed_payload)
+                    self._json(200, {"status": "processed" if inserted else "duplicate"})
+                    return
+
                 session = self._session()
                 if self.path == "/v1/store/account-binding":
                     binding_service = getattr(service, "store_account_binding_service", None)
