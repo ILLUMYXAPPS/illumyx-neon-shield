@@ -39,3 +39,13 @@ Production migration 4 adds two server-side tables:
 - `store_notification_events` records provider event IDs, payload hashes, receipt/processing timestamps, and processing status. Its provider/event composite primary key provides the database uniqueness boundary needed for idempotent notification handling.
 
 The migration is versioned and runs through the explicit production migration runner, not application startup. The schema is a persistence foundation only: no live Apple/Google cryptographic verification, notification authentication, event processor, subscription repository, or entitlement wiring is claimed complete by this change. Provider adapters must verify evidence before writing these records, and notification handlers must authenticate the provider before recording an event as trusted.
+
+## Subscription persistence service
+
+`backend/subscription_store.py` implements the DB-API repository for migration 4. It stores verified transaction facts, stores only a keyed hash of the purchase token, prevents a provider transaction from being reassigned to a different authenticated account, and returns a server-derived entitlement snapshot. Unknown, expired, or revoked subscriptions fall back to the Free package.
+
+The repository also records authenticated notification event IDs with a unique provider/event key and supports a one-way transition from received to processed or rejected. Duplicate events are not inserted or re-finalized.
+
+`StoreVerificationService.verify_and_persist` is the integration seam: it invokes the configured provider verifier, validates the server product mapping and account binding, persists the verified result, then returns the package snapshot. This remains fail-closed when live provider verifiers are absent.
+
+**Security boundary:** `record_notification` is deliberately a persistence primitive, not a webhook endpoint. Callers must authenticate Apple's signed notification or Google's authenticated Pub/Sub delivery before recording the event. A production request handler, provider signature/API verification, durable account-binding issuance, and event-to-subscription reconciliation still need implementation.
