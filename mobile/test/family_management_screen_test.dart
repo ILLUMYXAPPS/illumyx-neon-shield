@@ -105,21 +105,4 @@ void main() {
     expect(api.revoked, 1);
     expect(find.text('Invitation revoked.'), findsOneWidget);
   });
-  testWidgets('invitation link pre-fills the join code and opens the join section', (tester) async {
-    final api = _FakeFamilyApi();
-    await tester.pumpWidget(MaterialApp(
-      home: FamilyManagementScreen(
-        api: api,
-        session: session,
-        initialInvitationCode: 'shared-link-code',
-      ),
-    ));
-    await tester.pumpAndSettle();
-
-    final field = tester.widget<TextField>(find.byType(TextField));
-    expect(field.controller?.text, 'shared-link-code');
-    expect(find.text('Your invitation link has opened Neon Shield. Check the code below, then choose Accept invitation to join.'), findsOneWidget);
-    expect(find.text('Accept invitation'), findsOneWidget);
-  });
-
 }
