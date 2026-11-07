@@ -77,6 +77,47 @@ class DevicePairingTests(unittest.TestCase):
             'pending',
         )
 
+    def test_approval_audit_failure_rolls_back_device_and_pairing_status(self):
+        started = self.pairing.start(
+            'owner@example.test', 'correct-password', 'audit-failure-device', 'Audit failure device'
+        )
+
+        def fail_audit(*args, **kwargs):
+            raise RuntimeError('simulated audit persistence failure')
+
+        self.pairing.repository._append_audit_fingerprint = fail_audit
+        with self.assertRaisesRegex(RuntimeError, 'simulated audit persistence failure'):
+            self.pairing.approve(
+                self.existing_session,
+                started['request_id'],
+                pairing_code=started['pairing_code'],
+            )
+
+        self.assertFalse(self.store.device_trusted('subject-a', 'audit-failure-device'))
+        self.assertEqual(
+            self.pairing.status(started['request_id'], started['pairing_secret']),
+            'pending',
+        )
+
+    def test_successful_approval_writes_audit_event(self):
+        started = self.pairing.start(
+            'owner@example.test', 'correct-password', 'audited-device', 'Audited device'
+        )
+        before = self.store._db.execute(
+            "SELECT COUNT(*) FROM audit_events WHERE event_type='device_pairing_approved'"
+        ).fetchone()[0]
+
+        self.pairing.approve(
+            self.existing_session,
+            started['request_id'],
+            pairing_code=started['pairing_code'],
+        )
+
+        after = self.store._db.execute(
+            "SELECT COUNT(*) FROM audit_events WHERE event_type='device_pairing_approved'"
+        ).fetchone()[0]
+        self.assertEqual(after, before + 1)
+
     def test_pairing_secret_is_not_stored_in_plaintext_and_code_is_hashed(self):
         started = self.pairing.start('owner@example.test', 'correct-password', 'new-device', 'Android phone')
         row = self.store._db.execute('SELECT secret_hash, code_hash FROM device_pairing_requests WHERE request_id=?', (started['request_id'],)).fetchone()
