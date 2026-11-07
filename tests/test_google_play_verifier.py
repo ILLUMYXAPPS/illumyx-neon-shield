@@ -108,6 +108,11 @@ class GooglePlayVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(StoreVerificationError, "not entitled"):
             self.verifier.verify(self.request)
 
+    def test_on_hold_subscription_is_returned_as_revoked_for_reconciliation(self):
+        self.publisher.api.v2.response["subscriptionState"] = "SUBSCRIPTION_STATE_ON_HOLD"
+        result = self.verifier.verify(self.request)
+        self.assertTrue(result.revoked)
+
     def test_expired_subscription_rejected(self):
         self.publisher.api.v2.response["lineItems"][0]["expiryTime"] = (
             datetime.now(timezone.utc) - timedelta(days=1)
