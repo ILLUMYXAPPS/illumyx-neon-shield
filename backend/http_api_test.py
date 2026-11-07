@@ -117,6 +117,34 @@ class StoreBindingHttpApiTests(unittest.TestCase):
         self.assertEqual(args["request"].account_binding_id, args["expected_account_binding_id"])
         self.assertIs(args["repository"], self.subscription_repository)
 
+    def test_apple_notifications_endpoint_uses_verified_processor_without_customer_bearer(self):
+        processor = Mock()
+        processor.process.return_value = True
+        self.service.apple_notification_processor = processor
+        request = Request(
+            self.base_url + "/v1/store/apple/notifications",
+            data=json.dumps({"signedPayload": "signed.apple.notification"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=3) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read()), {"status": "processed"})
+        processor.process.assert_called_once_with("signed.apple.notification")
+        self.service.resolve_session.assert_not_called()
+
+    def test_apple_notifications_endpoint_fails_closed_when_unconfigured(self):
+        self.service.apple_notification_processor = None
+        request = Request(
+            self.base_url + "/v1/store/apple/notifications",
+            data=b'{"signedPayload":"signed.apple.notification"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request, timeout=3)
+        self.assertEqual(raised.exception.code, 503)
+
     def test_unconfigured_purchase_verification_fails_closed(self):
         self.service.store_verification_service = None
         request = Request(
