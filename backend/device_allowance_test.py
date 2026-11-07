@@ -113,6 +113,20 @@ class DeviceAllowanceResolverTests(unittest.TestCase):
         with self.assertRaises(DeviceLimitExceeded):
             DeviceLimitPolicy.assert_can_add_device(allowance)
 
+
+    def test_family_member_third_device_is_blocked(self):
+        self.subscription("owner", "premium_family")
+        self.db.execute(
+            "INSERT INTO family_memberships VALUES(?,?,?,?,?)",
+            ("owner", "member", "active", "now", "now"),
+        )
+        self.db.commit()
+        self.devices("member", 2)
+        allowance = self.resolve("member")
+        self.assertEqual(allowance.member_device_count, 2)
+        with self.assertRaises(DeviceLimitExceeded):
+            DeviceLimitPolicy.assert_can_add_device(allowance)
+
     def test_inactive_membership_does_not_inherit_family_subscription(self):
         self.subscription("owner", "premium_family")
         self.db.execute(
