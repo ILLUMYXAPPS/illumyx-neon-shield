@@ -209,6 +209,35 @@ class FamilyInvitationService:
             cursor.close()
             connection.close()
 
+    def list_invitations(self, owner_subject_id: str) -> tuple[dict[str, str], ...]:
+        """List only non-secret invitation metadata for the authenticated household owner."""
+        if not owner_subject_id or not owner_subject_id.strip():
+            raise ValueError("authenticated owner is required")
+        connection = self._connect()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(self._sql(
+                "SELECT owner_subject_id FROM family_households WHERE owner_subject_id=?"
+            ), (owner_subject_id,))
+            if cursor.fetchone() is None:
+                return ()
+            cursor.execute(self._sql(
+                "SELECT invitation_id,status,created_at,expires_at FROM family_invitations "
+                "WHERE owner_subject_id=? AND status='pending' ORDER BY created_at,invitation_id"
+            ), (owner_subject_id,))
+            return tuple(
+                {
+                    "invitation_id": row[0],
+                    "status": row[1],
+                    "created_at": row[2],
+                    "expires_at": row[3],
+                }
+                for row in cursor.fetchall()
+            )
+        finally:
+            cursor.close()
+            connection.close()
+
     def revoke_invitation(self, owner_subject_id: str, invitation_id: str) -> bool:
         if not owner_subject_id or not owner_subject_id.strip() or not invitation_id:
             raise ValueError("authenticated owner and invitation are required")
