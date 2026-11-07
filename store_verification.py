@@ -152,7 +152,10 @@ class AppleStoreKitVerifier:
         if expires_ms is None:
             raise StoreVerificationError("Apple auto-renewable subscription expiry is missing")
         expires_at = datetime.fromtimestamp(expires_ms / 1000, tz=timezone.utc)
-        revoked = getattr(decoded, "revocationDate", None) is not None
+        revoked = (
+            getattr(decoded, "revocationDate", None) is not None
+            or getattr(decoded, "isUpgraded", False) is True
+        )
         return VerifiedStorePurchase(
             provider=StoreProvider.APPLE,
             product_id=decoded.productId,
