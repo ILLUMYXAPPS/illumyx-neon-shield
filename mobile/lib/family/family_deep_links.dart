@@ -32,7 +32,7 @@ class FamilyInvitationLink {
       return null;
     }
     final code = uri.queryParameters['code']?.trim();
-    if (code == null || code.isEmpty || code.length > 1024) return null;
+    if (code == null || code.isEmpty || code.length > 128) return null;
     return code;
   }
 }
