@@ -49,4 +49,21 @@ PRODUCTION_MIGRATIONS = (
             "CREATE TABLE IF NOT EXISTS store_account_bindings (subject_id TEXT PRIMARY KEY, binding_id TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
         ),
     ),
+    Migration(
+        6,
+        "create_device_pairing_tables",
+        (
+            "CREATE TABLE IF NOT EXISTS device_pairing_requests (request_id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, device_name TEXT NOT NULL, secret_hash TEXT NOT NULL, code_hash TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
+            "CREATE INDEX IF NOT EXISTS idx_managed_pairing_subject ON device_pairing_requests(subject_id, status)",
+            "CREATE TABLE IF NOT EXISTS device_labels (subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, device_name TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(subject_id, device_hash), FOREIGN KEY(subject_id, device_hash) REFERENCES devices(subject_id, device_hash) ON DELETE CASCADE)",
+        ),
+    ),
+    Migration(
+        7,
+        "create_family_memberships",
+        (
+            "CREATE TABLE IF NOT EXISTS family_memberships (owner_subject_id TEXT NOT NULL, member_subject_id TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('active','removed')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(owner_subject_id) REFERENCES users(subject_id) ON DELETE CASCADE, FOREIGN KEY(member_subject_id) REFERENCES users(subject_id) ON DELETE CASCADE, CHECK(owner_subject_id <> member_subject_id))",
+            "CREATE INDEX IF NOT EXISTS idx_family_memberships_owner ON family_memberships(owner_subject_id, status)",
+        ),
+    ),
 )

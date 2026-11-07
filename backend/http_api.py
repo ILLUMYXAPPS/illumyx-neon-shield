@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, SignInRequest
 from store_verification import StoreProvider, StorePurchaseRequest, StoreVerificationError, StoreVerificationUnavailable
+from backend.device_limits import DeviceLimitExceeded
 
 
 def _session_json(session):
@@ -56,8 +58,17 @@ def make_handler(service):
         def do_GET(self) -> None:
             if self.path == "/health":
                 self._json(200, {"status": "ok", "service": "neon-shield-auth"})
-            else:
-                self._json(404, {"error": "not_found"})
+                return
+            if self.path == "/v1/devices":
+                try:
+                    session = self._session()
+                    self._json(200, {"devices": service.device_pairing.devices(session)})
+                except AuthenticationError as exc:
+                    self._json(401, {"error": exc.failure.value})
+                except Exception:
+                    self._json(503, {"error": "unavailable"})
+                return
+            self._json(404, {"error": "not_found"})
 
         def do_POST(self) -> None:
             try:
@@ -74,6 +85,23 @@ def make_handler(service):
                         )
                     )
                     self._json(200, {"session": _session_json(session)})
+                    return
+
+                if self.path == "/v1/device-pairing/start":
+                    result = service.device_pairing.start(
+                        str(data.get("identity", "")),
+                        str(data.get("credential", "")),
+                        str(data.get("device_id", "")),
+                        str(data.get("device_name", "")),
+                    )
+                    self._json(201, result)
+                    return
+
+                if self.path == "/v1/device-pairing/status":
+                    self._json(200, {"status": service.device_pairing.status(
+                        str(data.get("request_id", "")),
+                        str(data.get("pairing_secret", "")),
+                    )})
                     return
 
                 if self.path == "/v1/store/apple/notifications":
@@ -143,6 +171,13 @@ def make_handler(service):
                         if snapshot.expires_at else None,
                     })
                     return
+                if self.path == "/v1/device-pairing/approve":
+                    self._json(200, service.device_pairing.approve(
+                        session,
+                        str(data.get("request_id", "")),
+                        pairing_code=data.get("pairing_code"),
+                    ))
+                    return
                 if self.path == "/v1/auth/refresh":
                     self._json(200, {"session": _session_json(service.refresh(session))})
                     return
@@ -156,11 +191,46 @@ def make_handler(service):
                 self._json(404, {"error": "not_found"})
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
+            except DeviceLimitExceeded as exc:
+                self._json(409, {"error": exc.reason})
             except StoreVerificationUnavailable:
                 self._json(503, {"error": "store_verification_unavailable"})
             except StoreVerificationError:
                 self._json(400, {"error": "purchase_verification_failed"})
             except (ValueError, json.JSONDecodeError):
+                self._json(400, {"error": "invalid_request"})
+            except Exception:
+                self._json(503, {"error": "unavailable"})
+
+        def do_PATCH(self) -> None:
+            try:
+                match = re.fullmatch(r"/v1/devices/([A-Za-z0-9_-]{16,64})", self.path)
+                if match is None:
+                    self._json(404, {"error": "not_found"})
+                    return
+                session = self._session()
+                data = self._body()
+                service.device_pairing.rename(session, match.group(1), data.get("device_name"))
+                self._json(200, {"updated": True})
+            except AuthenticationError as exc:
+                self._json(401, {"error": exc.failure.value})
+            except ValueError:
+                self._json(400, {"error": "invalid_request"})
+            except Exception:
+                self._json(503, {"error": "unavailable"})
+
+        def do_DELETE(self) -> None:
+            try:
+                match = re.fullmatch(r"/v1/devices/([A-Za-z0-9_-]{16,64})", self.path)
+                if match is None:
+                    self._json(404, {"error": "not_found"})
+                    return
+                session = self._session()
+                service.device_pairing.unlink(session, match.group(1))
+                self._json(204)
+            except AuthenticationError as exc:
+                self._json(401, {"error": exc.failure.value})
+            except ValueError:
                 self._json(400, {"error": "invalid_request"})
             except Exception:
                 self._json(503, {"error": "unavailable"})

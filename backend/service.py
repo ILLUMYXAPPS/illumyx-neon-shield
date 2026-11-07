@@ -26,6 +26,7 @@ class PersistentIdentityService(IdentityService):
         session_ttl: timedelta = timedelta(minutes=15),
         max_sign_ins: int = 5,
         security_event_sink: SecurityEventSink | None = None,
+        device_allowance_resolver=None,
     ) -> None:
         if session_ttl <= timedelta(0) or max_sign_ins < 1:
             raise ValueError("invalid authentication limits")
@@ -35,6 +36,17 @@ class PersistentIdentityService(IdentityService):
         self.security_event_sink = security_event_sink or NoopSecurityEventSink()
         # Installed by the production composition root when its durable binding repository is injected.
         self.store_account_binding_service = None
+        self.device_allowance_resolver = device_allowance_resolver
+        self.family_membership_repository = None
+        self._device_pairing = None
+
+    @property
+    def device_pairing(self):
+        """Initialize persistent device pairing only when its API is used."""
+        if self._device_pairing is None:
+            from backend.device_pairing import DevicePairingService
+            self._device_pairing = DevicePairingService(self)
+        return self._device_pairing
 
     @staticmethod
     def _observability_hash(value: str) -> str:
