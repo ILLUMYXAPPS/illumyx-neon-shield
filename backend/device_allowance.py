@@ -131,11 +131,12 @@ class VerifiedDeviceAllowanceResolver:
 
     @staticmethod
     def _count_devices(cursor, subject_id: str, *, exclude_device_hash: str | None = None) -> int:
-        cursor.execute(
-            "SELECT COUNT(*) FROM devices WHERE subject_id=? AND trusted=1 "
-            "AND (? IS NULL OR device_hash<>?)",
-            (subject_id, exclude_device_hash, exclude_device_hash),
-        )
+        count_sql = "SELECT COUNT(*) FROM devices WHERE subject_id=? AND trusted=1"
+        count_params = [subject_id]
+        if exclude_device_hash is not None:
+            count_sql += " AND device_hash<>?"
+            count_params.append(exclude_device_hash)
+        cursor.execute(count_sql, tuple(count_params))
         row = cursor.fetchone()
         return int(row[0] if not isinstance(row, dict) else next(iter(row.values())))
 
