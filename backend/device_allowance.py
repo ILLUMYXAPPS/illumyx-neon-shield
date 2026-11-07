@@ -46,6 +46,15 @@ class FamilyMembershipRepository:
         connection = self._connect()
         cursor = connection.cursor()
         try:
+            if self._placeholder == "?":
+                connection.execute("BEGIN IMMEDIATE")
+            else:
+                cursor.execute(
+                    self._sql("SELECT subject_id FROM users WHERE subject_id=? FOR UPDATE"),
+                    (owner_subject_id,),
+                )
+                if cursor.fetchone() is None:
+                    raise FamilyMembershipError("household_owner_not_found")
             cursor.execute(
                 self._sql("INSERT INTO family_households(owner_subject_id,created_at) VALUES(?,?)"),
                 (owner_subject_id, created_at),
@@ -73,12 +82,14 @@ class FamilyMembershipRepository:
         try:
             if self._placeholder == "?":
                 connection.execute("BEGIN IMMEDIATE")
-            cursor.execute(
-                self._sql("SELECT subject_id FROM users WHERE subject_id=?" + self._lock_clause),
-                (owner_subject_id,),
-            )
-            if cursor.fetchone() is None:
-                raise FamilyMembershipError("household_owner_not_found")
+            lock = "" if self._placeholder == "?" else " FOR UPDATE"
+            for account_id in sorted((owner_subject_id, member_subject_id)):
+                cursor.execute(
+                    self._sql("SELECT subject_id FROM users WHERE subject_id=?" + lock),
+                    (account_id,),
+                )
+                if cursor.fetchone() is None:
+                    raise FamilyMembershipError("family_account_not_found")
             cursor.execute(
                 self._sql("SELECT owner_subject_id FROM family_households WHERE owner_subject_id=?"),
                 (owner_subject_id,),
