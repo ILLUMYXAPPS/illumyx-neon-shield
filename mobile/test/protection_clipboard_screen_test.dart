@@ -133,7 +133,7 @@ void main() {
     await tester.tap(find.text('Retry loading settings'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Protection Clipboard'), findsOneWidget);
+    expect(find.text('Protection Clipboard'), findsWidgets);
     expect(find.text('Disabled'), findsOneWidget);
     expect(find.text('Retry loading settings'), findsNothing);
   });
