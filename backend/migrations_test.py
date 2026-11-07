@@ -12,12 +12,12 @@ from backend.production_migrations import PRODUCTION_MIGRATIONS
 
 class MigrationRunnerTests(unittest.TestCase):
     def test_production_migrations_are_contiguous_and_create_pairing_and_family_state(self) -> None:
-        self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3, 4, 5, 6, 7, 8])
+        self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3, 4, 5, 6, 7, 8, 9])
         with TemporaryDirectory() as directory:
             path = Path(directory) / "production-migrations.sqlite3"
             runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
-            self.assertEqual(runner.apply_pending(), 8)
-            self.assertEqual(runner.apply_pending(), 8)
+            self.assertEqual(runner.apply_pending(), 9)
+            self.assertEqual(runner.apply_pending(), 9)
             connection = sqlite3.connect(path)
             try:
                 table = connection.execute(
@@ -47,6 +47,9 @@ class MigrationRunnerTests(unittest.TestCase):
                 invitation_table = connection.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='family_invitations'"
                 ).fetchone()
+                audit_head = connection.execute(
+                    "SELECT event_hash FROM audit_chain_head WHERE chain_id=1"
+                ).fetchone()
             finally:
                 connection.close()
             self.assertIsNotNone(table)
@@ -59,6 +62,7 @@ class MigrationRunnerTests(unittest.TestCase):
                 (6, "create_family_membership_records"),
                 (7, "create_device_pairing_tables"),
                 (8, "create_family_invitations"),
+                (9, "create_serialized_audit_chain_head"),
             ])
             self.assertIsNotNone(subscription_table)
             self.assertIsNotNone(notification_table)
@@ -67,6 +71,7 @@ class MigrationRunnerTests(unittest.TestCase):
             self.assertIsNotNone(pairing_table)
             self.assertIsNotNone(labels_table)
             self.assertIsNotNone(invitation_table)
+            self.assertEqual(audit_head, ("0000000000000000000000000000000000000000000000000000000000000000",))
 
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:
