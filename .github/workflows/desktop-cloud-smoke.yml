@@ -24,8 +24,7 @@ env:
 jobs:
   android-emulator-smoke:
     name: Android simulator install and launch smoke
-    # macOS hosted runners provide native hypervisor acceleration; the Linux runner
-    # used here fell back to software emulation and repeatedly timed out during boot.
+    # Use the standard x64 Linux runner with KVM enabled for hardware acceleration.
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -118,7 +117,7 @@ jobs:
     timeout-minutes: 35
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 2
       matrix:
         device_family: [iPhone, iPad]
     steps:
