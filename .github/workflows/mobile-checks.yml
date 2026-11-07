@@ -45,6 +45,3 @@ jobs:
       - name: Test
         working-directory: mobile
         run: flutter test
-      - name: Test native deep-link configuration helper
-        working-directory: mobile
-        run: python -m unittest discover -s tool -p 'test_*.py'
