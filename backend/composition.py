@@ -26,6 +26,7 @@ def build_service(
     database_placeholder: str = "%s",
     store_verification_service=None,
     subscription_repository: StoreSubscriptionRepository | None = None,
+    apple_notification_processor=None,
 ) -> PersistentIdentityService:
     """Build auth service without permitting production secret, storage, or monitoring fallbacks."""
     if os.environ.get("NEON_AUTH_ENV") == "production":
@@ -67,6 +68,7 @@ def build_service(
         )
         service.store_verification_service = store_verification_service
         service.store_subscription_repository = subscription_repository
+        service.apple_notification_processor = apple_notification_processor
         return service
 
     monitor = ProductionSecurityMonitor(
@@ -83,4 +85,5 @@ def build_service(
         )
     service.store_verification_service = store_verification_service
     service.store_subscription_repository = subscription_repository
+    service.apple_notification_processor = apple_notification_processor
     return service
