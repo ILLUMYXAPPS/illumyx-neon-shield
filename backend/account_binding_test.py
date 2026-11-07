@@ -4,7 +4,7 @@ import sqlite3
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from backend.account_binding import AccountBindingRepository
+from auth_server import AuthenticationError, InMemoryIdentityService\nfrom auth_server_contract import SignInRequest\nfrom backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
 from backend.migrations import MigrationRunner
 from backend.production_migrations import PRODUCTION_MIGRATIONS
 
@@ -54,3 +54,59 @@ class AccountBindingRepositoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class AuthenticatedBindingServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        path = Path(self.tmp.name) / "authenticated-bindings.sqlite3"
+        def connect():
+            connection = sqlite3.connect(path)
+            connection.execute("PRAGMA foreign_keys=ON")
+            return connection
+        self.connect = connect
+        MigrationRunner(connect, PRODUCTION_MIGRATIONS).apply_pending()
+        with connect() as connection:
+            connection.execute(
+                "INSERT INTO users(subject_id,identity_hash,credential_record,created_at) VALUES(?,?,?,?)",
+                ("subject-auth", "identity-auth", "credential", "2026-11-07T00:00:00+00:00"),
+            )
+        self.identity = InMemoryIdentityService(
+            verify_credential=lambda identity, credential: (
+                "subject-auth" if identity == "owner@example.test" and credential == "correct" else None
+            ),
+            trusted_devices={"trusted-device"},
+        )
+        self.repository = AccountBindingRepository(connect, placeholder="?")
+        self.service = AuthenticatedStoreAccountBindingService(self.identity, self.repository)
+
+    def _session(self):
+        return self.identity.sign_in(
+            SignInRequest("owner@example.test", "correct", "trusted-device")
+        )
+
+    def test_binding_is_issued_from_resolved_session(self):
+        session = self._session()
+        binding = self.service.get_or_create_for_session(session_id=session.session_id)
+        self.assertEqual(binding, self.service.get_or_create_for_session(session_id=session.session_id))
+
+    def test_invalid_or_revoked_session_cannot_obtain_binding(self):
+        with self.assertRaises(AuthenticationError):
+            self.service.get_or_create_for_session(session_id="not-a-session")
+        session = self._session()
+        self.identity.revoke(session)
+        with self.assertRaises(AuthenticationError):
+            self.service.get_or_create_for_session(session_id=session.session_id)
+
+    def test_untrusted_device_session_cannot_obtain_binding(self):
+        session = self._session()
+        self.identity._trusted_devices.remove("trusted-device")
+        with self.assertRaises(AuthenticationError):
+            self.service.get_or_create_for_session(session_id=session.session_id)
+
+    def test_client_cannot_choose_subject_or_binding_through_service(self):
+        with self.assertRaises(TypeError):
+            self.service.get_or_create_for_session(
+                session_id="ignored", authenticated_subject_id="attacker"
+            )
+\n
