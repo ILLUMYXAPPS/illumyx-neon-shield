@@ -44,9 +44,13 @@ class DeviceAllowanceResolverTests(unittest.TestCase):
         self.db.commit()
 
     def devices(self, subject, count):
+        existing = self.db.execute(
+            "SELECT COUNT(*) FROM devices WHERE subject_id=?", (subject,)
+        ).fetchone()[0]
         self.db.executemany(
             "INSERT INTO devices VALUES(?,?,1)",
-            [(subject, f"{subject}-device-{i}") for i in range(count)],
+            [(subject, f"{subject}-device-{i}")
+             for i in range(existing, existing + count)],
         )
         self.db.commit()
 
