@@ -9,6 +9,7 @@ from backend.account_binding import AccountBindingRepository, AuthenticatedStore
 from backend.composition import build_service
 from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
+from backend.subscription_store import StoreSubscriptionRepository
 from backend.observability import SecurityEvent, SecurityEventSink
 from backend.security_monitoring import SecurityAlert, SecurityAlertSink, ProductionSecurityMonitor
 from backend.secrets import MappingSecretProvider
@@ -90,6 +91,8 @@ class CompositionTests(unittest.TestCase):
             )
         self.assertIsInstance(service.store, ManagedDbAuthStore)
         self.assertIsInstance(service.store_account_binding_service, AuthenticatedStoreAccountBindingService)
+        self.assertIsInstance(service.store_subscription_repository, StoreSubscriptionRepository)
+        self.assertIsNone(service.store_verification_service)
         self.assertEqual(connections, [])
 
     def test_production_requires_observability_sink_injection(self):
