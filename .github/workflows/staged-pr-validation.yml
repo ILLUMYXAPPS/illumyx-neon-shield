@@ -20,48 +20,55 @@ permissions:
   security-events: write
 
 jobs:
+  # Batch 1A: Flutter analysis and tests.
   core-mobile:
     name: Batch 1A - Flutter analysis and tests
     uses: ./.github/workflows/mobile-checks.yml
 
+  # Batch 1B starts only after 1A passes.
   core-python-tests:
     name: Batch 1B - Python test matrix
+    needs: core-mobile
     uses: ./.github/workflows/test.yml
 
+  # Batch 1C starts only after the complete Python matrix passes.
   core-pylint:
     name: Batch 1C - Python static analysis
+    needs: core-python-tests
     uses: ./.github/workflows/pylint.yml
 
+  # Batch 1D: security regression suite.
   core-security:
     name: Batch 1D - Security regression checks
+    needs: core-pylint
     uses: ./.github/workflows/security-gate.yml
 
+  # Batch 1E: CodeQL.
   core-codeql:
     name: Batch 1E - CodeQL analysis
+    needs: core-security
     uses: ./.github/workflows/codeql.yml
     permissions:
       contents: read
       security-events: write
       actions: read
 
+  # Batch 1F: secret history scan.
   core-secrets:
     name: Batch 1F - Secret history scan
+    needs: core-codeql
     uses: ./.github/workflows/secret-scan.yml
     permissions:
       contents: read
       security-events: write
 
+  # Batch 2 cannot begin until every Batch 1 stage has passed.
   platform-builds:
     name: Batch 2 - Platform beta builds
-    needs:
-      - core-mobile
-      - core-python-tests
-      - core-pylint
-      - core-security
-      - core-codeql
-      - core-secrets
+    needs: core-secrets
     uses: ./.github/workflows/mobile-build.yml
 
+  # Batches 3 and 4 remain downstream of all platform builds.
   platform-smoke:
     name: Batches 3 and 4 - Device and desktop launch smoke
     needs: platform-builds
