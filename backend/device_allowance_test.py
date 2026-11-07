@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -113,7 +114,9 @@ class DeviceAllowanceResolverTests(unittest.TestCase):
 
 class FamilyMembershipRepositoryTests(unittest.TestCase):
     def setUp(self):
-        self.db = sqlite3.connect(":memory:")
+        self.temp = tempfile.TemporaryDirectory()
+        self.path = self.temp.name + "/family.sqlite3"
+        self.db = sqlite3.connect(self.path)
         self.db.execute(
             "CREATE TABLE verified_subscriptions (subject_id TEXT, package TEXT, "
             "revoked INTEGER, expires_at TEXT, verified_at TEXT)"
@@ -129,11 +132,12 @@ class FamilyMembershipRepositoryTests(unittest.TestCase):
         )
         self.db.commit()
         self.repository = FamilyMembershipRepository(
-            lambda: self.db, placeholder="?", lock_clause=""
+            lambda: sqlite3.connect(self.path), placeholder="?", lock_clause=""
         )
 
     def tearDown(self):
         self.db.close()
+        self.temp.cleanup()
 
     def test_add_member_requires_family_package_and_enforces_five_people(self):
         for index in range(4):
