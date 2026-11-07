@@ -46,7 +46,7 @@ class VerifiedDeviceAllowanceResolver:
         )
         return cursor.fetchone()
 
-    def resolve_in_transaction(self, cursor, subject_id: str) -> DeviceAllowance:
+    def resolve_in_transaction(self, cursor, subject_id: str, *, device_hash: str | None = None) -> DeviceAllowance:
         if not isinstance(subject_id, str) or not subject_id.strip():
             raise DeviceAllowanceConfigurationError("authenticated subject is required")
         now = datetime.now(timezone.utc).isoformat()
@@ -75,7 +75,7 @@ class VerifiedDeviceAllowanceResolver:
         except ValueError as exc:
             raise DeviceAllowanceConfigurationError("unknown verified subscription package") from exc
 
-        member_count = self._count_devices(cursor, subject_id)
+        member_count = self._count_devices(cursor, subject_id, exclude_device_hash=device_hash)
         if package is DevicePackage.PREMIUM:
             # A Family member cannot inherit a non-Family owner subscription.
             if membership:
@@ -119,19 +119,21 @@ class VerifiedDeviceAllowanceResolver:
                 "SELECT COUNT(*) FROM devices d "
                 "LEFT JOIN family_memberships fm "
                 "ON fm.member_subject_id=d.subject_id AND fm.status='active' "
-                "WHERE d.trusted=1 AND (d.subject_id=? OR fm.owner_subject_id=?)"
+                "WHERE d.trusted=1 AND (d.subject_id=? OR fm.owner_subject_id=?) "
+                "AND (? IS NULL OR d.device_hash<>?)"
             ),
-            (owner_subject_id, owner_subject_id),
+            (owner_subject_id, owner_subject_id, device_hash, device_hash),
         )
         total_row = cursor.fetchone()
         family_total = int(total_row[0] if not isinstance(total_row, dict) else next(iter(total_row.values())))
         return DeviceAllowance(DevicePackage.PREMIUM_FAMILY, member_count, family_total)
 
     @staticmethod
-    def _count_devices(cursor, subject_id: str) -> int:
+    def _count_devices(cursor, subject_id: str, *, exclude_device_hash: str | None = None) -> int:
         cursor.execute(
-            "SELECT COUNT(*) FROM devices WHERE subject_id=? AND trusted=1",
-            (subject_id,),
+            "SELECT COUNT(*) FROM devices WHERE subject_id=? AND trusted=1 "
+            "AND (? IS NULL OR device_hash<>?)",
+            (subject_id, exclude_device_hash, exclude_device_hash),
         )
         row = cursor.fetchone()
         return int(row[0] if not isinstance(row, dict) else next(iter(row.values())))
