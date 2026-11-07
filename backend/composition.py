@@ -10,10 +10,33 @@ from backend.managed_store import ManagedAuthStore
 from backend.observability import NoopSecurityEventSink, SecurityEventSink
 from backend.production_config import validate_production_config
 from backend.security_monitoring import NoopSecurityAlertSink, ProductionSecurityMonitor, SecurityAlertSink
-from backend.secrets import EnvironmentSecretProvider, SecretProvider
+from backend.secrets import SecretProvider
 from backend.service import PersistentIdentityService
 from backend.subscription_store import StoreSubscriptionRepository
 from backend.store import AuthStore
+
+
+def _install_device_allowance_resolver(
+    service: PersistentIdentityService,
+    *,
+    database_connection_factory,
+    subscription_repository,
+    family_membership_repository,
+    placeholder: str,
+) -> None:
+    service.family_membership_repository = family_membership_repository
+    service.device_allowance_resolver = (
+        StoreDeviceAllowanceResolver(
+            database_connection_factory,
+            subscription_repository,
+            family_membership_repository,
+            placeholder=placeholder,
+        )
+        if database_connection_factory is not None
+        and subscription_repository is not None
+        and family_membership_repository is not None
+        else None
+    )
 
 
 def build_service(
@@ -66,41 +89,19 @@ def build_service(
             raise RuntimeError("production requires an injected SecurityAlertSink implementation")
         if account_binding_repository is None:
             raise RuntimeError("production requires an injected durable AccountBindingRepository implementation")
-        monitor = ProductionSecurityMonitor(
-            security_event_sink,
-            alert_sink=security_alert_sink,
-        )
+        monitor = ProductionSecurityMonitor(security_event_sink, alert_sink=security_alert_sink)
         service = PersistentIdentityService(managed_store, security_event_sink=monitor)
         service.store_account_binding_service = AuthenticatedStoreAccountBindingService(
             service, account_binding_repository
         )
         service.store_verification_service = store_verification_service
         service.store_subscription_repository = subscription_repository
-    service.family_membership_repository = family_membership_repository
-    service.device_allowance_resolver = (
-        StoreDeviceAllowanceResolver(
-            database_connection_factory,
-            subscription_repository,
-            family_membership_repository,
+        _install_device_allowance_resolver(
+            service,
+            database_connection_factory=database_connection_factory,
+            subscription_repository=subscription_repository,
+            family_membership_repository=family_membership_repository,
             placeholder=database_placeholder,
-        )
-        if database_connection_factory is not None
-        and subscription_repository is not None
-        and family_membership_repository is not None
-        else None
-    )
-        service.family_membership_repository = family_membership_repository
-        service.device_allowance_resolver = (
-            StoreDeviceAllowanceResolver(
-                database_connection_factory,
-                subscription_repository,
-                family_membership_repository,
-                placeholder=database_placeholder,
-            )
-            if database_connection_factory is not None
-            and subscription_repository is not None
-            and family_membership_repository is not None
-            else None
         )
         service.apple_notification_processor = apple_notification_processor
         service.google_rtdn_processor = google_rtdn_processor
@@ -120,6 +121,13 @@ def build_service(
         )
     service.store_verification_service = store_verification_service
     service.store_subscription_repository = subscription_repository
+    _install_device_allowance_resolver(
+        service,
+        database_connection_factory=database_connection_factory,
+        subscription_repository=subscription_repository,
+        family_membership_repository=family_membership_repository,
+        placeholder=database_placeholder,
+    )
     service.apple_notification_processor = apple_notification_processor
     service.google_rtdn_processor = google_rtdn_processor
     return service
