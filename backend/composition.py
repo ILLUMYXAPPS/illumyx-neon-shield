@@ -130,6 +130,7 @@ def build_service(
             subscription_repository=subscription_repository,
             placeholder=database_placeholder,
         )
+        service.apple_notification_processor = apple_notification_processor
         service.google_rtdn_processor = google_rtdn_processor
         return service
 
