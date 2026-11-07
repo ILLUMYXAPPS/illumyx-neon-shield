@@ -60,7 +60,6 @@ jobs:
   test-macos:
     name: Python 3.10 and 3.12 sequentially on macOS
     runs-on: macos-latest
-    needs: test-cross-platform
     timeout-minutes: 60
 
     steps:
