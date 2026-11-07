@@ -31,7 +31,6 @@ PRODUCTION_MIGRATIONS = (
             "CREATE TABLE IF NOT EXISTS sign_in_rate_limits (identity_hash TEXT PRIMARY KEY, failure_count INTEGER NOT NULL, window_started_at TEXT NOT NULL)",
         ),
     ),
-)
     Migration(
         4,
         "create_store_subscription_records",
