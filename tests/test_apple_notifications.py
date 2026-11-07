@@ -50,6 +50,23 @@ class AppleNotificationProcessorTests(unittest.TestCase):
         self.repository.record_notification.assert_called_once()
         self.assertEqual(self.repository.record_notification.call_args.kwargs["event_id"], "event-1")
 
+    def test_signed_renewal_information_must_match_transaction(self):
+        self.verifier.verify_notification.return_value = SimpleNamespace(
+            notificationUUID="event-renewal",
+            notificationType="DID_RENEW",
+            data=SimpleNamespace(
+                signedTransactionInfo="signed.transaction.jws",
+                signedRenewalInfo="signed.renewal.jws",
+            ),
+        )
+        self.verifier.verify_signed_notification_renewal.return_value = SimpleNamespace(
+            originalTransactionId="different-original",
+            productId="premium.monthly",
+        )
+        with self.assertRaisesRegex(StoreVerificationError, "does not match"):
+            self.processor.process("signed.notification.jws")
+        self.repository.record_notification.assert_not_called()
+
     def test_duplicate_event_is_reported_after_safe_idempotent_reconciliation(self):
         self.repository.record_notification.return_value = False
         self.assertFalse(self.processor.process("signed.notification.jws"))
