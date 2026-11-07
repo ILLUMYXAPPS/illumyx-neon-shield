@@ -49,6 +49,18 @@ class AppleNotificationProcessor:
             verified = self._verifier.verify_signed_notification_transaction(
                 signed_transaction
             )
+            signed_renewal = self._field(data, "signedRenewalInfo")
+            if signed_renewal:
+                renewal = self._verifier.verify_signed_notification_renewal(
+                    signed_renewal
+                )
+                renewal_original = self._field(renewal, "originalTransactionId")
+                renewal_product = self._field(renewal, "productId")
+                if (renewal_original != verified.original_transaction_id
+                        or renewal_product != verified.product_id):
+                    raise StoreVerificationError(
+                        "Apple signed renewal information does not match its transaction"
+                    )
             binding_id = verified.account_binding_id
             subject_id = self._bindings.get_subject_for_binding(binding_id)
             if not subject_id:
