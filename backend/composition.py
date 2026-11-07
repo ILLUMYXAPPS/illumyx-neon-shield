@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 from backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
+from backend.device_allowance import VerifiedDeviceAllowanceResolver
 from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
 from backend.observability import NoopSecurityEventSink, SecurityEventSink
@@ -28,6 +29,7 @@ def build_service(
     subscription_repository: StoreSubscriptionRepository | None = None,
     apple_notification_processor=None,
     google_rtdn_processor=None,
+    device_allowance_resolver=None,
 ) -> PersistentIdentityService:
     """Build auth service without permitting production secret, storage, or monitoring fallbacks."""
     if os.environ.get("NEON_AUTH_ENV") == "production":
@@ -63,7 +65,17 @@ def build_service(
             security_event_sink,
             alert_sink=security_alert_sink,
         )
-        service = PersistentIdentityService(managed_store, security_event_sink=monitor)
+        pairing_factory = database_connection_factory or getattr(managed_store, "_connection_factory", None)
+        pairing_placeholder = getattr(managed_store, "_placeholder", database_placeholder)
+        if device_allowance_resolver is None and pairing_factory is not None:
+            device_allowance_resolver = VerifiedDeviceAllowanceResolver(
+                placeholder=pairing_placeholder,
+                lock_clause=getattr(managed_store, "_audit_lock_clause", " FOR UPDATE"),
+            )
+        service = PersistentIdentityService(
+            managed_store, security_event_sink=monitor,
+            device_allowance_resolver=device_allowance_resolver,
+        )
         service.store_account_binding_service = AuthenticatedStoreAccountBindingService(
             service, account_binding_repository
         )
@@ -77,9 +89,17 @@ def build_service(
         security_event_sink or NoopSecurityEventSink(),
         alert_sink=security_alert_sink or NoopSecurityAlertSink(),
     )
+    local_store = managed_store or AuthStore(os.environ.get("NEON_AUTH_DB", "neon_shield_auth.sqlite3"))
+    pairing_factory = database_connection_factory or getattr(local_store, "_connection_factory", None)
+    pairing_placeholder = getattr(local_store, "_placeholder", database_placeholder)
+    if device_allowance_resolver is None and pairing_factory is not None:
+        device_allowance_resolver = VerifiedDeviceAllowanceResolver(
+            placeholder=pairing_placeholder,
+            lock_clause=getattr(local_store, "_audit_lock_clause", ""),
+        )
     service = PersistentIdentityService(
-        AuthStore(os.environ.get("NEON_AUTH_DB", "neon_shield_auth.sqlite3")),
-        security_event_sink=monitor,
+        local_store, security_event_sink=monitor,
+        device_allowance_resolver=device_allowance_resolver,
     )
     if account_binding_repository is not None:
         service.store_account_binding_service = AuthenticatedStoreAccountBindingService(
