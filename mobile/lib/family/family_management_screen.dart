@@ -131,10 +131,9 @@ class _FamilyManagementScreenState extends State<FamilyManagementScreen> {
     final code = invitation.code;
     if (code == null) return;
     await Share.share(
-      'Join my ILLUMYX Neon Shield Family. Tap this link to open Neon Shield and accept your invitation:\n\n$link\n\nIf the link does not open automatically, open Neon Shield, choose Family Management, and enter this code:\n$code\n\nThis code expires on ${invitation.expiresAt}.',
+      'Join my ILLUMYX Neon Shield Family. Sign in to your own account, open Family Management, and enter this one-time invitation code:\n\n$code\n\nThis code expires on ${invitation.expiresAt}.',
       subject: 'Neon Shield Family invitation',
-    );
-  }
+    );  }
 
   Future<void> _revoke(FamilyInvitation invitation) async {
     if (_busy) return;
