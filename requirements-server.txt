@@ -1,3 +1,4 @@
 # Server-only provider verification dependencies.
 # Apple security fix: 3.1.2 includes the OCSP freshness validation fix.
 app-store-server-library>=3.1.2,<4
+google-api-python-client>=2.150.0,<3\ngoogle-auth>=2.35.0,<3\n
