@@ -14,6 +14,7 @@ from unittest.mock import Mock
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, ServerSession
 from backend.http_api import make_handler
+from backend.family_invitations import FamilyInvitationError
 from entitlements import Package
 from store_verification import StoreVerificationError
 
@@ -298,6 +299,23 @@ class FamilyInvitationHttpApiTests(StoreBindingHttpApiTests):
         with self.assertRaises(HTTPError) as raised:
             self.family_request("/v1/family/invitations")
         self.assertEqual(raised.exception.code, 503)
+
+    def test_list_invitation_rate_limit_preserves_http_429_status(self):
+        self.family_service.list_invitations.side_effect = FamilyInvitationError(
+            "family_invitation_rate_limited", 429
+        )
+        request = Request(
+            self.base_url + "/v1/family/invitations",
+            headers={"Authorization": "Bearer valid-bearer-token"},
+            method="GET",
+        )
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request, timeout=3)
+        self.assertEqual(raised.exception.code, 429)
+        self.assertEqual(
+            json.loads(raised.exception.read()),
+            {"error": "family_invitation_rate_limited"},
+        )
 
 
 if __name__ == "__main__":
