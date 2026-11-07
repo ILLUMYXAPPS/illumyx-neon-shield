@@ -269,6 +269,7 @@ class _FamilyManagementScreenState extends State<FamilyManagementScreen> {
               autocorrect: false,
               enableSuggestions: false,
               textCapitalization: TextCapitalization.none,
+              onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                 labelText: 'Family invitation code',
                 hintText: 'Paste your one-time code',
