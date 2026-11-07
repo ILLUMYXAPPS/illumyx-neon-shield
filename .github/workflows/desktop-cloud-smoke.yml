@@ -28,7 +28,9 @@ env:
 jobs:
   android-emulator-smoke:
     name: Android emulator install and launch smoke
-    runs-on: ubuntu-latest
+    # macOS hosted runners provide native hypervisor acceleration; the Linux runner
+    # used here fell back to software emulation and repeatedly timed out during boot.
+    runs-on: macos-latest
     timeout-minutes: 45
     steps:
       - name: Check out source
