@@ -133,6 +133,45 @@ class DevicePairingTests(unittest.TestCase):
         self.assertEqual(event['previous_hash'], previous_head)
         self.assertEqual(self.store.last_audit_hash(), event['event_hash'])
 
+    def test_unlink_audit_failure_rolls_back_trust_and_session_revocation(self):
+        started = self.pairing.start(
+            'owner@example.test', 'correct-password', 'unlink-audit-device', 'Unlink audit device'
+        )
+        self.pairing.approve(
+            self.existing_session,
+            started['request_id'],
+            pairing_code=started['pairing_code'],
+        )
+        new_session = self.service.sign_in(SignInRequest(
+            'owner@example.test', 'correct-password', 'unlink-audit-device'
+        ))
+        device = next(
+            item for item in self.pairing.devices(self.existing_session)
+            if item['device_name'] == 'Unlink audit device'
+        )
+        self.store._db.execute(
+            """
+            CREATE TRIGGER reject_unlink_audit_head_advance
+            BEFORE UPDATE ON audit_chain_head
+            WHEN NEW.event_hash <> OLD.event_hash
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated unlink audit persistence failure');
+            END
+            """
+        )
+        self.store._db.commit()
+
+        with self.assertRaisesRegex(
+            sqlite3.IntegrityError, 'simulated unlink audit persistence failure'
+        ):
+            self.pairing.unlink(self.existing_session, device['device_ref'])
+
+        self.assertTrue(self.store.device_trusted('subject-a', 'unlink-audit-device'))
+        self.assertEqual(
+            self.service.resolve_session(new_session.session_id).subject_id,
+            'subject-a',
+        )
+
     def test_pairing_secret_is_not_stored_in_plaintext_and_code_is_hashed(self):
         started = self.pairing.start('owner@example.test', 'correct-password', 'new-device', 'Android phone')
         row = self.store._db.execute('SELECT secret_hash, code_hash FROM device_pairing_requests WHERE request_id=?', (started['request_id'],)).fetchone()
