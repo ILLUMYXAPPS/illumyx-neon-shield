@@ -133,6 +133,21 @@ class FamilyInvitationService:
         cursor = connection.cursor()
         try:
             self._begin(connection)
+            # Read the owner ID first without locking the invitation. All
+            # membership operations lock account rows before invitation rows,
+            # giving accept/revoke a consistent lock order and avoiding deadlocks.
+            cursor.execute(self._sql(
+                "SELECT invitation_id,owner_subject_id,status,expires_at FROM family_invitations "
+                "WHERE token_hash=?"
+            ), (token_hash,))
+            invitation = self._row(cursor, cursor.fetchone())
+            if invitation is None or invitation["status"] != "pending":
+                raise FamilyInvitationError("invalid_or_used_invitation")
+            owner_subject_id = invitation["owner_subject_id"]
+            if owner_subject_id == member_subject_id:
+                raise FamilyInvitationError("owner_cannot_accept_own_invitation", 409)
+            for account_id in sorted((owner_subject_id, member_subject_id)):
+                self._lock_account(cursor, account_id)
             lock = "" if self._placeholder == "?" else " FOR UPDATE"
             cursor.execute(self._sql(
                 "SELECT invitation_id,owner_subject_id,status,expires_at FROM family_invitations "
@@ -148,11 +163,6 @@ class FamilyInvitationService:
                 ), (invitation["invitation_id"],))
                 connection.commit()
                 raise FamilyInvitationError("invitation_expired", 410)
-            owner_subject_id = invitation["owner_subject_id"]
-            if owner_subject_id == member_subject_id:
-                raise FamilyInvitationError("owner_cannot_accept_own_invitation", 409)
-            for account_id in sorted((owner_subject_id, member_subject_id)):
-                self._lock_account(cursor, account_id)
             self._require_family_entitlement(connection, owner_subject_id)
             cursor.execute(self._sql(
                 "SELECT owner_subject_id FROM family_memberships "
