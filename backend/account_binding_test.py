@@ -44,6 +44,11 @@ class AccountBindingRepositoryTests(unittest.TestCase):
         second = self.repository.get_or_create(authenticated_subject_id="subject-2")
         self.assertNotEqual(first, second)
 
+    def test_verified_store_binding_resolves_to_subject(self):
+        binding = self.repository.get_or_create(authenticated_subject_id="subject-1")
+        self.assertEqual(self.repository.get_subject_for_binding(binding), "subject-1")
+        self.assertIsNone(self.repository.get_subject_for_binding("unknown-binding"))
+
     def test_unknown_subject_cannot_receive_binding(self):
         with self.assertRaises(sqlite3.IntegrityError):
             self.repository.get_or_create(authenticated_subject_id="invented-subject")
