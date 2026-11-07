@@ -37,6 +37,7 @@ class PersistentIdentityService(IdentityService):
         # Installed by the production composition root when its durable binding repository is injected.
         self.store_account_binding_service = None
         self.device_allowance_resolver = device_allowance_resolver
+        self.family_membership_repository = None
         self._device_pairing = None
 
     @property
