@@ -51,3 +51,27 @@ class AccountBindingRepository:
         finally:
             cursor.close()
             connection.close()
+
+class AuthenticatedStoreAccountBindingService:
+    """Resolve a live server session before issuing a store-account binding.
+
+    Network handlers must pass the bearer session identifier here. They must
+    not accept a subject ID or binding ID from the client. The identity service
+    is authoritative for expiry, revocation, blocked-account and device-trust
+    checks; only its resolved subject is passed to the repository.
+    """
+
+    def __init__(self, identity_service, repository: AccountBindingRepository) -> None:
+        if identity_service is None or repository is None:
+            raise ValueError("identity service and binding repository are required")
+        self._identity_service = identity_service
+        self._repository = repository
+
+    def get_or_create_for_session(self, *, session_id: str) -> str:
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise ValueError("server session ID is required")
+        session = self._identity_service.resolve_session(session_id)
+        subject_id = getattr(session, "subject_id", None)
+        if not isinstance(subject_id, str) or not subject_id.strip():
+            raise AccountBindingError("validated session has no authenticated subject")
+        return self._repository.get_or_create(authenticated_subject_id=subject_id)
