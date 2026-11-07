@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: neon-shield-controlled-validation-${{ github.ref }}-${{ inputs.batch }}
+  group: neon-shield-controlled-validation-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -51,7 +51,7 @@ jobs:
       - name: Run Python regression tests
         run: python -m unittest discover -s tests -v
       - name: Run backend regression tests
-        run: python -m unittest discover -s backend -p '*_test.py' -v
+        run: python -m unittest -v backend.backup_policy_test backend.composition_test backend.device_pairing_test backend.managed_db_store_hardening_test backend.managed_db_store_test backend.managed_store_test backend.migrations_test backend.observability_test backend.production_config_test backend.security_monitoring_test backend.secrets_test backend.service_managed_store_test backend.session_resolution_test backend.store_contract_test
       - name: Run Python static error checks
         run: git ls-files -z '*.py' | xargs -0 pylint --disable=all --enable=E,F
 
@@ -76,7 +76,9 @@ jobs:
       - name: Run security regression suites
         run: |
           python -m unittest -v backend.production_config_test backend.device_pairing_test backend.managed_db_store_hardening_test backend.observability_test backend.composition_test backend.security_monitoring_test
-          python -m unittest -v tests.test_auth_server tests.test_auth_server_contract tests.test_security_checks tests.test_production_backend
+          python -m unittest discover -s tests -p 'test_auth_server*.py' -v
+          python -m unittest discover -s tests -p 'test_security_checks.py' -v
+          python -m unittest discover -s tests -p 'test_production_backend.py' -v
       - name: Reject private-key material in tracked source
         shell: bash
         run: |
