@@ -76,6 +76,14 @@ def make_handler(service):
                     return
 
                 session = self._session()
+                if self.path == "/v1/store/account-binding":
+                    binding_service = getattr(service, "store_account_binding_service", None)
+                    if binding_service is None:
+                        self._json(503, {"error": "unavailable"})
+                        return
+                    binding_id = binding_service.get_or_create_for_session(session_id=session.session_id)
+                    self._json(200, {"account_binding_id": binding_id})
+                    return
                 if self.path == "/v1/auth/refresh":
                     self._json(200, {"session": _session_json(service.refresh(session))})
                     return
