@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, SignInRequest
 from store_verification import StoreProvider, StorePurchaseRequest, StoreVerificationError, StoreVerificationUnavailable
+from backend.device_limits import DeviceLimitExceeded
 
 
 def _session_json(session):
@@ -190,6 +191,8 @@ def make_handler(service):
                 self._json(404, {"error": "not_found"})
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
+            except DeviceLimitExceeded as exc:
+                self._json(409, {"error": exc.reason})
             except StoreVerificationUnavailable:
                 self._json(503, {"error": "store_verification_unavailable"})
             except StoreVerificationError:
