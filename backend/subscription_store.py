@@ -132,7 +132,7 @@ class StoreSubscriptionRepository:
                     # A delayed provider notification must never roll back a
                     # newer verified state for the same subscription chain.
                     connection.commit()
-                    return
+                    return False
                 raise SubscriptionPersistenceError(
                     "verified subscription update was not applied"
                 )
@@ -149,6 +149,7 @@ class StoreSubscriptionRepository:
                     purchase.replaces_original_transaction_id, subject_id,
                     purchase.account_binding_id))
             connection.commit()
+            return True
         except Exception:
             connection.rollback()
             raise
