@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
@@ -54,10 +55,17 @@ def make_handler(service):
             return service.resolve_session(token)
 
         def do_GET(self) -> None:
-            if self.path == "/health":
-                self._json(200, {"status": "ok", "service": "neon-shield-auth"})
-            else:
+            try:
+                if self.path == "/health":
+                    self._json(200, {"status": "ok", "service": "neon-shield-auth"})
+                    return
+                if self.path == "/v1/devices":
+                    session = self._session()
+                    self._json(200, {"devices": service.device_pairing.devices(session)})
+                    return
                 self._json(404, {"error": "not_found"})
+            except Exception as exc:
+                self._error(exc)
 
         def do_POST(self) -> None:
             try:
@@ -74,6 +82,22 @@ def make_handler(service):
                         )
                     )
                     self._json(200, {"session": _session_json(session)})
+                    return
+
+                if self.path == "/v1/device-pairing/start":
+                    result = service.device_pairing.start(
+                        str(data.get("identity", "")),
+                        str(data.get("credential", "")),
+                        str(data.get("device_id", "")),
+                        str(data.get("device_name", "")),
+                    )
+                    self._json(201, result)
+                    return
+
+                if self.path == "/v1/device-pairing/status":
+                    self._json(200, {"status": service.device_pairing.status(
+                        str(data.get("request_id", "")), str(data.get("pairing_secret", ""))
+                    )})
                     return
 
                 if self.path == "/v1/store/apple/notifications":
@@ -153,6 +177,14 @@ def make_handler(service):
                 if self.path == "/v1/auth/trusted-device":
                     self._json(200, {"trusted": service.is_device_trusted(session)})
                     return
+
+                if self.path == "/v1/device-pairing/approve":
+                    self._json(200, service.device_pairing.approve(
+                        session,
+                        str(data.get("request_id", "")),
+                        pairing_code=data.get("pairing_code"),
+                    ))
+                    return
                 self._json(404, {"error": "not_found"})
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
@@ -165,7 +197,42 @@ def make_handler(service):
             except Exception:
                 self._json(503, {"error": "unavailable"})
 
+        def do_PATCH(self) -> None:
+            try:
+                match = re.fullmatch(r"/v1/devices/([A-Za-z0-9_-]{16,64})", self.path)
+                if match is None:
+                    self._json(404, {"error": "not_found"})
+                    return
+                session = self._session()
+                data = self._body()
+                service.device_pairing.rename(session, match.group(1), data.get("device_name"))
+                self._json(200, {"updated": True})
+            except Exception as exc:
+                self._error(exc)
+
+        def do_DELETE(self) -> None:
+            try:
+                match = re.fullmatch(r"/v1/devices/([A-Za-z0-9_-]{16,64})", self.path)
+                if match is None:
+                    self._json(404, {"error": "not_found"})
+                    return
+                session = self._session()
+                service.device_pairing.unlink(session, match.group(1))
+                self._json(204)
+            except Exception as exc:
+                self._error(exc)
+
         def log_message(self, format: str, *args) -> None:
+            return
+
+    return Handler
+
+
+def serve(service, host: str = "127.0.0.1", port: int = 8080) -> None:
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("bind behind an HTTPS reverse proxy for non-local deployment")
+    ThreadingHTTPServer((host, port), make_handler(service)).serve_forever()
+self, format: str, *args) -> None:
             return
 
     return Handler
