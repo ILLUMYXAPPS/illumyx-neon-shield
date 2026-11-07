@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from pathlib import Path
 
 from backend.subscription_store import StoreSubscriptionRepository
+from backend.device_limits import DeviceLimitExceeded, DeviceLimitPolicy
 from backend.device_allowance import (
     FamilyMembershipError,
     FamilyMembershipRepository,
@@ -189,6 +190,61 @@ class FamilyMembershipTests(unittest.TestCase):
             self.assertEqual(allowance.package.value, "premium")
             self.assertEqual(allowance.member_device_count, 0)
             connection.rollback()
+
+
+    def _family_resolver(self):
+        self.families.create_household("owner", created_at=NOW)
+        for index in range(1, 5):
+            self.families.add_member("owner", f"member-{index}", created_at=NOW)
+        self._insert_family_subscription()
+        return StoreDeviceAllowanceResolver(
+            self.connect,
+            StoreSubscriptionRepository(
+                self.connect, pepper="subscription-test-pepper", placeholder="?"
+            ),
+            self.families,
+            placeholder="?",
+        )
+
+    def _add_trusted_devices(self, subject, count):
+        with self.connect() as connection:
+            for index in range(count):
+                connection.execute(
+                    "INSERT INTO devices(subject_id,device_hash,trusted,created_at) VALUES(?,?,1,?)",
+                    (subject, f"boundary-{subject}-{index}", NOW),
+                )
+
+    def test_family_member_third_device_is_rejected_from_transactional_counts(self):
+        resolver = self._family_resolver()
+        self._add_trusted_devices("member-1", 2)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            allowance = resolver.resolve_for_approval(
+                connection, "member-1", "third-device-request"
+            )
+            self.assertEqual(allowance.member_device_count, 2)
+            with self.assertRaises(DeviceLimitExceeded) as caught:
+                DeviceLimitPolicy.assert_can_add_device(allowance)
+            self.assertEqual(caught.exception.reason, "family_member_device_limit_reached")
+            connection.rollback()
+
+    def test_eleventh_family_device_is_rejected_even_when_member_has_a_free_slot(self):
+        resolver = self._family_resolver()
+        # The owner and four existing members use all ten household slots.
+        for subject in ("owner", "member-1", "member-2", "member-3", "member-4"):
+            self._add_trusted_devices(subject, 2)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            allowance = resolver.resolve_for_approval(
+                connection, "member-5", "eleventh-device-request"
+            )
+            self.assertEqual(allowance.member_device_count, 0)
+            self.assertEqual(allowance.family_total_device_count, 10)
+            with self.assertRaises(DeviceLimitExceeded) as caught:
+                DeviceLimitPolicy.assert_can_add_device(allowance)
+            self.assertEqual(caught.exception.reason, "family_total_device_limit_reached")
+            connection.rollback()
+
 
 if __name__ == "__main__":
     unittest.main()
