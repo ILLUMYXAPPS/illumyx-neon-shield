@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import importlib
 import json
 from datetime import datetime, timezone
 
@@ -126,9 +127,11 @@ class GoogleRtdnProcessor:
 
     def _verify_google_oidc(self, token: str, audience: str) -> dict:
         try:
-            from google.auth.transport.requests import Request
-            from google.oauth2 import id_token
-            return id_token.verify_oauth2_token(token, Request(), audience)
+            request_module = importlib.import_module("google.auth.transport.requests")
+            token_module = importlib.import_module("google.oauth2.id_token")
+            return token_module.verify_oauth2_token(
+                token, request_module.Request(), audience
+            )
         except Exception as exc:
             raise StoreVerificationError("Google Pub/Sub OIDC token is invalid") from exc
 
