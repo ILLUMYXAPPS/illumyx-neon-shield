@@ -1,6 +1,7 @@
 """Tests for the fail-closed store verification boundary."""
 from datetime import datetime, timedelta, timezone
 import unittest
+from unittest.mock import Mock
 
 from entitlements import Package
 from store_verification import (StoreProduct, StoreProvider, StorePurchaseRequest,
@@ -60,6 +61,18 @@ class StoreVerificationTests(unittest.TestCase):
             "com.illumyx.illumyxapp", ACCOUNT, "tx-2", "original-2", NOW, revoked=True)
         with self.assertRaises(StoreVerificationError):
             self.service(StubVerifier(revoked)).verify(self.request, expected_account_binding_id=ACCOUNT, now=NOW)
+
+    def test_revoked_purchase_is_persisted_before_entitlement_is_denied(self):
+        revoked = VerifiedStorePurchase(StoreProvider.APPLE, "premium.monthly",
+            "com.illumyx.illumyxapp", ACCOUNT, "tx-revoked", "original-revoked",
+            NOW, revoked=True, environment="sandbox")
+        repository = Mock()
+        snapshot = self.service(StubVerifier(revoked)).verify_and_persist(
+            self.request, subject_id="subject-1", expected_account_binding_id=ACCOUNT,
+            repository=repository, now=NOW)
+        self.assertFalse(snapshot.active)
+        repository.save_verified_purchase.assert_called_once()
+        self.assertTrue(repository.save_verified_purchase.call_args.kwargs["purchase"].revoked)
 
     def test_expired_purchase_is_inactive(self):
         expired = VerifiedStorePurchase(StoreProvider.APPLE, "premium.monthly",
