@@ -130,13 +130,6 @@ def build_service(
             subscription_repository=subscription_repository,
             placeholder=database_placeholder,
         )
-        _install_family_invitation_service(
-        service,
-        database_connection_factory=database_connection_factory,
-        subscription_repository=subscription_repository,
-        placeholder=database_placeholder,
-    )
-    service.apple_notification_processor = apple_notification_processor
         service.google_rtdn_processor = google_rtdn_processor
         return service
 
@@ -159,6 +152,12 @@ def build_service(
         database_connection_factory=database_connection_factory,
         subscription_repository=subscription_repository,
         family_membership_repository=family_membership_repository,
+        placeholder=database_placeholder,
+    )
+    _install_family_invitation_service(
+        service,
+        database_connection_factory=database_connection_factory,
+        subscription_repository=subscription_repository,
         placeholder=database_placeholder,
     )
     service.apple_notification_processor = apple_notification_processor
