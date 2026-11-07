@@ -12,12 +12,12 @@ from backend.production_migrations import PRODUCTION_MIGRATIONS
 
 class MigrationRunnerTests(unittest.TestCase):
     def test_production_migrations_are_contiguous_and_create_rate_limit_state(self) -> None:
-        self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3, 4])
+        self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3, 4, 5])
         with TemporaryDirectory() as directory:
             path = Path(directory) / "production-migrations.sqlite3"
             runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
-            self.assertEqual(runner.apply_pending(), 4)
-            self.assertEqual(runner.apply_pending(), 4)
+            self.assertEqual(runner.apply_pending(), 5)
+            self.assertEqual(runner.apply_pending(), 5)
             connection = sqlite3.connect(path)
             try:
                 table = connection.execute(
@@ -32,6 +32,7 @@ class MigrationRunnerTests(unittest.TestCase):
                 (2, "create_auth_indexes"),
                 (3, "create_sign_in_rate_limits"),
                 (4, "create_store_subscription_records"),
+                (5, "create_store_account_bindings"),
             ])
             self.assertIsNotNone(connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='verified_subscriptions'"
