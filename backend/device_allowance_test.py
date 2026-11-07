@@ -164,6 +164,7 @@ class FamilyMembershipTests(unittest.TestCase):
                 "NULL,0,?,?)",
                 (NOW, NOW),
             )
+            connection.commit()
             connection.execute("BEGIN IMMEDIATE")
             subscriptions = StoreSubscriptionRepository(
                 self.connect, pepper="subscription-test-pepper", placeholder="?"
