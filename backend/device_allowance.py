@@ -20,11 +20,14 @@ class FamilyMembershipRepository:
 
     MAX_MEMBERS = 5
 
-    def __init__(self, connection_factory, *, placeholder: str = "%s") -> None:
+    def __init__(self, connection_factory, *, placeholder: str = "%s", lock_clause: str | None = None) -> None:
         if placeholder not in {"%s", "?", ":1"}:
             raise ValueError("unsupported DB-API placeholder")
+        if lock_clause not in {None, "", " FOR UPDATE"}:
+            raise ValueError("unsupported family membership lock clause")
         self._connect = connection_factory
         self._placeholder = placeholder
+        self._lock_clause = lock_clause if lock_clause is not None else ("" if placeholder == "?" else " FOR UPDATE")
 
     def _sql(self, query: str) -> str:
         return query.replace("?", self._placeholder)
@@ -68,8 +71,10 @@ class FamilyMembershipRepository:
         connection = self._connect()
         cursor = connection.cursor()
         try:
+            if self._placeholder == "?":
+                connection.execute("BEGIN IMMEDIATE")
             cursor.execute(
-                self._sql("SELECT owner_subject_id FROM family_households WHERE owner_subject_id=?"),
+                self._sql("SELECT owner_subject_id FROM family_households WHERE owner_subject_id=?" + self._lock_clause),
                 (owner_subject_id,),
             )
             if cursor.fetchone() is None:
