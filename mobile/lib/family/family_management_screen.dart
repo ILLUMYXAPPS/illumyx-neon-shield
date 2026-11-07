@@ -133,7 +133,8 @@ class _FamilyManagementScreenState extends State<FamilyManagementScreen> {
     await Share.share(
       'Join my ILLUMYX Neon Shield Family. Sign in to your own account, open Family Management, and enter this one-time invitation code:\n\n$code\n\nThis code expires on ${invitation.expiresAt}.',
       subject: 'Neon Shield Family invitation',
-    );  }
+    );
+  }
 
   Future<void> _revoke(FamilyInvitation invitation) async {
     if (_busy) return;
