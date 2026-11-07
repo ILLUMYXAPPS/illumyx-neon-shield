@@ -149,6 +149,8 @@ class AppleStoreKitVerifier:
             raise StoreVerificationError("Apple transaction identifiers are missing")
 
         expires_ms = getattr(decoded, "expiresDate", None)
+        if expires_ms is None:
+            raise StoreVerificationError("Apple auto-renewable subscription expiry is missing")
         expires_at = (
             datetime.fromtimestamp(expires_ms / 1000, tz=timezone.utc)
             if expires_ms is not None else None
