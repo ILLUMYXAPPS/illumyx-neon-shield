@@ -1,28 +1,13 @@
 name: Neon Shield iOS Cloud Simulator
 
+env:
+  APP_BUNDLE_ID: com.illumyx.illumyxapp
+
 on:
   workflow_dispatch:
   schedule:
     # 12:00 Monday in Brisbane (UTC+10, no daylight saving).
     - cron: '0 2 * * 1'
-  pull_request:
-    paths:
-      - "mobile/**"
-      - ".github/workflows/ios-cloud-simulator.yml"
-  push:
-    branches: ["main", "feat/ios-cloud-simulator-smoke-tests", "integration/neon-shield-ios-smoke-2026-11-06"]
-    paths:
-      - "mobile/**"
-      - ".github/workflows/ios-cloud-simulator.yml"
-
-permissions:
-  contents: read
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  APP_BUNDLE_ID: com.illumyx.illumyxapp
-  FLUTTER_VERSION: "3.47.9"
-
 jobs:
   simulator-smoke:
     name: iOS simulator smoke (${{ matrix.device_family }})
@@ -30,6 +15,7 @@ jobs:
     timeout-minutes: 35
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         device_family: [iPhone, iPad]
     steps:

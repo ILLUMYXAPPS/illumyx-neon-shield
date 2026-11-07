@@ -1,0 +1,342 @@
+name: Neon Shield Desktop Cloud Smoke
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    # Weekly desktop regression check, Monday 12:30 Brisbane (UTC+10).
+    - cron: '30 2 * * 1'
+  push:
+    branches:
+      - "main"
+      - "integration/neon-shield-ios-smoke-2026-11-06"
+    paths:
+      - "mobile/**"
+      - ".github/workflows/desktop-cloud-smoke.yml"
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  APP_BUNDLE_ID: com.illumyx.illumyxapp
+
+jobs:
+  android-emulator-smoke:
+    name: Android simulator install and launch smoke
+    # Use the standard x64 Linux runner with KVM enabled for hardware acceleration.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Enable KVM for hardware-accelerated Android simulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android project
+        working-directory: mobile
+        run: flutter create --platforms=android --org com.illumyx --project-name illumyxapp .
+
+      - name: Configure Android compile SDK
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          candidates = (Path("android/app/build.gradle.kts"), Path("android/app/build.gradle"))
+          gradle_file = next((path for path in candidates if path.is_file()), None)
+          if gradle_file is None:
+              raise SystemExit("Flutter did not generate an Android Gradle file.")
+          content = gradle_file.read_text()
+          replacements = (
+              ("compileSdk = flutter.compileSdkVersion", "compileSdk = 36"),
+              ("compileSdkVersion flutter.compileSdkVersion", "compileSdkVersion 36"),
+              ("compileSdkVersion = flutter.compileSdkVersion", "compileSdkVersion = 36"),
+          )
+          for old, new in replacements:
+              if old in content:
+                  content = content.replace(old, new, 1)
+                  break
+          else:
+              if not any(token in content for token in ("compileSdk = 36", "compileSdkVersion 36", "compileSdkVersion = 36")):
+                  raise SystemExit(f"Could not safely set compile SDK in {gradle_file}.")
+          gradle_file.write_text(content)
+          PY
+
+      - name: Resolve dependencies and build debug APK
+        working-directory: mobile
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter build apk --debug
+
+      - name: Boot Android simulator and verify app launch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -memory 4096
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            mkdir -p artifacts
+            adb wait-for-device
+            adb shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done'
+            adb install -r mobile/build/app/outputs/flutter-apk/app-debug.apk
+            adb shell monkey -p "$APP_BUNDLE_ID" 1
+            sleep 15
+            adb shell pidof "$APP_BUNDLE_ID" | tee artifacts/android-process-id.txt
+            adb logcat -d -t 3000 > artifacts/android-logcat.txt
+            echo "Neon Shield installed and remained running on the Android emulator." | tee artifacts/android-launch-result.txt
+
+      - name: Upload Android emulator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neon-shield-android-simulator-smoke-evidence
+          path: artifacts/
+          if-no-files-found: warn
+
+  ios-simulator-smoke:
+    name: iOS simulator smoke (${{ matrix.device_family }})
+    runs-on: macos-26
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        device_family: [iPhone, iPad]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.47.9"
+          cache: true
+
+      - name: Record Apple toolchain
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
+
+      - name: Generate iOS project files
+        working-directory: mobile
+        run: flutter create --platforms=ios --org com.illumyx --project-name illumyxapp .
+
+      - name: Resolve Flutter dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Analyze Flutter code
+        working-directory: mobile
+        run: flutter analyze
+
+      - name: Build unsigned simulator app
+        working-directory: mobile
+        run: flutter build ios --simulator --debug
+
+      - name: Select available simulator
+        id: simulator
+        env:
+          DEVICE_FAMILY: ${{ matrix.device_family }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import subprocess
+
+          family = os.environ["DEVICE_FAMILY"]
+          data = json.loads(subprocess.check_output(
+              ["xcrun", "simctl", "list", "devices", "available", "-j"],
+              text=True,
+          ))
+          candidates = []
+          for runtime, devices in data["devices"].items():
+              if not runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-"):
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith(family):
+                      candidates.append((runtime, device))
+          if not candidates:
+              raise SystemExit(f"No available iOS {family} simulator was found.")
+          runtime, device = sorted(candidates, key=lambda item: item[0])[-1]
+          print(f"udid={device['udid']}")
+          print(f"name={device['name']}")
+          print(f"runtime={runtime}")
+          PY
+          echo "Selected simulator: $(grep '^name=' "$GITHUB_OUTPUT" | cut -d= -f2-)"
+
+      - name: Boot simulator
+        run: |
+          set -euo pipefail
+          xcrun simctl boot "${{ steps.simulator.outputs.udid }}"
+          xcrun simctl bootstatus "${{ steps.simulator.outputs.udid }}" -b
+
+      - name: Install and launch Neon Shield
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find build/ios/iphonesimulator -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          xcrun simctl install "${{ steps.simulator.outputs.udid }}" "$APP_PATH"
+          xcrun simctl launch "${{ steps.simulator.outputs.udid }}" "$APP_BUNDLE_ID"
+
+      - name: Capture startup screenshot
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          sleep 5
+          xcrun simctl io "${{ steps.simulator.outputs.udid }}" screenshot "artifacts/neon-shield-${{ matrix.device_family }}.png"
+          test -s "artifacts/neon-shield-${{ matrix.device_family }}.png"
+
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neon-shield-ios-${{ matrix.device_family }}-simulator-evidence
+          path: artifacts/*.png
+          if-no-files-found: warn
+
+      - name: Shut down simulator
+        if: always()
+        run: xcrun simctl shutdown "${{ steps.simulator.outputs.udid }}" || true
+
+  windows-desktop-smoke:
+    name: Windows desktop launch smoke
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Windows project
+        working-directory: mobile
+        run: flutter create --platforms=windows --org com.illumyx --project-name illumyxapp .
+
+      - name: Resolve dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Analyze Flutter code
+        working-directory: mobile
+        run: flutter analyze
+
+      - name: Build Windows desktop app
+        working-directory: mobile
+        run: flutter build windows --debug
+
+      - name: Install and launch Neon Shield
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $appPath = Join-Path $PWD "mobile\\build\\windows\\x64\\runner\\Debug\\illumyxapp.exe"
+          if (-not (Test-Path $appPath)) {
+            throw "Expected Neon Shield executable was not produced: $appPath"
+          }
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $stdout = Join-Path $PWD "artifacts\\windows-stdout.log"
+          $stderr = Join-Path $PWD "artifacts\\windows-stderr.log"
+          $process = Start-Process -FilePath $appPath -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Start-Sleep -Seconds 10
+          $running = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+          if ($null -eq $running) {
+            throw "Neon Shield exited before the Windows startup smoke check completed."
+          }
+          "Neon Shield launched successfully. PID=$($process.Id)" | Set-Content (Join-Path $PWD "artifacts\\windows-launch-result.txt")
+          Stop-Process -Id $process.Id -Force
+          "Neon Shield process shut down after the smoke check." | Add-Content (Join-Path $PWD "artifacts\\windows-launch-result.txt")
+
+      - name: Upload Windows startup evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neon-shield-windows-desktop-smoke-evidence
+          path: artifacts/
+          if-no-files-found: warn
+
+  macos-desktop-smoke:
+    name: macOS desktop launch smoke
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate macOS project
+        working-directory: mobile
+        run: flutter create --platforms=macos --org com.illumyx --project-name illumyxapp .
+
+      - name: Resolve dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Analyze Flutter code
+        working-directory: mobile
+        run: flutter analyze
+
+      - name: Build macOS desktop app
+        working-directory: mobile
+        run: flutter build macos --debug
+
+      - name: Install and launch Neon Shield
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="mobile/build/macos/Build/Products/Debug/illumyxapp.app"
+          test -d "$APP_PATH"
+          mkdir -p artifacts
+          open "$APP_PATH"
+          launched=false
+          for attempt in $(seq 1 20); do
+            if pgrep -x illumyxapp >/dev/null; then
+              launched=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$launched" != true ]; then
+            echo "Neon Shield did not remain running after launch." | tee artifacts/macos-launch-result.txt
+            exit 1
+          fi
+          echo "Neon Shield launched successfully on macOS." | tee artifacts/macos-launch-result.txt
+          pgrep -laf illumyxapp >> artifacts/macos-launch-result.txt || true
+          pkill -x illumyxapp || true
+          echo "Neon Shield process shut down after the smoke check." >> artifacts/macos-launch-result.txt
+
+      - name: Upload macOS startup evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neon-shield-macos-desktop-smoke-evidence
+          path: artifacts/
+          if-no-files-found: warn

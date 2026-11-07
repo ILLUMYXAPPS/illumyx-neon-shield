@@ -1,9 +1,9 @@
 name: Neon Shield CodeQL
 
 on:
+  workflow_call:
   push:
-    branches: [main, "agent/**", "feat/**", "fix/**"]
-  pull_request:
+    branches: [main]
   schedule:
     - cron: "23 4 * * 1"
   workflow_dispatch:

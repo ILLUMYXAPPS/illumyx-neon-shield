@@ -1,9 +1,9 @@
 name: Neon Shield Security Gate
 
 on:
+  workflow_call:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
   schedule:
     # Sunday 4:20 pm Brisbane time (06:20 UTC), ahead of the weekly review.

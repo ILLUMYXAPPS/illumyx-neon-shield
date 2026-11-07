@@ -1,6 +1,7 @@
 name: Neon Shield Mobile Checks
 
 on:
+  workflow_call:
   workflow_dispatch:
   schedule:
     # Sunday 4:00 pm Brisbane time (06:00 UTC), ahead of the weekly review.
@@ -8,15 +9,6 @@ on:
   push:
     branches:
       - main
-      - "agent/**"
-      - "fix/**"
-      - "feat/**"
-      - "feature/**"
-    paths:
-      - "mobile/**"
-      - ".github/workflows/mobile-checks.yml"
-      - ".github/workflows/mobile-signed-release.yml"
-  pull_request:
     paths:
       - "mobile/**"
       - ".github/workflows/mobile-checks.yml"

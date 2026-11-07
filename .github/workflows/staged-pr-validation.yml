@@ -1,0 +1,91 @@
+name: Neon Shield Staged PR Validation
+
+on:
+  pull_request:
+    paths:
+      - "mobile/**"
+      - "*.py"
+      - "backend/**"
+      - "tests/**"
+      - "requirements*.txt"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+concurrency:
+  group: neon-shield-staged-pr-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # Mobile lane: each successful stage releases the next mobile stage.
+  core-mobile:
+    name: Mobile 1 - Flutter analysis and tests
+    uses: ./.github/workflows/mobile-checks.yml
+
+  platform-builds:
+    name: Mobile 2 - Platform beta builds
+    needs: [core-mobile, core-python-tests]
+    uses: ./.github/workflows/mobile-build.yml
+
+  platform-smoke:
+    name: Mobile 3 - Platform install and launch validation
+    needs: platform-builds
+    uses: ./.github/workflows/desktop-cloud-smoke.yml
+
+  # Python/security lane runs independently of the mobile lane.
+  core-python-tests:
+    name: Code 1 - Python test matrix
+    uses: ./.github/workflows/test.yml
+
+  core-pylint:
+    name: Code 2 - Python static analysis
+    needs: core-python-tests
+    uses: ./.github/workflows/pylint.yml
+
+  core-security:
+    name: Security 1 - Security regression checks
+    needs: core-pylint
+    uses: ./.github/workflows/security-gate.yml
+
+  # Independent security analyses start together after regression checks pass.
+  core-codeql:
+    name: Security 2A - CodeQL analysis
+    needs: core-security
+    uses: ./.github/workflows/codeql.yml
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+  core-secrets:
+    name: Security 2B - Secret history scan
+    needs: core-security
+    uses: ./.github/workflows/secret-scan.yml
+    permissions:
+      contents: read
+      security-events: write
+
+  # Final gate requires every lane to have completed successfully.
+  validation-complete:
+    name: Final gate - all validation lanes passed
+    if: always()
+    needs:
+      - platform-smoke
+      - core-codeql
+      - core-secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every validation lane to pass
+        env:
+          MOBILE_RESULT: ${{ needs.platform-smoke.result }}
+          CODEQL_RESULT: ${{ needs.core-codeql.result }}
+          SECRET_SCAN_RESULT: ${{ needs.core-secrets.result }}
+        run: |
+          set -euo pipefail
+          test "$MOBILE_RESULT" = "success"
+          test "$CODEQL_RESULT" = "success"
+          test "$SECRET_SCAN_RESULT" = "success"
+          echo "All mobile, code, and security validation lanes passed."
