@@ -58,6 +58,11 @@ void main() {
     expect(find.text('one-time-family-code'), findsOneWidget);
     expect(find.text('Copy code'), findsOneWidget);
     expect(find.text('Share invitation'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('PENDING INVITATIONS'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('PENDING INVITATIONS'), findsOneWidget);
   });
 
@@ -68,6 +73,11 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.byType(TextField),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.enterText(find.byType(TextField), 'recipient-family-code');
     await tester.pump();
     await tester.tap(find.text('Accept invitation'));
