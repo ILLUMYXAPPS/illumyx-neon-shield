@@ -108,11 +108,14 @@ class StoreSubscriptionRepositoryTests(unittest.TestCase):
 
     def test_verification_service_persists_before_returning_entitlement(self):
         class Verifier:
-            def verify(inner_self, request):
+            def __init__(self, purchase):
+                self.purchase = purchase
+
+            def verify(self, request):
                 return self.purchase
 
         service = StoreVerificationService(
-            apple_verifier=Verifier(),
+            apple_verifier=Verifier(self.purchase),
             products=(StoreProduct(
                 StoreProvider.APPLE, "premium.monthly",
                 "com.illumyx.illumyxapp", Package.PREMIUM,
