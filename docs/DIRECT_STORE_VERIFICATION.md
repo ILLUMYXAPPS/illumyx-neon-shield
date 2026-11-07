@@ -1,6 +1,6 @@
 # Direct Apple and Google subscription verification
 
-Status: Apple StoreKit 2 signed-transaction verification adapter added; Google Play live verification and store notification processing remain outstanding.
+Status: Apple StoreKit 2 purchase verification and an injectable Notifications V2 processing endpoint are implemented in code; production Apple credentials/configuration and Google Play integration remain outstanding.
 
 ## Trust model
 
@@ -20,7 +20,7 @@ store_verification.py defines normalized purchase request/result types, a produc
 
 ## Remaining gates
 
-1. Wire Apple App Store Server Notifications V2 webhook routing, nested signed transaction/renewal verification, and idempotent subscription reconciliation; add App Store Server API status/history refresh.
+1. Provision and inject the Apple Notifications V2 processor, configure the production HTTPS webhook URL in App Store Connect, and add App Store Server API status/history refresh. Signed renewal-info verification and grace-period policy remain to be added.
 2. Implement Google Play Developer API verification.
 3. Add authenticated, idempotent Google RTDN handling.
 4. Configure store product IDs and app identifiers for each environment.
@@ -48,7 +48,7 @@ The repository also records authenticated notification event IDs with a unique p
 
 `StoreVerificationService.verify_and_persist` is the integration seam: it invokes the configured provider verifier, validates the server product mapping and account binding, persists the verified result, then returns the package snapshot. This remains fail-closed when live provider verifiers are absent.
 
-**Security boundary:** `record_notification` is deliberately a persistence primitive, not a webhook endpoint. Callers must authenticate Apple's signed notification or Google's authenticated Pub/Sub delivery before recording the event. A production request handler, provider signature/API verification, durable account-binding issuance, and event-to-subscription reconciliation still need implementation.
+**Security boundary:** `record_notification` is deliberately a persistence primitive, not a webhook endpoint. Callers must authenticate Apple's signed notification or Google's authenticated Pub/Sub delivery before recording the event. The authenticated Apple webhook handler and nested transaction reconciliation are implemented as injectable code. Production hosting, deployment configuration, and Apple notification delivery tests remain outstanding.
 
 
 ## Server-issued account binding
@@ -103,3 +103,4 @@ the real numeric App Store app ID. These values are deliberately not guessed
 or committed. The API route is now implemented, but it is not production-live
 until hosting, database migrations, provider configuration, and HTTPS
 deployment are completed.
+\n\n## Apple Notifications V2 processing endpoint\n\n`POST /v1/store/apple/notifications` accepts the `signedPayload` envelope. The handler does not accept a client-selected account or subscription. The injected `AppleNotificationProcessor` verifies the outer notification JWS, verifies the nested signed transaction, resolves the signed `appAccountToken` through the durable account-binding repository, re-runs the configured product-catalogue verification and persists the normalized transaction. Refund/revocation facts are persisted as inactive subscription state; cancellations do not prematurely revoke an already-paid period. The event is recorded under Apple's `notificationUUID` and finalized only after reconciliation succeeds. Duplicate event IDs do not repeat the event insert. Events without a transaction payload (for example, test/metadata events) are authenticated and recorded without changing entitlements.\n\nThe processor is wired through the application composition root but must be explicitly injected. The code does not create a public internet listener, TLS certificate, Apple webhook registration, or production credentials. The Apple Server API status/history refresh, signed renewal-info/grace-period reconciliation, and provider integration tests against real App Store Connect sandbox notifications remain open.\n
