@@ -1,0 +1,346 @@
+name: Neon Shield Controlled Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: "Choose exactly one validation batch. Wait for it to finish before starting another."
+        required: true
+        type: choice
+        options:
+          - code-quality
+          - security
+          - flutter-regression
+          - ios-ipados
+          - android-emulator
+          - windows-macos
+      reason:
+        description: "Optional note for the validation record"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-shield-controlled-validation-${{ github.ref }}-${{ inputs.batch }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  APP_BUNDLE_ID: com.illumyx.illumyxapp
+  FLUTTER_VERSION: "3.47.9"
+
+jobs:
+  code-quality:
+    if: inputs.batch == 'code-quality'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project and lint dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pylint
+      - name: Compile Python sources
+        run: python -m compileall -q app_ui.py security_checks.py auth_server_contract.py auth_server.py neon_forensics.py neon_forensics_vault.py platform_collectors.py windows_wfp_telemetry.py backend tests
+      - name: Run Python regression tests
+        run: python -m unittest discover -s tests -v
+      - name: Run backend regression tests
+        run: python -m unittest discover -s backend -p '*_test.py' -v
+      - name: Run Python static error checks
+        run: git ls-files -z '*.py' | xargs -0 pylint --disable=all --enable=E,F
+
+  security:
+    if: inputs.batch == 'security'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install runtime and audit dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install pip-audit
+      - name: Audit Python dependencies
+        run: python -m pip_audit -r requirements.txt
+      - name: Run security regression suites
+        run: |
+          python -m unittest -v backend.production_config_test backend.device_pairing_test backend.managed_db_store_hardening_test backend.observability_test backend.composition_test backend.security_monitoring_test
+          python -m unittest -v tests.test_auth_server tests.test_auth_server_contract tests.test_security_checks tests.test_production_backend
+      - name: Reject private-key material in tracked source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -n -I -E -- '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' -- ':!*.md'; then
+            echo 'Private-key material detected in tracked source files.'
+            exit 1
+          fi
+      - name: Run Gitleaks history scan
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  flutter-regression:
+    if: inputs.batch == 'flutter-regression'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.47.9"
+          cache: true
+      - name: Resolve Flutter dependencies
+        working-directory: mobile
+        run: flutter pub get
+      - name: Analyze Flutter application
+        working-directory: mobile
+        run: flutter analyze
+      - name: Run Flutter regression tests
+        working-directory: mobile
+        run: flutter test
+
+  ios-ipados:
+    if: inputs.batch == 'ios-ipados'
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.47.9"
+          cache: true
+      - name: Generate iOS project and resolve dependencies
+        working-directory: mobile
+        run: |
+          flutter create --platforms=ios --org com.illumyx --project-name illumyxapp .
+          flutter pub get
+          flutter analyze
+          flutter test
+      - name: Build unsigned iOS simulator app
+        working-directory: mobile
+        run: flutter build ios --simulator --debug
+      - name: Boot, install and launch iPhone then iPad simulators
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find mobile/build/ios/iphonesimulator -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          mkdir -p artifacts
+          for FAMILY in iPhone iPad; do
+            UDID="$(python3 - "$FAMILY" <<'PY'
+          import json, subprocess, sys
+          family = sys.argv[1]
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True))
+          candidates = []
+          for runtime, devices in data["devices"].items():
+              if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-"):
+                  for device in devices:
+                      if device.get("isAvailable") and device["name"].startswith(family):
+                          candidates.append((runtime, device))
+          if not candidates:
+              raise SystemExit(f"No available iOS {family} simulator found")
+          print(sorted(candidates, key=lambda item: item[0])[-1][1]["udid"])
+          PY
+            )"
+            xcrun simctl boot "$UDID"
+            xcrun simctl bootstatus "$UDID" -b
+            xcrun simctl install "$UDID" "$APP_PATH"
+            xcrun simctl launch "$UDID" "$APP_BUNDLE_ID"
+            sleep 5
+            xcrun simctl io "$UDID" screenshot "artifacts/neon-shield-$FAMILY.png"
+            xcrun simctl shutdown "$UDID"
+          done
+      - name: Upload iOS and iPadOS simulator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neon-shield-ios-ipados-batch-evidence
+          path: artifacts/
+          if-no-files-found: warn
+
+  android-emulator:
+    if: inputs.batch == 'android-emulator'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.47.9"
+          cache: true
+      - name: Generate Android project
+        working-directory: mobile
+        run: flutter create --platforms=android --org com.illumyx --project-name illumyxapp .
+      - name: Configure Android compile SDK
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          candidates = (Path("android/app/build.gradle.kts"), Path("android/app/build.gradle"))
+          gradle_file = next((path for path in candidates if path.is_file()), None)
+          if gradle_file is None:
+              raise SystemExit("Flutter did not generate an Android Gradle file.")
+          content = gradle_file.read_text()
+          replacements = (
+              ("compileSdk = flutter.compileSdkVersion", "compileSdk = 36"),
+              ("compileSdkVersion flutter.compileSdkVersion", "compileSdkVersion 36"),
+              ("compileSdkVersion = flutter.compileSdkVersion", "compileSdkVersion = 36"),
+          )
+          for old, new in replacements:
+              if old in content:
+                  content = content.replace(old, new, 1)
+                  break
+          else:
+              if not any(token in content for token in ("compileSdk = 36", "compileSdkVersion 36", "compileSdkVersion = 36")):
+                  raise SystemExit(f"Could not safely set compile SDK in {gradle_file}.")
+          gradle_file.write_text(content)
+          PY
+      - name: Resolve dependencies, analyze and build debug APK
+        working-directory: mobile
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+          flutter build apk --debug
+      - name: Boot Android emulator and verify app launch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            mkdir -p artifacts
+            adb wait-for-device
+            adb shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done'
+            adb install -r mobile/build/app/outputs/flutter-apk/app-debug.apk
+            adb shell monkey -p "$APP_BUNDLE_ID" 1
+            sleep 15
+            adb shell pidof "$APP_BUNDLE_ID" | tee artifacts/android-process-id.txt
+            adb logcat -d -t 3000 > artifacts/android-logcat.txt
+            echo "Neon Shield installed and remained running on Android emulator." | tee artifacts/android-launch-result.txt
+      - name: Upload Android emulator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neon-shield-android-batch-evidence
+          path: artifacts/
+          if-no-files-found: warn
+
+  windows-macos-windows:
+    if: inputs.batch == 'windows-macos'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.47.9"
+          cache: true
+      - name: Generate, analyze, test and build Windows desktop
+        working-directory: mobile
+        run: |
+          flutter create --platforms=windows --org com.illumyx --project-name illumyxapp .
+          flutter pub get
+          flutter analyze
+          flutter test
+          flutter build windows --debug
+      - name: Launch Windows desktop app
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $appPath = Join-Path $PWD "mobile\build\windows\x64\runner\Debug\illumyxapp.exe"
+          if (-not (Test-Path $appPath)) { throw "Expected executable not found: $appPath" }
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $process = Start-Process -FilePath $appPath -PassThru -RedirectStandardOutput (Join-Path $PWD "artifacts\windows-stdout.log") -RedirectStandardError (Join-Path $PWD "artifacts\windows-stderr.log")
+          Start-Sleep -Seconds 10
+          if ($null -eq (Get-Process -Id $process.Id -ErrorAction SilentlyContinue)) { throw "Neon Shield exited before smoke check completed." }
+          "Windows launch passed. PID=$($process.Id)" | Set-Content (Join-Path $PWD "artifacts\windows-result.txt")
+          Stop-Process -Id $process.Id -Force
+      - name: Upload Windows evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neon-shield-windows-batch-evidence
+          path: artifacts/
+          if-no-files-found: warn
+
+  macos-after-windows:
+    if: inputs.batch == 'windows-macos'
+    needs: windows-macos-windows
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.47.9"
+          cache: true
+      - name: Generate, analyze, test and build macOS desktop
+        working-directory: mobile
+        run: |
+          flutter create --platforms=macos --org com.illumyx --project-name illumyxapp .
+          flutter pub get
+          flutter analyze
+          flutter test
+          flutter build macos --debug
+      - name: Launch macOS desktop app
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="mobile/build/macos/Build/Products/Debug/illumyxapp.app"
+          test -d "$APP_PATH"
+          mkdir -p artifacts
+          open "$APP_PATH"
+          launched=false
+          for attempt in $(seq 1 20); do
+            if pgrep -x illumyxapp >/dev/null; then launched=true; break; fi
+            sleep 2
+          done
+          if [ "$launched" != true ]; then echo "Neon Shield did not remain running." | tee artifacts/macos-result.txt; exit 1; fi
+          echo "macOS launch passed." | tee artifacts/macos-result.txt
+          pkill -x illumyxapp || true
+      - name: Upload macOS evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neon-shield-macos-batch-evidence
+          path: artifacts/
+          if-no-files-found: warn
+
+  record-selection:
+    if: always()
+    needs:
+      - code-quality
+      - security
+      - flutter-regression
+      - ios-ipados
+      - android-emulator
+      - windows-macos-windows
+      - macos-after-windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report selected batch
+        env:
+          SELECTED_BATCH: ${{ inputs.batch }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          echo "Selected validation batch: $SELECTED_BATCH"
+          echo "Optional reason: $REASON"
+          echo "Only the selected batch is run. Start the next batch manually after reviewing this result."
