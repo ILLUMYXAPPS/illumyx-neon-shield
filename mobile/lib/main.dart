@@ -13,7 +13,6 @@ import 'auth/device_identity_store.dart';
 import 'auth/https_auth_api.dart';
 import 'auth/secure_auth_session_store.dart';
 import 'family/family_api.dart';
-import 'family/family_deep_links.dart';
 import 'family/family_management_screen.dart';
 import 'onboarding/onboarding_screen.dart';
 import 'protection/protection_profile.dart';
@@ -73,14 +72,10 @@ class _AppBootstrapState extends State<AppBootstrap> {
   String? _authConfigurationError;
   late final AuthService? _authService;
   late final Future<String> Function() _deviceIdProvider;
-  late final FamilyDeepLinkListener _familyDeepLinks;
-  String? _pendingFamilyInvitationCode;
 
   @override
   void initState() {
     super.initState();
-    _familyDeepLinks = FamilyDeepLinkListener();
-    unawaited(_familyDeepLinks.start(_handleFamilyInvitationCode));
     _deviceIdProvider = widget.deviceIdProvider ??
         SecureDeviceIdentityStore().getOrCreate;
     try {
@@ -90,22 +85,6 @@ class _AppBootstrapState extends State<AppBootstrap> {
       _authConfigurationError = 'The configured authentication endpoint is invalid.';
     }
     _loadBootstrapState();
-  }
-
-  void _handleFamilyInvitationCode(String code) {
-    if (!mounted) return;
-    setState(() => _pendingFamilyInvitationCode = code);
-  }
-
-  void _clearFamilyInvitationCode(String code) {
-    if (!mounted || _pendingFamilyInvitationCode != code) return;
-    setState(() => _pendingFamilyInvitationCode = null);
-  }
-
-  @override
-  void dispose() {
-    unawaited(_familyDeepLinks.dispose());
-    super.dispose();
   }
 
   AuthService? _configuredAuthService() {
@@ -180,8 +159,6 @@ class _AppBootstrapState extends State<AppBootstrap> {
         deviceIdProvider: _deviceIdProvider,
         dashboardBuilder: (session, onSignOut) => ShieldDashboard(
           session: session,
-          initialFamilyInvitationCode: _pendingFamilyInvitationCode,
-          onFamilyInvitationHandled: _clearFamilyInvitationCode,
           securityServiceFactory: widget.securityServiceFactory,
           onSignOut: onSignOut,
         ),
@@ -280,15 +257,11 @@ class ShieldDashboard extends StatefulWidget {
     this.securityServiceFactory,
     this.onSignOut,
     this.session,
-    this.initialFamilyInvitationCode,
-    this.onFamilyInvitationHandled,
   });
 
   final SecurityService Function()? securityServiceFactory;
   final VoidCallback? onSignOut;
   final AuthSession? session;
-  final String? initialFamilyInvitationCode;
-  final ValueChanged<String>? onFamilyInvitationHandled;
 
   @override
   State<ShieldDashboard> createState() => _ShieldDashboardState();
@@ -304,51 +277,12 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
   String platformStatus = 'Checking platform…';
   String securityStatus = 'Loading security state…';
   ProtectionProfile selectedProfile = protectionProfiles.first;
-  String? _handledFamilyInvitationCode;
 
   @override
   void initState() {
     super.initState();
     security = widget.securityServiceFactory?.call() ?? SecurityService();
     refresh();
-    _openFamilyInvitationIfNeeded();
-  }
-
-  @override
-  void didUpdateWidget(covariant ShieldDashboard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.initialFamilyInvitationCode == null) {
-      _handledFamilyInvitationCode = null;
-    } else if (oldWidget.initialFamilyInvitationCode != widget.initialFamilyInvitationCode) {
-      _openFamilyInvitationIfNeeded();
-    }
-  }
-
-  void _openFamilyInvitationIfNeeded() {
-    final code = widget.initialFamilyInvitationCode?.trim();
-    if (code == null || code.isEmpty || code == _handledFamilyInvitationCode) return;
-    _handledFamilyInvitationCode = code;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      const endpoint = String.fromEnvironment('NEON_SHIELD_AUTH_BASE_URL');
-      if (widget.session == null || endpoint.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sign in to Neon Shield to accept your Family invitation.')),
-        );
-        widget.onFamilyInvitationHandled?.call(code);
-        return;
-      }
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => FamilyManagementScreen(
-            api: HttpsFamilyInvitationsApi(baseUri: Uri.parse(endpoint)),
-            session: widget.session!,
-            initialInvitationCode: code,
-          ),
-        ),
-      );
-      widget.onFamilyInvitationHandled?.call(code);
-    });
   }
 
   Future<void> refresh() async {
