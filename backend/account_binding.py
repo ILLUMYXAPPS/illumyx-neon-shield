@@ -21,6 +21,24 @@ class AccountBindingRepository:
     def _sql(self, query: str) -> str:
         return query.replace("?", self._placeholder)
 
+    def get_subject_for_binding(self, binding_id: str) -> str | None:
+        """Resolve a verified store account token to its Neon Shield subject."""
+        if not isinstance(binding_id, str) or not binding_id.strip():
+            raise ValueError("account binding ID is required")
+        connection = self._connect()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(self._sql(
+                "SELECT subject_id FROM store_account_bindings WHERE binding_id=?"
+            ), (binding_id.strip(),))
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return str(row[0] if not isinstance(row, dict) else row["subject_id"])
+        finally:
+            cursor.close()
+            connection.close()
+
     def get_or_create(self, *, authenticated_subject_id: str) -> str:
         if not isinstance(authenticated_subject_id, str) or not authenticated_subject_id.strip() or len(authenticated_subject_id) > 256:
             raise ValueError("authenticated subject_id is required")
