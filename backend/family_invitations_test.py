@@ -229,5 +229,43 @@ class FamilyInvitationTests(unittest.TestCase):
         self.assertEqual(status, "expired")
 
 
+    def test_invitation_operations_are_rate_limited_and_rejections_count(self):
+        self.invitations.RATE_LIMITS["create"] = (2, 3600)
+        self.invitations.create_invitation("owner")
+        self.invitations.create_invitation("owner")
+        with self.assertRaisesRegex(FamilyInvitationError, "family_invitation_rate_limited") as raised:
+            self.invitations.create_invitation("owner")
+        self.assertEqual(raised.exception.status, 429)
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT failure_count FROM sign_in_rate_limits WHERE identity_hash=?",
+                (__import__("hashlib").sha256(b"family-invitations:create:owner").hexdigest(),),
+            ).fetchone()
+        self.assertEqual(row[0], 3)
+
+    def test_successful_invitation_lifecycle_writes_hash_chained_audit_events(self):
+        created = self.invitations.create_invitation("owner")
+        self.invitations.accept_invitation("member-1", created["invitation_code"])
+        second = self.invitations.create_invitation("owner")
+        self.assertTrue(self.invitations.revoke_invitation("owner", second["invitation_id"]))
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT event_type,subject_id,device_fingerprint,previous_hash,event_hash "
+                "FROM audit_events ORDER BY rowid"
+            ).fetchall()
+        event_types = [row["event_type"] for row in rows]
+        self.assertEqual(event_types, [
+            "family_invitation_created",
+            "family_invitation_accepted",
+            "family_invitation_created",
+            "family_invitation_revoked",
+        ])
+        for index, row in enumerate(rows):
+            self.assertEqual(len(row["device_fingerprint"]), 64)
+            expected_previous = rows[index - 1]["event_hash"] if index else "0" * 64
+            self.assertEqual(row["previous_hash"], expected_previous)
+            self.assertNotIn(created["invitation_code"], row["device_fingerprint"])
+
+
 if __name__ == "__main__":
     unittest.main()
