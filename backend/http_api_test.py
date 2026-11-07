@@ -145,6 +145,33 @@ class StoreBindingHttpApiTests(unittest.TestCase):
             urlopen(request, timeout=3)
         self.assertEqual(raised.exception.code, 503)
 
+    def test_google_rtdn_endpoint_delegates_oidc_validation_to_processor(self):
+        processor = Mock()
+        processor.process.return_value = True
+        self.service.google_rtdn_processor = processor
+        request = Request(
+            self.base_url + "/v1/store/google/rtdn",
+            data=b'{"message":{"messageId":"event","data":"e30="}}',
+            headers={"Authorization": "Bearer google-oidc-token", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=3) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read()), {"status": "processed"})
+        processor.process.assert_called_once()
+
+    def test_google_rtdn_endpoint_fails_closed_when_unconfigured(self):
+        self.service.google_rtdn_processor = None
+        request = Request(
+            self.base_url + "/v1/store/google/rtdn",
+            data=b'{"message":{"messageId":"event","data":"e30="}}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request, timeout=3)
+        self.assertEqual(raised.exception.code, 503)
+
     def test_unconfigured_purchase_verification_fails_closed(self):
         self.service.store_verification_service = None
         request = Request(
