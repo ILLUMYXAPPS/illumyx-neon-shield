@@ -67,7 +67,7 @@ class VerifiedDeviceAllowanceResolver:
 
         subscription = self._active_subscription(cursor, owner_subject_id, now)
         if subscription is None:
-            return DeviceAllowance(DevicePackage.FREE, self._count_devices(cursor, subject_id))
+            return DeviceAllowance(DevicePackage.FREE, self._count_devices(cursor, subject_id, exclude_device_hash=device_hash))
 
         package = self._value(subscription, "package", 1)
         try:
@@ -129,14 +129,13 @@ class VerifiedDeviceAllowanceResolver:
         family_total = int(total_row[0] if not isinstance(total_row, dict) else next(iter(total_row.values())))
         return DeviceAllowance(DevicePackage.PREMIUM_FAMILY, member_count, family_total)
 
-    @staticmethod
-    def _count_devices(cursor, subject_id: str, *, exclude_device_hash: str | None = None) -> int:
+    def _count_devices(self, cursor, subject_id: str, *, exclude_device_hash: str | None = None) -> int:
         count_sql = "SELECT COUNT(*) FROM devices WHERE subject_id=? AND trusted=1"
         count_params = [subject_id]
         if exclude_device_hash is not None:
             count_sql += " AND device_hash<>?"
             count_params.append(exclude_device_hash)
-        cursor.execute(count_sql, tuple(count_params))
+        cursor.execute(self._sql(count_sql), tuple(count_params))
         row = cursor.fetchone()
         return int(row[0] if not isinstance(row, dict) else next(iter(row.values())))
 
