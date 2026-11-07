@@ -4,7 +4,9 @@ import sqlite3
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from auth_server import AuthenticationError, InMemoryIdentityService\nfrom auth_server_contract import SignInRequest\nfrom backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
+from auth_server import AuthenticationError, InMemoryIdentityService
+from auth_server_contract import SignInRequest
+from backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
 from backend.migrations import MigrationRunner
 from backend.production_migrations import PRODUCTION_MIGRATIONS
 
@@ -109,4 +111,4 @@ class AuthenticatedBindingServiceTests(unittest.TestCase):
             self.service.get_or_create_for_session(
                 session_id="ignored", authenticated_subject_id="attacker"
             )
-\n
+
