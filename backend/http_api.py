@@ -73,6 +73,16 @@ def make_handler(service):
                 if self.path == "/health":
                     self._json(200, {"status": "ok", "service": "neon-shield-auth"})
                     return
+                if self.path == "/v1/family/invitations":
+                    session = self._session()
+                    family_invitations = getattr(service, "family_invitation_service", None)
+                    if family_invitations is None:
+                        self._json(503, {"error": "family_invitations_unavailable"})
+                        return
+                    self._json(200, {
+                        "invitations": family_invitations.list_invitations(session.subject_id)
+                    })
+                    return
                 if self.path == "/v1/devices":
                     session = self._session()
                     self._json(200, {"devices": service.device_pairing.devices(session)})
