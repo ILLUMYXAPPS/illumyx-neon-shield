@@ -19,7 +19,7 @@ The binding service resolves each supplied bearer session through
 subject or binding ID. Session expiry, revocation, account blocking and trusted
 device checks therefore remain in the existing authentication path.
 
-The production composition accepts one injected DB-API connection factory and uses it for both `ManagedDbAuthStore` and `AccountBindingRepository`; the configured database pepper is used by the auth store. Set the DB-API placeholder to `%s` for PostgreSQL. The connection factory must target the validated `NEON_AUTH_DB` database. Apply production migrations 1 through 5 before serving traffic, including migration 5 (`create_store_account_bindings`). The migration remains
+The production composition accepts one injected DB-API connection factory and uses it for both `ManagedDbAuthStore` and `AccountBindingRepository`; the configured database pepper is used by the auth store. Set the DB-API placeholder to `%s` for PostgreSQL. The connection factory must target the validated `NEON_AUTH_DB` database. Apply production migrations 1 through 9 before serving traffic. Migration 5 creates store account bindings; migration 9 creates and seeds the singleton audit-chain head used to serialize all audit writers. The migration remains
 an explicit deployment step; application startup does not silently mutate the
 managed database. A production process without the durable repository fails
 closed. This code does not itself create a public HTTP route or provision cloud
