@@ -12,7 +12,7 @@ Implemented in `store_verification.py`: `AppleStoreKitVerifier` verifies StoreKi
 
 ## Google Play adapter requirements
 
-Use a server-held service account with the Google Play Developer API and purchase token. Validate Android application ID, product/base plan, purchase state, expiry, acknowledgement state, linked purchase token, and obfuscatedExternalAccountId binding. Authenticate real-time developer notifications and reconcile them against the Developer API.
+Use a server-held service account with the Google Play Developer API and purchase token. Validate Android application ID, product/base plan, purchase state, expiry, acknowledgement state, linked purchase token, and obfuscatedExternalAccountId binding. The verifier now HMAC-digests Google’s `linkedPurchaseToken` with the deployment token key. During the same database transaction that saves the new verified purchase, the repository checks that any known superseded token belongs to the same authenticated subject and account binding, then marks that old record revoked. A linked token already associated with another account fails closed and is not revoked. Raw linked tokens are never persisted. Authenticate real-time developer notifications and reconcile them against the Developer API.
 
 ## Current scaffold
 
