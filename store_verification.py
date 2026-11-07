@@ -503,6 +503,12 @@ class StoreVerificationService:
             package=package,
             verified_at=persistence_time,
         )
+        # Return the repository's current authoritative snapshot. A delayed
+        # transaction may have been ignored because a newer provider event
+        # was already persisted while this verification was in flight.
+        snapshot_reader = getattr(repository, "get_subscription_snapshot", None)
+        if callable(snapshot_reader):
+            return snapshot_reader(subject_id, now=current)
         active = not verified.revoked and (
             verified.expires_at is None or current < verified.expires_at
         )
