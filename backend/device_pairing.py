@@ -182,8 +182,11 @@ class DevicePairingService:
         self.identity_service = identity_service
         self.allowance_resolver = getattr(identity_service, 'device_allowance_resolver', None)
         import os
-        if os.environ.get('NEON_AUTH_ENV') == 'production' and self.allowance_resolver is None:
-            raise RuntimeError('production device pairing requires a verified device allowance resolver')
+        if os.environ.get('NEON_AUTH_ENV') == 'production':
+            if self.allowance_resolver is None:
+                raise RuntimeError('production device pairing requires a verified device allowance resolver')
+            if not callable(getattr(self.allowance_resolver, 'resolve_for_approval', None)):
+                raise RuntimeError('production device allowance resolver must support transactional approval')
         self.store = identity_service.store
         self.repository = DevicePairingRepository(self.store)
         self.pepper = self.repository.pepper
