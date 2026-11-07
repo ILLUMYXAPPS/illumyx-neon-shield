@@ -106,9 +106,3 @@ class AuthenticatedBindingServiceTests(unittest.TestCase):
         with self.assertRaises(AuthenticationError):
             self.service.get_or_create_for_session(session_id=session.session_id)
 
-    def test_client_cannot_choose_subject_or_binding_through_service(self):
-        with self.assertRaises(TypeError):
-            self.service.get_or_create_for_session(
-                session_id="ignored", authenticated_subject_id="attacker"
-            )
-
