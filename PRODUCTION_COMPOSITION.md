@@ -19,10 +19,23 @@ The binding service resolves each supplied bearer session through
 subject or binding ID. Session expiry, revocation, account blocking and trusted
 device checks therefore remain in the existing authentication path.
 
-The deployment must construct the repository with the same managed database
-connection factory and the deployment-supplied database pepper, after applying
-production migration 5 (`create_store_account_bindings`). The migration remains
+The production composition accepts one injected DB-API connection factory and uses it for both `ManagedDbAuthStore` and `AccountBindingRepository`; the configured database pepper is used by the auth store. Set the DB-API placeholder to `%s` for PostgreSQL. The connection factory must target the validated `NEON_AUTH_DB` database. Apply production migrations 1 through 5 before serving traffic, including migration 5 (`create_store_account_bindings`). The migration remains
 an explicit deployment step; application startup does not silently mutate the
 managed database. A production process without the durable repository fails
 closed. This code does not itself create a public HTTP route or provision cloud
 infrastructure.
+
+
+## Authenticated HTTP endpoint
+
+`POST /v1/store/account-binding` requires the normal `Authorization: Bearer <session>`
+header. The handler validates the session through the identity service, then
+asks the installed binding service for the stable server-issued identifier.
+Client-supplied `subject_id` and `account_binding_id` fields are ignored.
+The response contains only `account_binding_id`; no account identity is
+returned. If the production binding service is not configured, the route
+returns HTTP 503. Authentication failures return HTTP 401.
+
+This endpoint is an internal app-server boundary. Deploy it behind HTTPS and
+rate limiting; do not expose the development HTTP listener directly to the
+public internet.
