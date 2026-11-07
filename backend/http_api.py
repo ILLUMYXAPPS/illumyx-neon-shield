@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, SignInRequest
 from store_verification import StoreProvider, StorePurchaseRequest, StoreVerificationError, StoreVerificationUnavailable
+from backend.family_invitations import FamilyInvitationError
 
 
 def _session_json(session):
@@ -137,6 +138,21 @@ def make_handler(service):
                     return
 
                 session = self._session()
+                family_invitations = getattr(service, "family_invitation_service", None)
+                if self.path == "/v1/family/invitations":
+                    if family_invitations is None:
+                        self._json(503, {"error": "family_invitations_unavailable"})
+                        return
+                    self._json(201, family_invitations.create_invitation(session.subject_id))
+                    return
+                if self.path == "/v1/family/invitations/accept":
+                    if family_invitations is None:
+                        self._json(503, {"error": "family_invitations_unavailable"})
+                        return
+                    self._json(200, family_invitations.accept_invitation(
+                        session.subject_id, str(data.get("invitation_code", ""))
+                    ))
+                    return
                 if self.path == "/v1/store/account-binding":
                     binding_service = getattr(service, "store_account_binding_service", None)
                     if binding_service is None:
@@ -199,6 +215,8 @@ def make_handler(service):
                     ))
                     return
                 self._json(404, {"error": "not_found"})
+            except FamilyInvitationError as exc:
+                self._json(exc.status, {"error": exc.reason})
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
             except StoreVerificationUnavailable:
@@ -225,6 +243,18 @@ def make_handler(service):
 
         def do_DELETE(self) -> None:
             try:
+                invitation_match = re.fullmatch(r"/v1/family/invitations/([A-Za-z0-9_-]{16,64})", self.path)
+                if invitation_match is not None:
+                    session = self._session()
+                    family_invitations = getattr(service, "family_invitation_service", None)
+                    if family_invitations is None:
+                        self._json(503, {"error": "family_invitations_unavailable"})
+                        return
+                    revoked = family_invitations.revoke_invitation(
+                        session.subject_id, invitation_match.group(1)
+                    )
+                    self._json(200, {"revoked": revoked})
+                    return
                 match = re.fullmatch(r"/v1/devices/([A-Za-z0-9_-]{16,64})", self.path)
                 if match is None:
                     self._json(404, {"error": "not_found"})
@@ -232,6 +262,8 @@ def make_handler(service):
                 session = self._session()
                 service.device_pairing.unlink(session, match.group(1))
                 self._json(204)
+            except FamilyInvitationError as exc:
+                self._json(exc.status, {"error": exc.reason})
             except Exception as exc:
                 self._error(exc)
 
