@@ -223,8 +223,9 @@ class FamilyInvitationService:
                 return ()
             cursor.execute(self._sql(
                 "SELECT invitation_id,status,created_at,expires_at FROM family_invitations "
-                "WHERE owner_subject_id=? AND status='pending' ORDER BY created_at,invitation_id"
-            ), (owner_subject_id,))
+                "WHERE owner_subject_id=? AND status='pending' AND expires_at>? "
+                "ORDER BY created_at,invitation_id"
+            ), (owner_subject_id, datetime.now(timezone.utc).isoformat()))
             return tuple(
                 {
                     "invitation_id": row[0],
