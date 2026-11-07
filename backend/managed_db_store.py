@@ -85,7 +85,7 @@ class ManagedDbAuthStore(ManagedAuthStore):
             return None
         if isinstance(row, dict):
             return dict(row)
-        columns = [item[0] for item in cursor.description]
+        columns = [item.name if hasattr(item, "name") else item[0] for item in cursor.description]
         return dict(zip(columns, row, strict=False))
 
     def migrate(self) -> None:
