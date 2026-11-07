@@ -4,15 +4,39 @@ from __future__ import annotations
 import os
 
 from backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
+from backend.device_allowance import FamilyMembershipRepository, StoreDeviceAllowanceResolver
 from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
 from backend.observability import NoopSecurityEventSink, SecurityEventSink
 from backend.production_config import validate_production_config
 from backend.security_monitoring import NoopSecurityAlertSink, ProductionSecurityMonitor, SecurityAlertSink
-from backend.secrets import EnvironmentSecretProvider, SecretProvider
+from backend.secrets import SecretProvider
 from backend.service import PersistentIdentityService
 from backend.subscription_store import StoreSubscriptionRepository
 from backend.store import AuthStore
+
+
+def _install_device_allowance_resolver(
+    service: PersistentIdentityService,
+    *,
+    database_connection_factory,
+    subscription_repository,
+    family_membership_repository,
+    placeholder: str,
+) -> None:
+    service.family_membership_repository = family_membership_repository
+    service.device_allowance_resolver = (
+        StoreDeviceAllowanceResolver(
+            database_connection_factory,
+            subscription_repository,
+            family_membership_repository,
+            placeholder=placeholder,
+        )
+        if database_connection_factory is not None
+        and subscription_repository is not None
+        and family_membership_repository is not None
+        else None
+    )
 
 
 def build_service(
@@ -26,6 +50,7 @@ def build_service(
     database_placeholder: str = "%s",
     store_verification_service=None,
     subscription_repository: StoreSubscriptionRepository | None = None,
+    family_membership_repository: FamilyMembershipRepository | None = None,
     apple_notification_processor=None,
     google_rtdn_processor=None,
 ) -> PersistentIdentityService:
@@ -53,22 +78,31 @@ def build_service(
                 pepper=config.database_pepper,
                 placeholder=database_placeholder,
             )
+        if family_membership_repository is None and database_connection_factory is not None:
+            family_membership_repository = FamilyMembershipRepository(
+                database_connection_factory,
+                placeholder=database_placeholder,
+            )
         if security_event_sink is None:
             raise RuntimeError("production requires an injected SecurityEventSink implementation")
         if security_alert_sink is None:
             raise RuntimeError("production requires an injected SecurityAlertSink implementation")
         if account_binding_repository is None:
             raise RuntimeError("production requires an injected durable AccountBindingRepository implementation")
-        monitor = ProductionSecurityMonitor(
-            security_event_sink,
-            alert_sink=security_alert_sink,
-        )
+        monitor = ProductionSecurityMonitor(security_event_sink, alert_sink=security_alert_sink)
         service = PersistentIdentityService(managed_store, security_event_sink=monitor)
         service.store_account_binding_service = AuthenticatedStoreAccountBindingService(
             service, account_binding_repository
         )
         service.store_verification_service = store_verification_service
         service.store_subscription_repository = subscription_repository
+        _install_device_allowance_resolver(
+            service,
+            database_connection_factory=database_connection_factory,
+            subscription_repository=subscription_repository,
+            family_membership_repository=family_membership_repository,
+            placeholder=database_placeholder,
+        )
         service.apple_notification_processor = apple_notification_processor
         service.google_rtdn_processor = google_rtdn_processor
         return service
@@ -87,6 +121,13 @@ def build_service(
         )
     service.store_verification_service = store_verification_service
     service.store_subscription_repository = subscription_repository
+    _install_device_allowance_resolver(
+        service,
+        database_connection_factory=database_connection_factory,
+        subscription_repository=subscription_repository,
+        family_membership_repository=family_membership_repository,
+        placeholder=database_placeholder,
+    )
     service.apple_notification_processor = apple_notification_processor
     service.google_rtdn_processor = google_rtdn_processor
     return service

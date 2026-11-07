@@ -49,4 +49,13 @@ PRODUCTION_MIGRATIONS = (
             "CREATE TABLE IF NOT EXISTS store_account_bindings (subject_id TEXT PRIMARY KEY, binding_id TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
         ),
     ),
+    Migration(
+        6,
+        "create_family_membership_records",
+        (
+            "CREATE TABLE IF NOT EXISTS family_households (owner_subject_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, FOREIGN KEY(owner_subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
+            "CREATE TABLE IF NOT EXISTS family_memberships (owner_subject_id TEXT NOT NULL, member_subject_id TEXT NOT NULL UNIQUE, role TEXT NOT NULL CHECK(role IN ('owner','member')), status TEXT NOT NULL CHECK(status IN ('active','removed')), created_at TEXT NOT NULL, PRIMARY KEY(owner_subject_id,member_subject_id), FOREIGN KEY(owner_subject_id) REFERENCES family_households(owner_subject_id) ON DELETE CASCADE, FOREIGN KEY(member_subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
+            "CREATE INDEX IF NOT EXISTS idx_family_memberships_owner ON family_memberships(owner_subject_id,status)",
+        ),
+    ),
 )
