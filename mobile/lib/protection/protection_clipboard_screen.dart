@@ -62,7 +62,7 @@ class _ProtectionClipboardScreenState extends State<ProtectionClipboardScreen> {
   }
 
   Future<void> _setControl(String key, bool value) async {
-    final previous = _controls[key] ?? true;
+    final previous = _controls[key] ?? false;
     if (_saving) return;
     setState(() { _controls = {..._controls, key: value}; _saving = true; });
     try {
