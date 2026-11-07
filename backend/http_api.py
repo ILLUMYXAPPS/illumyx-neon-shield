@@ -232,13 +232,3 @@ def serve(service, host: str = "127.0.0.1", port: int = 8080) -> None:
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("bind behind an HTTPS reverse proxy for non-local deployment")
     ThreadingHTTPServer((host, port), make_handler(service)).serve_forever()
-self, format: str, *args) -> None:
-            return
-
-    return Handler
-
-
-def serve(service, host: str = "127.0.0.1", port: int = 8080) -> None:
-    if host not in {"127.0.0.1", "localhost", "::1"}:
-        raise ValueError("bind behind an HTTPS reverse proxy for non-local deployment")
-    ThreadingHTTPServer((host, port), make_handler(service)).serve_forever()
