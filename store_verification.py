@@ -118,6 +118,50 @@ class AppleStoreKitVerifier:
                 last_error = exc
         raise StoreVerificationError("Apple notification signature or certificate chain is invalid") from last_error
 
+    def verify_signed_notification_transaction(self, signed_transaction: str) -> VerifiedStorePurchase:
+        """Verify a nested Notifications V2 transaction JWS without trusting its claims."""
+        if not signed_transaction or signed_transaction.count(".") != 2:
+            raise StoreVerificationError("Apple notification transaction JWS is malformed")
+        decoded = None
+        environment = None
+        last_error = None
+        for candidate, label in zip(self._verifiers, ("production", "sandbox")):
+            try:
+                decoded = candidate.verify_and_decode_signed_transaction(signed_transaction)
+                environment = label
+                break
+            except Exception as exc:
+                last_error = exc
+        if decoded is None:
+            raise StoreVerificationError("Apple notification transaction signature is invalid") from last_error
+        account_token = getattr(decoded, "appAccountToken", None)
+        transaction_id = getattr(decoded, "transactionId", None)
+        original_id = getattr(decoded, "originalTransactionId", None)
+        product_id = getattr(decoded, "productId", None)
+        bundle_id = getattr(decoded, "bundleId", None)
+        expires_ms = getattr(decoded, "expiresDate", None)
+        if not all((account_token, transaction_id, original_id, product_id, bundle_id)):
+            raise StoreVerificationError("Apple notification transaction identifiers are missing")
+        if expires_ms is None:
+            raise StoreVerificationError("Apple notification subscription expiry is missing")
+        try:
+            import uuid
+            uuid.UUID(str(account_token))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise StoreVerificationError("Apple appAccountToken is invalid") from exc
+        return VerifiedStorePurchase(
+            provider=StoreProvider.APPLE,
+            product_id=str(product_id),
+            application_id=str(bundle_id),
+            account_binding_id=str(account_token),
+            transaction_id=str(transaction_id),
+            original_transaction_id=str(original_id),
+            expires_at=datetime.fromtimestamp(expires_ms / 1000, tz=timezone.utc),
+            revoked=(getattr(decoded, "revocationDate", None) is not None
+                     or getattr(decoded, "isUpgraded", False) is True),
+            environment=environment,
+        )
+
     def verify(self, request: StorePurchaseRequest) -> VerifiedStorePurchase:
         if request.provider is not StoreProvider.APPLE:
             raise StoreVerificationError("Apple verifier received a non-Apple purchase")
