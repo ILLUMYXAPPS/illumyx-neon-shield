@@ -111,4 +111,31 @@ void main() {
     );
     expect(tester.widget<SwitchListTile>(reopenedPrivacySwitch).value, isTrue);
   });
+
+  testWidgets('settings load failure can be retried after storage is available',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'neon_shield.protection_clipboard.enabled': 'invalid-type',
+    });
+
+    await tester.pumpWidget(
+      const MaterialApp(home: ProtectionClipboardScreen()),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('Your saved settings could not be loaded'),
+      findsOneWidget,
+    );
+    expect(find.text('Retry loading settings'), findsOneWidget);
+
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await tester.tap(find.text('Retry loading settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Protection Clipboard'), findsOneWidget);
+    expect(find.text('Disabled'), findsOneWidget);
+    expect(find.text('Retry loading settings'), findsNothing);
+  });
+
 }
