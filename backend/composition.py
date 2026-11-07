@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 from backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
+from backend.device_allowance import FamilyMembershipRepository, StoreDeviceAllowanceResolver
 from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
 from backend.observability import NoopSecurityEventSink, SecurityEventSink
@@ -26,6 +27,7 @@ def build_service(
     database_placeholder: str = "%s",
     store_verification_service=None,
     subscription_repository: StoreSubscriptionRepository | None = None,
+    family_membership_repository: FamilyMembershipRepository | None = None,
     apple_notification_processor=None,
     google_rtdn_processor=None,
 ) -> PersistentIdentityService:
@@ -53,6 +55,11 @@ def build_service(
                 pepper=config.database_pepper,
                 placeholder=database_placeholder,
             )
+        if family_membership_repository is None and database_connection_factory is not None:
+            family_membership_repository = FamilyMembershipRepository(
+                database_connection_factory,
+                placeholder=database_placeholder,
+            )
         if security_event_sink is None:
             raise RuntimeError("production requires an injected SecurityEventSink implementation")
         if security_alert_sink is None:
@@ -69,6 +76,32 @@ def build_service(
         )
         service.store_verification_service = store_verification_service
         service.store_subscription_repository = subscription_repository
+    service.family_membership_repository = family_membership_repository
+    service.device_allowance_resolver = (
+        StoreDeviceAllowanceResolver(
+            database_connection_factory,
+            subscription_repository,
+            family_membership_repository,
+            placeholder=database_placeholder,
+        )
+        if database_connection_factory is not None
+        and subscription_repository is not None
+        and family_membership_repository is not None
+        else None
+    )
+        service.family_membership_repository = family_membership_repository
+        service.device_allowance_resolver = (
+            StoreDeviceAllowanceResolver(
+                database_connection_factory,
+                subscription_repository,
+                family_membership_repository,
+                placeholder=database_placeholder,
+            )
+            if database_connection_factory is not None
+            and subscription_repository is not None
+            and family_membership_repository is not None
+            else None
+        )
         service.apple_notification_processor = apple_notification_processor
         service.google_rtdn_processor = google_rtdn_processor
         return service
