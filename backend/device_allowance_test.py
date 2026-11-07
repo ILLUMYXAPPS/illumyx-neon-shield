@@ -32,12 +32,18 @@ class FakeSubscriptions:
 class FamilyMembershipTests(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
+        self.connections = []
+        # sqlite3.Connection's context manager commits/rolls back but does not
+        # close the connection. Close every test connection before Windows
+        # attempts to remove the temporary database directory.
         self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(self._close_connections)
         self.path = Path(self.tmp.name) / "family.sqlite3"
 
         def connect():
             connection = sqlite3.connect(self.path)
             connection.execute("PRAGMA foreign_keys=ON")
+            self.connections.append(connection)
             return connection
 
         self.connect = connect
@@ -49,6 +55,13 @@ class FamilyMembershipTests(unittest.TestCase):
                     (subject, "hash-" + subject, "credential", NOW),
                 )
         self.families = FamilyMembershipRepository(self.connect, placeholder="?")
+
+    def _close_connections(self):
+        for connection in self.connections:
+            try:
+                connection.close()
+            except sqlite3.Error:
+                pass
 
     def test_household_owner_counts_as_one_of_five_members(self):
         self.families.create_household("owner", created_at=NOW)
