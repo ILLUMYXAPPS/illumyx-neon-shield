@@ -1,6 +1,7 @@
 """Verified Apple App Store Server Notifications V2 processing."""
 from __future__ import annotations
 
+import base64
 import json
 from datetime import datetime, timezone
 
@@ -88,4 +89,101 @@ class AppleNotificationProcessor:
             )
             if not finalized:
                 raise StoreVerificationError("Apple notification could not be finalized")
+        return inserted
+
+
+
+class GoogleRtdnProcessor:
+    """Authenticate Google Pub/Sub OIDC delivery and reconcile RTDN via Play API."""
+
+    def __init__(self, *, verifier, verification_service, subscription_repository,
+                 account_binding_repository, package_name: str, audience: str,
+                 service_account_email: str, token_verifier=None) -> None:
+        if not all((verifier, verification_service, subscription_repository,
+                    account_binding_repository, package_name, audience,
+                    service_account_email)):
+            raise ValueError("Google RTDN configuration is incomplete")
+        self._verifier = verifier
+        self._verification = verification_service
+        self._subscriptions = subscription_repository
+        self._bindings = account_binding_repository
+        self._package_name = package_name
+        self._audience = audience
+        self._service_account_email = service_account_email
+        self._token_verifier = token_verifier or self._verify_google_oidc
+
+    def _verify_google_oidc(self, token: str, audience: str) -> dict:
+        try:
+            from google.auth.transport.requests import Request
+            from google.oauth2 import id_token
+            return id_token.verify_oauth2_token(token, Request(), audience)
+        except Exception as exc:
+            raise StoreVerificationError("Google Pub/Sub OIDC token is invalid") from exc
+
+    def process(self, authorization: str, envelope: dict, *, received_at=None) -> bool:
+        if not isinstance(authorization, str) or not authorization.startswith("Bearer "):
+            raise StoreVerificationError("Google Pub/Sub bearer token is required")
+        token = authorization[7:].strip()
+        if not token:
+            raise StoreVerificationError("Google Pub/Sub bearer token is required")
+        claims = self._token_verifier(token, self._audience)
+        if (claims.get("email") != self._service_account_email
+                or claims.get("email_verified") is not True
+                or claims.get("iss") not in {"accounts.google.com", "https://accounts.google.com"}
+                or claims.get("aud") != self._audience):
+            raise StoreVerificationError("Google Pub/Sub OIDC identity is not authorized")
+
+        message = envelope.get("message") if isinstance(envelope, dict) else None
+        if not isinstance(message, dict):
+            raise StoreVerificationError("Google Pub/Sub message is missing")
+        event_id = message.get("messageId")
+        encoded = message.get("data")
+        if not event_id or not encoded:
+            raise StoreVerificationError("Google Pub/Sub message identity or data is missing")
+        try:
+            payload = json.loads(base64.b64decode(encoded, validate=True))
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise StoreVerificationError("Google RTDN message data is invalid") from exc
+        if not isinstance(payload, dict) or payload.get("packageName") != self._package_name:
+            raise StoreVerificationError("Google RTDN package name mismatch")
+
+        notification = payload.get("subscriptionNotification") or {}
+        purchase_token = notification.get("purchaseToken")
+        product_id = notification.get("subscriptionId")
+        if purchase_token or product_id:
+            if not purchase_token or not product_id:
+                raise StoreVerificationError("Google RTDN subscription details are incomplete")
+            request = self._verifier.request_from_notification(
+                package_name=self._package_name,
+                product_id=str(product_id),
+                purchase_token=str(purchase_token),
+            )
+            subject_id = self._bindings.get_subject_for_binding(request.account_binding_id)
+            if not subject_id:
+                raise StoreVerificationError("Google RTDN account binding is not associated with a Neon Shield account")
+            self._verification.verify_and_persist(
+                request,
+                subject_id=subject_id,
+                expected_account_binding_id=request.account_binding_id,
+                repository=self._subscriptions,
+                now=received_at,
+            )
+
+        event_type = str(notification.get("notificationType", "TEST" if payload.get("testNotification") else "UNKNOWN"))
+        inserted = self._subscriptions.record_notification(
+            provider=StoreProvider.GOOGLE_PLAY,
+            event_id=str(event_id),
+            event_type=event_type,
+            payload=json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+            received_at=received_at or datetime.now(timezone.utc),
+        )
+        if inserted:
+            finalized = self._subscriptions.finish_notification(
+                provider=StoreProvider.GOOGLE_PLAY,
+                event_id=str(event_id),
+                processed=True,
+                processed_at=received_at or datetime.now(timezone.utc),
+            )
+            if not finalized:
+                raise StoreVerificationError("Google RTDN event could not be finalized")
         return inserted
