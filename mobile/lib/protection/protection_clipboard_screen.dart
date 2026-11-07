@@ -24,6 +24,11 @@ class _ProtectionClipboardScreenState extends State<ProtectionClipboardScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
       final enabled = await _service.loadEnabled();
       final controls = await _service.loadControls();
