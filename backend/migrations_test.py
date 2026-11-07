@@ -12,12 +12,12 @@ from backend.production_migrations import PRODUCTION_MIGRATIONS
 
 class MigrationRunnerTests(unittest.TestCase):
     def test_production_migrations_are_contiguous_and_create_pairing_and_family_state(self) -> None:
-        self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual([migration.version for migration in PRODUCTION_MIGRATIONS], [1, 2, 3, 4, 5, 6, 7, 8])
         with TemporaryDirectory() as directory:
             path = Path(directory) / "production-migrations.sqlite3"
             runner = MigrationRunner(lambda: sqlite3.connect(path), PRODUCTION_MIGRATIONS)
-            self.assertEqual(runner.apply_pending(), 7)
-            self.assertEqual(runner.apply_pending(), 6)
+            self.assertEqual(runner.apply_pending(), 8)
+            self.assertEqual(runner.apply_pending(), 8)
             connection = sqlite3.connect(path)
             try:
                 table = connection.execute(
@@ -55,6 +55,7 @@ class MigrationRunnerTests(unittest.TestCase):
                 (5, "create_store_account_bindings"),
                 (6, "create_family_membership_records"),
                 (7, "create_device_pairing_tables"),
+                (8, "create_family_invitations"),
             ])
             self.assertIsNotNone(subscription_table)
             self.assertIsNotNone(notification_table)
@@ -62,6 +63,10 @@ class MigrationRunnerTests(unittest.TestCase):
             self.assertIsNotNone(family_table)
             self.assertIsNotNone(pairing_table)
             self.assertIsNotNone(labels_table)
+            invitation_table = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='family_invitations'"
+            ).fetchone()
+            self.assertIsNotNone(invitation_table)
 
     def test_applies_contiguous_migrations_and_is_idempotent(self) -> None:
         with TemporaryDirectory() as directory:
