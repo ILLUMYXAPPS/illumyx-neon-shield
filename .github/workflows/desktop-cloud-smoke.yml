@@ -110,6 +110,7 @@ jobs:
           if-no-files-found: warn
 
   windows-desktop-smoke:
+    needs: android-emulator-smoke
     name: Windows desktop launch smoke
     runs-on: windows-latest
     timeout-minutes: 30
@@ -169,6 +170,7 @@ jobs:
           if-no-files-found: warn
 
   macos-desktop-smoke:
+    needs: windows-desktop-smoke
     name: macOS desktop launch smoke
     runs-on: macos-latest
     timeout-minutes: 30
