@@ -5,6 +5,7 @@ import os
 
 from backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
 from backend.device_allowance import FamilyMembershipRepository, StoreDeviceAllowanceResolver
+from backend.family_invitations import FamilyInvitationService
 from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
 from backend.observability import NoopSecurityEventSink, SecurityEventSink
@@ -35,6 +36,26 @@ def _install_device_allowance_resolver(
         if database_connection_factory is not None
         and subscription_repository is not None
         and family_membership_repository is not None
+        else None
+    )
+
+
+def _install_family_invitation_service(
+    service: PersistentIdentityService,
+    *,
+    database_connection_factory,
+    subscription_repository,
+    placeholder: str,
+) -> None:
+    # Fail closed when durable database and verified-subscription dependencies
+    # are not both configured. HTTP endpoints return unavailable in that case.
+    service.family_invitation_service = (
+        FamilyInvitationService(
+            database_connection_factory,
+            subscription_repository,
+            placeholder=placeholder,
+        )
+        if database_connection_factory is not None and subscription_repository is not None
         else None
     )
 
@@ -103,6 +124,12 @@ def build_service(
             family_membership_repository=family_membership_repository,
             placeholder=database_placeholder,
         )
+        _install_family_invitation_service(
+            service,
+            database_connection_factory=database_connection_factory,
+            subscription_repository=subscription_repository,
+            placeholder=database_placeholder,
+        )
         service.apple_notification_processor = apple_notification_processor
         service.google_rtdn_processor = google_rtdn_processor
         return service
@@ -126,6 +153,12 @@ def build_service(
         database_connection_factory=database_connection_factory,
         subscription_repository=subscription_repository,
         family_membership_repository=family_membership_repository,
+        placeholder=database_placeholder,
+    )
+    _install_family_invitation_service(
+        service,
+        database_connection_factory=database_connection_factory,
+        subscription_repository=subscription_repository,
         placeholder=database_placeholder,
     )
     service.apple_notification_processor = apple_notification_processor

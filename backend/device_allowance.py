@@ -46,6 +46,15 @@ class FamilyMembershipRepository:
         connection = self._connect()
         cursor = connection.cursor()
         try:
+            if self._placeholder == "?":
+                connection.execute("BEGIN IMMEDIATE")
+            else:
+                cursor.execute(
+                    self._sql("SELECT subject_id FROM users WHERE subject_id=? FOR UPDATE"),
+                    (owner_subject_id,),
+                )
+                if cursor.fetchone() is None:
+                    raise FamilyMembershipError("household_owner_not_found")
             cursor.execute(
                 self._sql("INSERT INTO family_households(owner_subject_id,created_at) VALUES(?,?)"),
                 (owner_subject_id, created_at),
@@ -73,8 +82,16 @@ class FamilyMembershipRepository:
         try:
             if self._placeholder == "?":
                 connection.execute("BEGIN IMMEDIATE")
+            lock = "" if self._placeholder == "?" else " FOR UPDATE"
+            for account_id in sorted((owner_subject_id, member_subject_id)):
+                cursor.execute(
+                    self._sql("SELECT subject_id FROM users WHERE subject_id=?" + lock),
+                    (account_id,),
+                )
+                if cursor.fetchone() is None:
+                    raise FamilyMembershipError("family_account_not_found")
             cursor.execute(
-                self._sql("SELECT owner_subject_id FROM family_households WHERE owner_subject_id=?" + self._lock_clause),
+                self._sql("SELECT owner_subject_id FROM family_households WHERE owner_subject_id=?"),
                 (owner_subject_id,),
             )
             if cursor.fetchone() is None:
@@ -106,6 +123,14 @@ class FamilyMembershipRepository:
         connection = self._connect()
         cursor = connection.cursor()
         try:
+            if self._placeholder == "?":
+                connection.execute("BEGIN IMMEDIATE")
+            cursor.execute(
+                self._sql("SELECT subject_id FROM users WHERE subject_id=?" + self._lock_clause),
+                (owner_subject_id,),
+            )
+            if cursor.fetchone() is None:
+                raise FamilyMembershipError("household_owner_not_found")
             cursor.execute(
                 self._sql(
                     "UPDATE family_memberships SET status='removed' "
@@ -188,6 +213,116 @@ class StoreDeviceAllowanceResolver:
         finally:
             cursor.close()
             connection.close()
+
+    def _count_trusted_devices(self, connection: Any, subject_ids: tuple[str, ...]) -> int:
+        if not subject_ids:
+            return 0
+        cursor = connection.cursor()
+        try:
+            placeholders = ",".join("?" for _ in subject_ids)
+            cursor.execute(
+                self._sql(
+                    "SELECT COUNT(*) FROM devices WHERE trusted=1 AND subject_id IN (" + placeholders + ")"
+                ),
+                subject_ids,
+            )
+            return int(cursor.fetchone()[0])
+        finally:
+            cursor.close()
+
+    def _lock_account_row(self, connection: Any, subject_id: str) -> None:
+        cursor = connection.cursor()
+        try:
+            lock = "" if self._placeholder == "?" else " FOR UPDATE"
+            cursor.execute(
+                self._sql("SELECT subject_id FROM users WHERE subject_id=?" + lock),
+                (subject_id,),
+            )
+            if cursor.fetchone() is None:
+                raise FamilyMembershipError("account_not_found")
+        finally:
+            cursor.close()
+
+    def _active_owner_in_transaction(self, connection: Any, subject_id: str) -> str | None:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                self._sql(
+                    "SELECT owner_subject_id FROM family_memberships "
+                    "WHERE member_subject_id=? AND status='active'"
+                ),
+                (subject_id,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+        finally:
+            cursor.close()
+
+    def _active_members_in_transaction(self, connection: Any, owner_subject_id: str) -> tuple[str, ...]:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                self._sql(
+                    "SELECT member_subject_id FROM family_memberships "
+                    "WHERE owner_subject_id=? AND status='active' ORDER BY created_at,member_subject_id"
+                ),
+                (owner_subject_id,),
+            )
+            return tuple(row[0] for row in cursor.fetchall())
+        finally:
+            cursor.close()
+
+    def resolve_for_approval(
+        self, connection: Any, subject_id: str, request_id: str
+    ) -> DeviceAllowance:
+        """Resolve entitlements and all device counts inside pairing's locked transaction."""
+        if not subject_id or not subject_id.strip() or not request_id:
+            raise ValueError("authenticated subject and pairing request are required")
+        owner = self._active_owner_in_transaction(connection, subject_id)
+        lock_subject = owner or subject_id
+        self._lock_account_row(connection, lock_subject)
+
+        # Re-read membership after the household/account lock so membership changes
+        # using the same owner-row lock cannot race the allowance calculation.
+        owner = self._active_owner_in_transaction(connection, subject_id)
+        subscription_subject = owner or subject_id
+        snapshot_reader = getattr(
+            self._subscriptions, "get_subscription_snapshot_in_transaction", None
+        )
+        if not callable(snapshot_reader):
+            raise RuntimeError("subscription repository must support transaction-aware snapshots")
+        snapshot = snapshot_reader(connection, subscription_subject)
+        members: tuple[str, ...] = ()
+        if snapshot.package is Package.PREMIUM_FAMILY:
+            if owner is None:
+                raise FamilyMembershipError("family_owner_membership_missing")
+            members = self._active_members_in_transaction(connection, owner)
+            if (
+                subject_id not in members
+                or owner not in members
+                or len(members) > FamilyMembershipRepository.MAX_MEMBERS
+            ):
+                raise FamilyMembershipError("invalid_family_membership")
+            return DeviceAllowance(
+                DevicePackage.PREMIUM_FAMILY,
+                self._count_trusted_devices(connection, (subject_id,)),
+                self._count_trusted_devices(connection, members),
+            )
+        if owner is not None:
+            # A removed/expired family entitlement cannot continue granting family slots.
+            return DeviceAllowance(
+                DevicePackage.FREE,
+                self._count_trusted_devices(connection, (subject_id,)),
+            )
+        package = {
+            Package.PREMIUM: DevicePackage.PREMIUM,
+            Package.FREE: DevicePackage.FREE,
+        }.get(snapshot.package)
+        if package is None:
+            raise FamilyMembershipError("unsupported_subscription_package")
+        return DeviceAllowance(
+            package, self._count_trusted_devices(connection, (subject_id,))
+        )
 
     def __call__(self, subject_id: str, request_id: str | None = None) -> DeviceAllowance:
         if not subject_id or not subject_id.strip():

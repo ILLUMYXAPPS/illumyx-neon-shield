@@ -478,8 +478,13 @@ class StoreVerificationService:
         expected_account_binding_id: str,
         repository,
         now: datetime | None = None,
+        verified_at: datetime | None = None,
     ) -> SubscriptionSnapshot:
-        """Verify with the provider first, persist facts second, then return the entitlement."""
+        """Verify with the provider first, persist facts second, then return the entitlement.
+
+        ``verified_at`` carries a provider event's signed ordering timestamp when
+        reconciling notifications. ``now`` remains the local evaluation time.
+        """
         verified, package = self._verify_purchase(
             request,
             expected_account_binding_id=expected_account_binding_id,
@@ -488,13 +493,22 @@ class StoreVerificationService:
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None:
             raise ValueError("now must be timezone-aware")
-        repository.save_verified_purchase(
+        persistence_time = verified_at or current
+        if persistence_time.tzinfo is None:
+            raise ValueError("verified_at must be timezone-aware")
+        persisted = repository.save_verified_purchase(
             subject_id=subject_id,
             request=request,
             purchase=verified,
             package=package,
-            verified_at=current,
+            verified_at=persistence_time,
         )
+        # If a delayed event was ignored, return the repository's current
+        # authoritative snapshot instead of echoing stale transaction facts.
+        if persisted is False:
+            snapshot_reader = getattr(repository, "get_subscription_snapshot", None)
+            if callable(snapshot_reader):
+                return snapshot_reader(subject_id, now=current)
         active = not verified.revoked and (
             verified.expires_at is None or current < verified.expires_at
         )

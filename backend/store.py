@@ -63,9 +63,27 @@ class AuthStore(ManagedAuthStore):
             CREATE TABLE IF NOT EXISTS sessions (session_hash TEXT PRIMARY KEY, subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS sign_in_rate_limits (identity_hash TEXT PRIMARY KEY, failure_count INTEGER NOT NULL, window_started_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS audit_events (event_hash TEXT PRIMARY KEY, event_type TEXT NOT NULL, occurred_at TEXT NOT NULL, subject_id TEXT, device_fingerprint TEXT NOT NULL, previous_hash TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK(chain_id=1), event_hash TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS idx_sessions_subject ON sessions(subject_id);
             CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(occurred_at);
+            CREATE TABLE IF NOT EXISTS device_pairing_requests (request_id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, device_name TEXT NOT NULL, secret_hash TEXT NOT NULL, code_hash TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS idx_pairing_subject ON device_pairing_requests(subject_id, status);
+            CREATE TABLE IF NOT EXISTS device_labels (subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, device_name TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(subject_id, device_hash));
+            CREATE TABLE IF NOT EXISTS family_invitations (invitation_id TEXT PRIMARY KEY, owner_subject_id TEXT NOT NULL, token_hash TEXT UNIQUE NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','accepted','revoked','expired')), created_at TEXT NOT NULL, expires_at TEXT NOT NULL, accepted_by TEXT, accepted_at TEXT);
         """)
+        # Seed only from a unique chain tip. Row insertion order is not a
+        # trustworthy proxy for the hash-chain head after imports or recovery.
+        self._db.execute(
+            "INSERT OR IGNORE INTO audit_chain_head(chain_id,event_hash) "
+            "SELECT 1, COALESCE((SELECT event_hash FROM audit_events e "
+            "WHERE NOT EXISTS (SELECT 1 FROM audit_events child "
+            "WHERE child.previous_hash=e.event_hash) LIMIT 1), ?) "
+            "WHERE NOT EXISTS (SELECT 1 FROM audit_chain_head WHERE chain_id=1) "
+            "AND (NOT EXISTS (SELECT 1 FROM audit_events) OR "
+            "(SELECT COUNT(*) FROM audit_events e WHERE NOT EXISTS "
+            "(SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash))=1)",
+            ("0" * 64,),
+        )
         self._db.commit()
 
     def create_user(self, subject_id: str, identity: str, credential: str) -> None:
@@ -183,16 +201,26 @@ class AuthStore(ManagedAuthStore):
         self._db.commit()
 
     def last_audit_hash(self) -> str:
-        row = self._db.execute("SELECT event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1").fetchone()
-        return row["event_hash"] if row else "0" * 64
+        row = self._db.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1").fetchone()
+        if row is None:
+            raise RuntimeError("audit chain head is missing; run migrations")
+        return row["event_hash"]
 
     def add_audit(self, event_type: str, subject_id: str | None, device_id: str) -> str:
         return self.add_audit_fingerprint(event_type, subject_id, _hash(device_id, self.pepper))
 
     def add_audit_fingerprint(self, event_type: str, subject_id: str | None, device_fingerprint: str) -> str:
         occurred_at = _now()
-        previous_hash = self.last_audit_hash()
-        event_hash = hashlib.sha256(f"{event_type}|{occurred_at}|{subject_id or ''}|{device_fingerprint}|{previous_hash}".encode()).hexdigest()
-        self._db.execute("INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)", (event_hash, event_type, occurred_at, subject_id, device_fingerprint, previous_hash))
-        self._db.commit()
-        return event_hash
+        try:
+            self._db.execute("BEGIN IMMEDIATE")
+            previous_hash = self.last_audit_hash()
+            event_hash = hashlib.sha256(f"{event_type}|{occurred_at}|{subject_id or ''}|{device_fingerprint}|{previous_hash}".encode()).hexdigest()
+            self._db.execute("INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)", (event_hash, event_type, occurred_at, subject_id, device_fingerprint, previous_hash))
+            self._db.execute("UPDATE audit_chain_head SET event_hash=? WHERE chain_id=1", (event_hash,))
+            if self._db.execute("SELECT changes()").fetchone()[0] != 1:
+                raise RuntimeError("audit chain head update did not affect exactly one row")
+            self._db.commit()
+            return event_hash
+        except Exception:
+            self._db.rollback()
+            raise

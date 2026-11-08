@@ -14,6 +14,7 @@ from unittest.mock import Mock
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, ServerSession
 from backend.http_api import make_handler
+from backend.family_invitations import FamilyInvitationError
 from entitlements import Package
 from store_verification import StoreVerificationError
 
@@ -202,6 +203,119 @@ class StoreBindingHttpApiTests(unittest.TestCase):
             self.request()
         self.assertEqual(raised.exception.code, 401)
         self.binding_service.get_or_create_for_session.assert_not_called()
+
+
+class FamilyInvitationHttpApiTests(StoreBindingHttpApiTests):
+    """HTTP boundary tests for authenticated Family invitation operations."""
+
+    def setUp(self):
+        super().setUp()
+        self.family_service = Mock()
+        self.family_service.create_invitation.return_value = {
+            "invitation_id": "invite_1234567890123456",
+            "invitation_code": "one-time-secret",
+            "expires_at": "2026-11-15T12:00:00+00:00",
+        }
+        self.family_service.list_invitations.return_value = [
+            {"invitation_id": "invite_1234567890123456", "status": "pending"}
+        ]
+        self.family_service.accept_invitation.return_value = {"joined": True}
+        self.family_service.revoke_invitation.return_value = True
+        self.service.family_invitation_service = self.family_service
+
+    def family_request(self, path, *, method="POST", token="valid-bearer-token", body=None):
+        headers = {"Content-Type": "application/json"}
+        if token is not None:
+            headers["Authorization"] = f"Bearer {token}"
+        payload = json.dumps(body or {}).encode() if method in {"POST", "PATCH"} else None
+        request = Request(
+            self.base_url + path,
+            data=payload,
+            headers=headers,
+            method=method,
+        )
+        return urlopen(request, timeout=3)
+
+    def test_create_invitation_uses_authenticated_owner_and_returns_one_time_code(self):
+        with self.family_request("/v1/family/invitations") as response:
+            self.assertEqual(response.status, 201)
+            result = json.loads(response.read())
+            self.assertEqual(result["invitation_code"], "one-time-secret")
+        self.family_service.create_invitation.assert_called_once_with("server-resolved-subject")
+
+    def test_list_invitations_uses_authenticated_owner_identity(self):
+        request = Request(
+            self.base_url + "/v1/family/invitations",
+            headers={"Authorization": "Bearer valid-bearer-token"},
+            method="GET",
+        )
+        with urlopen(request, timeout=3) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read())["invitations"][0]["status"], "pending")
+        self.family_service.list_invitations.assert_called_once_with("server-resolved-subject")
+
+    def test_accept_invitation_uses_authenticated_recipient_not_client_subject(self):
+        with self.family_request(
+            "/v1/family/invitations/accept",
+            body={
+                "invitation_code": "recipient-code",
+                "subject_id": "attacker-selected-subject",
+                "owner_subject_id": "attacker-selected-owner",
+            },
+        ) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read()), {"joined": True})
+        self.family_service.accept_invitation.assert_called_once_with(
+            "server-resolved-subject", "recipient-code"
+        )
+
+    def test_revoke_invitation_uses_authenticated_owner_identity(self):
+        request = Request(
+            self.base_url + "/v1/family/invitations/invite_1234567890123456",
+            headers={"Authorization": "Bearer valid-bearer-token"},
+            method="DELETE",
+        )
+        with urlopen(request, timeout=3) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read()), {"revoked": True})
+        self.family_service.revoke_invitation.assert_called_once_with(
+            "server-resolved-subject", "invite_1234567890123456"
+        )
+
+    def test_family_routes_reject_missing_bearer_before_service_access(self):
+        request = Request(
+            self.base_url + "/v1/family/invitations",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request, timeout=3)
+        self.assertEqual(raised.exception.code, 401)
+        self.family_service.create_invitation.assert_not_called()
+
+    def test_family_routes_fail_closed_when_service_is_unconfigured(self):
+        self.service.family_invitation_service = None
+        with self.assertRaises(HTTPError) as raised:
+            self.family_request("/v1/family/invitations")
+        self.assertEqual(raised.exception.code, 503)
+
+    def test_list_invitation_rate_limit_preserves_http_429_status(self):
+        self.family_service.list_invitations.side_effect = FamilyInvitationError(
+            "family_invitation_rate_limited", 429
+        )
+        request = Request(
+            self.base_url + "/v1/family/invitations",
+            headers={"Authorization": "Bearer valid-bearer-token"},
+            method="GET",
+        )
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request, timeout=3)
+        self.assertEqual(raised.exception.code, 429)
+        self.assertEqual(
+            json.loads(raised.exception.read()),
+            {"error": "family_invitation_rate_limited"},
+        )
 
 
 if __name__ == "__main__":

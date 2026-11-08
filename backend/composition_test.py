@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from backend.account_binding import AccountBindingRepository, AuthenticatedStoreAccountBindingService
 from backend.composition import build_service
+from backend.family_invitations import FamilyInvitationService
 from backend.managed_db_store import ManagedDbAuthStore
 from backend.managed_store import ManagedAuthStore
 from backend.subscription_store import StoreSubscriptionRepository
@@ -92,6 +93,7 @@ class CompositionTests(unittest.TestCase):
         self.assertIsInstance(service.store, ManagedDbAuthStore)
         self.assertIsInstance(service.store_account_binding_service, AuthenticatedStoreAccountBindingService)
         self.assertIsInstance(service.store_subscription_repository, StoreSubscriptionRepository)
+        self.assertIsInstance(service.family_invitation_service, FamilyInvitationService)
         self.assertIsNone(service.store_verification_service)
         self.assertEqual(connections, [])
 

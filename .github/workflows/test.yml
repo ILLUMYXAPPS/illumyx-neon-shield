@@ -39,6 +39,14 @@ jobs:
       - name: Run application unit tests
         run: python -m unittest discover -s tests -v
 
+      - name: Run subscription, Family and device-pairing tests
+        run: >-
+          python -m unittest -v
+          backend.device_allowance_test
+          backend.device_pairing_test
+          backend.family_invitations_test
+          backend.migrations_test
+
       - name: Run production configuration boundary tests
         run: python -m unittest -v backend.production_config_test
 

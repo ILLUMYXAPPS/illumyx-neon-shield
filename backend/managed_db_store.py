@@ -18,6 +18,12 @@ _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS sessions (session_hash TEXT PRIMARY KEY, subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(subject_id) REFERENCES users(subject_id) ON DELETE CASCADE)",
     "CREATE TABLE IF NOT EXISTS sign_in_rate_limits (identity_hash TEXT PRIMARY KEY, failure_count INTEGER NOT NULL, window_started_at TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS audit_events (event_hash TEXT PRIMARY KEY, event_type TEXT NOT NULL, occurred_at TEXT NOT NULL, subject_id TEXT, device_fingerprint TEXT NOT NULL, previous_hash TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK(chain_id=1), event_hash TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS device_pairing_requests (request_id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, device_name TEXT NOT NULL, secret_hash TEXT NOT NULL, code_hash TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, expires_at TEXT NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS idx_managed_pairing_subject ON device_pairing_requests(subject_id, status)",
+    "CREATE TABLE IF NOT EXISTS device_labels (subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, device_name TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(subject_id, device_hash))",
+    "CREATE TABLE IF NOT EXISTS family_invitations (invitation_id TEXT PRIMARY KEY, owner_subject_id TEXT NOT NULL, token_hash TEXT UNIQUE NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','accepted','revoked','expired')), created_at TEXT NOT NULL, expires_at TEXT NOT NULL, accepted_by TEXT, accepted_at TEXT)",
+    "CREATE INDEX IF NOT EXISTS idx_family_invitations_owner_status ON family_invitations(owner_subject_id,status,expires_at)",
     "CREATE INDEX IF NOT EXISTS idx_managed_sessions_subject ON sessions(subject_id)",
     "CREATE INDEX IF NOT EXISTS idx_managed_audit_time ON audit_events(occurred_at)",
 )
@@ -79,13 +85,23 @@ class ManagedDbAuthStore(ManagedAuthStore):
             return None
         if isinstance(row, dict):
             return dict(row)
-        columns = [item[0] for item in cursor.description]
+        columns = [item.name if hasattr(item, "name") else item[0] for item in cursor.description]
         return dict(zip(columns, row, strict=False))
 
     def migrate(self) -> None:
         with self._cursor() as (connection, cursor):
             for statement in _SCHEMA:
                 cursor.execute(statement)
+            cursor.execute(
+                "INSERT INTO audit_chain_head(chain_id,event_hash) "
+                "SELECT 1, COALESCE((SELECT event_hash FROM audit_events e "
+                "WHERE NOT EXISTS (SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash) "
+                "LIMIT 1), ?) WHERE NOT EXISTS (SELECT 1 FROM audit_chain_head WHERE chain_id=1) "
+                "AND (NOT EXISTS (SELECT 1 FROM audit_events) OR "
+                "(SELECT COUNT(*) FROM audit_events e WHERE NOT EXISTS "
+                "(SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash))=1)".replace("?", self._placeholder),
+                ("0" * 64,),
+            )
             connection.commit()
 
     def create_user(self, subject_id: str, identity: str, credential: str) -> None:
@@ -258,9 +274,11 @@ class ManagedDbAuthStore(ManagedAuthStore):
 
     def last_audit_hash(self) -> str:
         with self._cursor() as (_, cursor):
-            cursor.execute("SELECT event_hash FROM audit_events ORDER BY occurred_at DESC, event_hash DESC LIMIT 1")
+            cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1")
             row = cursor.fetchone()
-            return row[0] if row else "0" * 64
+            if row is None:
+                raise RuntimeError("audit chain head is missing; run production migrations")
+            return row[0]
 
     def add_audit(self, event_type: str, subject_id: str | None, device_id: str) -> str:
         return self.add_audit_fingerprint(event_type, subject_id, _hash(device_id, self._pepper))
@@ -268,10 +286,17 @@ class ManagedDbAuthStore(ManagedAuthStore):
     def add_audit_fingerprint(self, event_type: str, subject_id: str | None, device_fingerprint: str) -> str:
         occurred_at = _now()
         with self._cursor() as (connection, cursor):
-            cursor.execute("SELECT event_hash FROM audit_events ORDER BY occurred_at DESC, event_hash DESC LIMIT 1" + self._audit_lock_clause)
+            # Lock the stable singleton row, including when the event ledger is empty.
+            cursor.execute("UPDATE audit_chain_head SET event_hash=event_hash WHERE chain_id=1")
+            cursor.execute("SELECT event_hash FROM audit_chain_head WHERE chain_id=1" + self._audit_lock_clause)
             row = cursor.fetchone()
-            previous_hash = row[0] if row else "0" * 64
+            if row is None:
+                raise RuntimeError("audit chain head is missing; run production migrations")
+            previous_hash = row[0]
             event_hash = hashlib.sha256(f"{event_type}|{occurred_at}|{subject_id or ''}|{device_fingerprint}|{previous_hash}".encode()).hexdigest()
             cursor.execute(self._sql("INSERT INTO audit_events(event_hash,event_type,occurred_at,subject_id,device_fingerprint,previous_hash) VALUES(?,?,?,?,?,?)"), (event_hash, event_type, occurred_at, subject_id, device_fingerprint, previous_hash))
+            cursor.execute(self._sql("UPDATE audit_chain_head SET event_hash=? WHERE chain_id=1"), (event_hash,))
+            if getattr(cursor, "rowcount", 1) != 1:
+                raise RuntimeError("audit chain head update did not affect exactly one row")
             connection.commit()
             return event_hash

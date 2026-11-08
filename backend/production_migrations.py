@@ -58,4 +58,29 @@ PRODUCTION_MIGRATIONS = (
             "CREATE INDEX IF NOT EXISTS idx_family_memberships_owner ON family_memberships(owner_subject_id,status)",
         ),
     ),
+    Migration(
+        7,
+        "create_device_pairing_tables",
+        (
+            "CREATE TABLE IF NOT EXISTS device_pairing_requests (request_id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, device_name TEXT NOT NULL, secret_hash TEXT NOT NULL, code_hash TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, expires_at TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS idx_managed_pairing_subject ON device_pairing_requests(subject_id, status)",
+            "CREATE TABLE IF NOT EXISTS device_labels (subject_id TEXT NOT NULL, device_hash TEXT NOT NULL, device_name TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(subject_id, device_hash))",
+        ),
+    ),
+    Migration(
+        8,
+        "create_family_invitations",
+        (
+            "CREATE TABLE IF NOT EXISTS family_invitations (invitation_id TEXT PRIMARY KEY, owner_subject_id TEXT NOT NULL, token_hash TEXT UNIQUE NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','accepted','revoked','expired')), created_at TEXT NOT NULL, expires_at TEXT NOT NULL, accepted_by TEXT, accepted_at TEXT, FOREIGN KEY(owner_subject_id) REFERENCES users(subject_id) ON DELETE CASCADE, FOREIGN KEY(accepted_by) REFERENCES users(subject_id) ON DELETE SET NULL)",
+            "CREATE INDEX IF NOT EXISTS idx_family_invitations_owner_status ON family_invitations(owner_subject_id,status,expires_at)",
+        ),
+    ),
+    Migration(
+        9,
+        "create_serialized_audit_chain_head",
+        (
+            "CREATE TABLE IF NOT EXISTS audit_chain_head (chain_id INTEGER PRIMARY KEY CHECK(chain_id=1), event_hash TEXT NOT NULL)",
+            "INSERT INTO audit_chain_head(chain_id,event_hash) SELECT 1, COALESCE((SELECT event_hash FROM audit_events e WHERE NOT EXISTS (SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash) LIMIT 1), '0000000000000000000000000000000000000000000000000000000000000000') WHERE NOT EXISTS (SELECT 1 FROM audit_chain_head WHERE chain_id=1) AND (NOT EXISTS (SELECT 1 FROM audit_events) OR (SELECT COUNT(*) FROM audit_events e WHERE NOT EXISTS (SELECT 1 FROM audit_events child WHERE child.previous_hash=e.event_hash))=1)",
+        ),
+    ),
 )

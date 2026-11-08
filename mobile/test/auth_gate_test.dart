@@ -49,7 +49,7 @@ void main() {
       home: AuthGate(
         authService: service,
         deviceIdProvider: () async => 'device-1',
-        dashboardBuilder: (_) => const Scaffold(body: Text('AUTHENTICATED DASHBOARD')),
+        dashboardBuilder: (_, __) => const Scaffold(body: Text('AUTHENTICATED DASHBOARD')),
       ),
     ));
     await tester.pumpAndSettle();
@@ -72,7 +72,7 @@ void main() {
       home: AuthGate(
         authService: service,
         deviceIdProvider: () async => 'device-1',
-        dashboardBuilder: (_) => const Scaffold(body: Text('AUTHENTICATED DASHBOARD')),
+        dashboardBuilder: (_, __) => const Scaffold(body: Text('AUTHENTICATED DASHBOARD')),
       ),
     ));
     await tester.pumpAndSettle();
@@ -97,7 +97,7 @@ void main() {
       home: AuthGate(
         authService: service,
         deviceIdProvider: () async => 'device-1',
-        dashboardBuilder: (_) => const Scaffold(body: Text('AUTHENTICATED DASHBOARD')),
+        dashboardBuilder: (_, __) => const Scaffold(body: Text('AUTHENTICATED DASHBOARD')),
       ),
     ));
     await tester.pumpAndSettle();
@@ -117,7 +117,7 @@ void main() {
       home: AuthGate(
         authService: service,
         deviceIdProvider: () async => 'device-1',
-        dashboardBuilder: (_) => const Scaffold(body: Text('AUTHENTICATED DASHBOARD')),
+        dashboardBuilder: (_, __) => const Scaffold(body: Text('AUTHENTICATED DASHBOARD')),
       ),
     ));
     await tester.pumpAndSettle();

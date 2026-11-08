@@ -17,7 +17,7 @@ class AuthGate extends StatefulWidget {
 
   final AuthService authService;
   final Future<String> Function() deviceIdProvider;
-  final Widget Function(VoidCallback onSignOut) dashboardBuilder;
+  final Widget Function(AuthSession session, VoidCallback onSignOut) dashboardBuilder;
 
   @override
   State<AuthGate> createState() => _AuthGateState();
@@ -172,7 +172,7 @@ class _AuthGateState extends State<AuthGate> {
   @override
   Widget build(BuildContext context) {
     if (_session != null && !_session!.isExpired) {
-      return widget.dashboardBuilder(_signOut);
+      return widget.dashboardBuilder(_session!, _signOut);
     }
     if (_session != null && _session!.isExpired) {
       // Do not render the dashboard even if the event loop has not delivered

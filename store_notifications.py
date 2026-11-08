@@ -46,6 +46,13 @@ class AppleNotificationProcessor:
 
         data = self._field(event, "data")
         signed_transaction = self._field(data, "signedTransactionInfo")
+        event_time_ms = self._field(event, "signedDate")
+        try:
+            event_time = datetime.fromtimestamp(int(event_time_ms) / 1000, tz=timezone.utc)
+        except (TypeError, ValueError, OverflowError, OSError) as exc:
+            if signed_transaction:
+                raise StoreVerificationError("Apple notification signed date is missing or invalid") from exc
+            event_time = received_at or datetime.now(timezone.utc)
         if signed_transaction:
             verified = self._verifier.verify_signed_notification_transaction(
                 signed_transaction
@@ -83,6 +90,7 @@ class AppleNotificationProcessor:
                 expected_account_binding_id=binding_id,
                 repository=self._subscriptions,
                 now=received_at,
+                verified_at=event_time,
             )
 
         payload_bytes = signed_payload.encode("utf-8")
@@ -163,6 +171,13 @@ class GoogleRtdnProcessor:
             raise StoreVerificationError("Google RTDN package name mismatch")
 
         notification = payload.get("subscriptionNotification") or {}
+        event_time_ms = payload.get("eventTimeMillis")
+        try:
+            event_time = datetime.fromtimestamp(int(event_time_ms) / 1000, tz=timezone.utc)
+        except (TypeError, ValueError, OverflowError, OSError) as exc:
+            if notification:
+                raise StoreVerificationError("Google RTDN event time is missing or invalid") from exc
+            event_time = received_at or datetime.now(timezone.utc)
         purchase_token = notification.get("purchaseToken")
         product_id = notification.get("subscriptionId")
         if purchase_token or product_id:
@@ -182,6 +197,7 @@ class GoogleRtdnProcessor:
                 expected_account_binding_id=request.account_binding_id,
                 repository=self._subscriptions,
                 now=received_at,
+                verified_at=event_time,
             )
 
         event_type = str(notification.get("notificationType", "TEST" if payload.get("testNotification") else "UNKNOWN"))

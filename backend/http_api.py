@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, SignInRequest
 from store_verification import StoreProvider, StorePurchaseRequest, StoreVerificationError, StoreVerificationUnavailable
+from backend.family_invitations import FamilyInvitationError
 
 
 def _session_json(session):
@@ -44,6 +46,21 @@ def make_handler(service):
                 raise ValueError("JSON object required")
             return value
 
+        def _error(self, exc: Exception) -> None:
+            """Map expected request failures without exposing internal details."""
+            if isinstance(exc, FamilyInvitationError):
+                self._json(exc.status, {"error": exc.reason})
+            elif isinstance(exc, AuthenticationError):
+                self._json(401, {"error": exc.failure.value})
+            elif isinstance(exc, StoreVerificationUnavailable):
+                self._json(503, {"error": "store_verification_unavailable"})
+            elif isinstance(exc, StoreVerificationError):
+                self._json(400, {"error": "purchase_verification_failed"})
+            elif isinstance(exc, (ValueError, json.JSONDecodeError)):
+                self._json(400, {"error": "invalid_request"})
+            else:
+                self._json(503, {"error": "unavailable"})
+
         def _session(self):
             value = self.headers.get("Authorization", "")
             if not value.startswith("Bearer "):
@@ -54,10 +71,27 @@ def make_handler(service):
             return service.resolve_session(token)
 
         def do_GET(self) -> None:
-            if self.path == "/health":
-                self._json(200, {"status": "ok", "service": "neon-shield-auth"})
-            else:
+            try:
+                if self.path == "/health":
+                    self._json(200, {"status": "ok", "service": "neon-shield-auth"})
+                    return
+                if self.path == "/v1/family/invitations":
+                    session = self._session()
+                    family_invitations = getattr(service, "family_invitation_service", None)
+                    if family_invitations is None:
+                        self._json(503, {"error": "family_invitations_unavailable"})
+                        return
+                    self._json(200, {
+                        "invitations": family_invitations.list_invitations(session.subject_id)
+                    })
+                    return
+                if self.path == "/v1/devices":
+                    session = self._session()
+                    self._json(200, {"devices": service.device_pairing.devices(session)})
+                    return
                 self._json(404, {"error": "not_found"})
+            except Exception as exc:
+                self._error(exc)
 
         def do_POST(self) -> None:
             try:
@@ -74,6 +108,22 @@ def make_handler(service):
                         )
                     )
                     self._json(200, {"session": _session_json(session)})
+                    return
+
+                if self.path == "/v1/device-pairing/start":
+                    result = service.device_pairing.start(
+                        str(data.get("identity", "")),
+                        str(data.get("credential", "")),
+                        str(data.get("device_id", "")),
+                        str(data.get("device_name", "")),
+                    )
+                    self._json(201, result)
+                    return
+
+                if self.path == "/v1/device-pairing/status":
+                    self._json(200, {"status": service.device_pairing.status(
+                        str(data.get("request_id", "")), str(data.get("pairing_secret", ""))
+                    )})
                     return
 
                 if self.path == "/v1/store/apple/notifications":
@@ -100,6 +150,21 @@ def make_handler(service):
                     return
 
                 session = self._session()
+                family_invitations = getattr(service, "family_invitation_service", None)
+                if self.path == "/v1/family/invitations":
+                    if family_invitations is None:
+                        self._json(503, {"error": "family_invitations_unavailable"})
+                        return
+                    self._json(201, family_invitations.create_invitation(session.subject_id))
+                    return
+                if self.path == "/v1/family/invitations/accept":
+                    if family_invitations is None:
+                        self._json(503, {"error": "family_invitations_unavailable"})
+                        return
+                    self._json(200, family_invitations.accept_invitation(
+                        session.subject_id, str(data.get("invitation_code", ""))
+                    ))
+                    return
                 if self.path == "/v1/store/account-binding":
                     binding_service = getattr(service, "store_account_binding_service", None)
                     if binding_service is None:
@@ -153,7 +218,17 @@ def make_handler(service):
                 if self.path == "/v1/auth/trusted-device":
                     self._json(200, {"trusted": service.is_device_trusted(session)})
                     return
+
+                if self.path == "/v1/device-pairing/approve":
+                    self._json(200, service.device_pairing.approve(
+                        session,
+                        str(data.get("request_id", "")),
+                        pairing_code=data.get("pairing_code"),
+                    ))
+                    return
                 self._json(404, {"error": "not_found"})
+            except FamilyInvitationError as exc:
+                self._json(exc.status, {"error": exc.reason})
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
             except StoreVerificationUnavailable:
@@ -164,6 +239,45 @@ def make_handler(service):
                 self._json(400, {"error": "invalid_request"})
             except Exception:
                 self._json(503, {"error": "unavailable"})
+
+        def do_PATCH(self) -> None:
+            try:
+                match = re.fullmatch(r"/v1/devices/([A-Za-z0-9_-]{16,64})", self.path)
+                if match is None:
+                    self._json(404, {"error": "not_found"})
+                    return
+                session = self._session()
+                data = self._body()
+                service.device_pairing.rename(session, match.group(1), data.get("device_name"))
+                self._json(200, {"updated": True})
+            except Exception as exc:
+                self._error(exc)
+
+        def do_DELETE(self) -> None:
+            try:
+                invitation_match = re.fullmatch(r"/v1/family/invitations/([A-Za-z0-9_-]{16,64})", self.path)
+                if invitation_match is not None:
+                    session = self._session()
+                    family_invitations = getattr(service, "family_invitation_service", None)
+                    if family_invitations is None:
+                        self._json(503, {"error": "family_invitations_unavailable"})
+                        return
+                    revoked = family_invitations.revoke_invitation(
+                        session.subject_id, invitation_match.group(1)
+                    )
+                    self._json(200, {"revoked": revoked})
+                    return
+                match = re.fullmatch(r"/v1/devices/([A-Za-z0-9_-]{16,64})", self.path)
+                if match is None:
+                    self._json(404, {"error": "not_found"})
+                    return
+                session = self._session()
+                service.device_pairing.unlink(session, match.group(1))
+                self._json(204)
+            except FamilyInvitationError as exc:
+                self._json(exc.status, {"error": exc.reason})
+            except Exception as exc:
+                self._error(exc)
 
         def log_message(self, format: str, *args) -> None:
             return

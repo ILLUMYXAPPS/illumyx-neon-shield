@@ -11,6 +11,8 @@ import 'auth/auth_session.dart';
 import 'auth/device_identity_store.dart';
 import 'auth/https_auth_api.dart';
 import 'auth/secure_auth_session_store.dart';
+import 'family/family_api.dart';
+import 'family/family_management_screen.dart';
 import 'onboarding/onboarding_screen.dart';
 import 'protection/protection_profile.dart';
 import 'protection/protection_profile_service.dart';
@@ -154,7 +156,8 @@ class _AppBootstrapState extends State<AppBootstrap> {
       return AuthGate(
         authService: _authService,
         deviceIdProvider: _deviceIdProvider,
-        dashboardBuilder: (onSignOut) => ShieldDashboard(
+        dashboardBuilder: (session, onSignOut) => ShieldDashboard(
+          session: session,
           securityServiceFactory: widget.securityServiceFactory,
           onSignOut: onSignOut,
         ),
@@ -252,10 +255,12 @@ class ShieldDashboard extends StatefulWidget {
     super.key,
     this.securityServiceFactory,
     this.onSignOut,
+    this.session,
   });
 
   final SecurityService Function()? securityServiceFactory;
   final VoidCallback? onSignOut;
+  final AuthSession? session;
 
   @override
   State<ShieldDashboard> createState() => _ShieldDashboardState();
@@ -423,6 +428,25 @@ class _ShieldDashboardState extends State<ShieldDashboard> {
               'This dashboard reports local posture and saves profile preferences. It does not scan files, block threats, or provide antivirus protection.',
             ),
             const SizedBox(height: 8),
+            if (widget.session != null) ...[
+              OutlinedButton.icon(
+                onPressed: () {
+                  const endpoint = String.fromEnvironment('NEON_SHIELD_AUTH_BASE_URL');
+                  if (endpoint.trim().isEmpty) return;
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => FamilyManagementScreen(
+                        api: HttpsFamilyInvitationsApi(baseUri: Uri.parse(endpoint)),
+                        session: widget.session!,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.family_restroom_rounded),
+                label: const Text('Family Management'),
+              ),
+              const SizedBox(height: 10),
+            ],
             FilledButton.icon(
               // Vault navigation does not depend on posture refresh completing.
               onPressed: () => Navigator.of(context).push(

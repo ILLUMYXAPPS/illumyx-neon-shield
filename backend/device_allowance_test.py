@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from tempfile import TemporaryDirectory
 from pathlib import Path
 
+from backend.subscription_store import StoreSubscriptionRepository
+from backend.device_limits import DeviceLimitExceeded, DeviceLimitPolicy
 from backend.device_allowance import (
     FamilyMembershipError,
     FamilyMembershipRepository,
@@ -31,12 +33,18 @@ class FakeSubscriptions:
 class FamilyMembershipTests(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
+        self.connections = []
+        # sqlite3.Connection's context manager commits/rolls back but does not
+        # close the connection. Close every test connection before Windows
+        # attempts to remove the temporary database directory.
         self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(self._close_connections)
         self.path = Path(self.tmp.name) / "family.sqlite3"
 
         def connect():
             connection = sqlite3.connect(self.path)
             connection.execute("PRAGMA foreign_keys=ON")
+            self.connections.append(connection)
             return connection
 
         self.connect = connect
@@ -48,6 +56,13 @@ class FamilyMembershipTests(unittest.TestCase):
                     (subject, "hash-" + subject, "credential", NOW),
                 )
         self.families = FamilyMembershipRepository(self.connect, placeholder="?")
+
+    def _close_connections(self):
+        for connection in self.connections:
+            try:
+                connection.close()
+            except sqlite3.Error:
+                pass
 
     def test_household_owner_counts_as_one_of_five_members(self):
         self.families.create_household("owner", created_at=NOW)
@@ -97,6 +112,142 @@ class FamilyMembershipTests(unittest.TestCase):
             placeholder="?",
         )
         self.assertEqual(resolver("member-1").package.value, "free")
+
+
+
+    def _insert_family_subscription(self, owner="owner", *, expires_at=None):
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO verified_subscriptions "
+                "(subscription_id,subject_id,provider,application_id,product_id,package,environment,"
+                "account_binding_id,transaction_id,original_transaction_id,purchase_token_hash,"
+                "expires_at,revoked,verified_at,updated_at) "
+                "VALUES(?,?,'apple','com.illumyx.illumyxapp','family_monthly','premium_family',"
+                "'production','binding-owner','txn-owner','original-owner','token-hash',?,0,?,?)",
+                ("original-owner", owner, expires_at, NOW, NOW),
+            )
+
+    def test_transactional_resolver_reads_family_subscription_and_device_counts_on_pairing_connection(self):
+        self.families.create_household("owner", created_at=NOW)
+        self.families.add_member("owner", "member-1", created_at=NOW)
+        self._insert_family_subscription()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for subject, count in (("owner", 2), ("member-1", 1)):
+                for index in range(count):
+                    connection.execute(
+                        "INSERT INTO devices(subject_id,device_hash,trusted,created_at) VALUES(?,?,1,?)",
+                        (subject, f"tx-{subject}-{index}", NOW),
+                    )
+            subscriptions = StoreSubscriptionRepository(
+                self.connect, pepper="subscription-test-pepper", placeholder="?"
+            )
+            resolver = StoreDeviceAllowanceResolver(
+                self.connect, subscriptions, self.families, placeholder="?"
+            )
+            allowance = resolver.resolve_for_approval(connection, "member-1", "pairing-request")
+            self.assertTrue(connection.in_transaction)
+            self.assertEqual(allowance.package.value, "premium_family")
+            self.assertEqual(allowance.member_device_count, 1)
+            self.assertEqual(allowance.family_total_device_count, 3)
+            connection.rollback()
+
+    def test_transactional_resolver_rejects_family_package_without_active_household_membership(self):
+        self._insert_family_subscription()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            subscriptions = StoreSubscriptionRepository(
+                self.connect, pepper="subscription-test-pepper", placeholder="?"
+            )
+            resolver = StoreDeviceAllowanceResolver(
+                self.connect, subscriptions, self.families, placeholder="?"
+            )
+            with self.assertRaises(FamilyMembershipError):
+                resolver.resolve_for_approval(connection, "owner", "pairing-request")
+            connection.rollback()
+
+    def test_transactional_resolver_uses_verified_premium_subscription(self):
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO verified_subscriptions "
+                "(subscription_id,subject_id,provider,application_id,product_id,package,environment,"
+                "account_binding_id,transaction_id,original_transaction_id,purchase_token_hash,"
+                "expires_at,revoked,verified_at,updated_at) "
+                "VALUES('premium-txn','owner','google_play','com.illumyx.illumyxapp','premium_monthly',"
+                "'premium','production','binding-owner','premium-txn','premium-original','token-hash',"
+                "NULL,0,?,?)",
+                (NOW, NOW),
+            )
+            connection.commit()
+            connection.execute("BEGIN IMMEDIATE")
+            subscriptions = StoreSubscriptionRepository(
+                self.connect, pepper="subscription-test-pepper", placeholder="?"
+            )
+            resolver = StoreDeviceAllowanceResolver(
+                self.connect, subscriptions, self.families, placeholder="?"
+            )
+            allowance = resolver.resolve_for_approval(connection, "owner", "pairing-request")
+            self.assertEqual(allowance.package.value, "premium")
+            self.assertEqual(allowance.member_device_count, 0)
+            connection.rollback()
+
+
+    def _family_resolver(self):
+        self.families.create_household("owner", created_at=NOW)
+        for index in range(1, 5):
+            self.families.add_member("owner", f"member-{index}", created_at=NOW)
+        self._insert_family_subscription()
+        return StoreDeviceAllowanceResolver(
+            self.connect,
+            StoreSubscriptionRepository(
+                self.connect, pepper="subscription-test-pepper", placeholder="?"
+            ),
+            self.families,
+            placeholder="?",
+        )
+
+    def _add_trusted_devices(self, subject, count):
+        with self.connect() as connection:
+            for index in range(count):
+                connection.execute(
+                    "INSERT INTO devices(subject_id,device_hash,trusted,created_at) VALUES(?,?,1,?)",
+                    (subject, f"boundary-{subject}-{index}", NOW),
+                )
+
+    def test_family_member_third_device_is_rejected_from_transactional_counts(self):
+        resolver = self._family_resolver()
+        self._add_trusted_devices("member-1", 2)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            allowance = resolver.resolve_for_approval(
+                connection, "member-1", "third-device-request"
+            )
+            self.assertEqual(allowance.member_device_count, 2)
+            with self.assertRaises(DeviceLimitExceeded) as caught:
+                DeviceLimitPolicy.assert_can_add_device(allowance)
+            self.assertEqual(caught.exception.reason, "family_member_device_limit_reached")
+            connection.rollback()
+
+    def test_eleventh_family_device_is_rejected_even_when_member_has_a_free_slot(self):
+        resolver = self._family_resolver()
+        # Legacy/previously linked devices can leave an account above its
+        # current per-member ceiling. The target member still has a free slot,
+        # but the household total must independently block device eleven.
+        for subject, count in (
+            ("owner", 3), ("member-1", 3), ("member-2", 2), ("member-3", 2)
+        ):
+            self._add_trusted_devices(subject, count)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            allowance = resolver.resolve_for_approval(
+                connection, "member-4", "eleventh-device-request"
+            )
+            self.assertEqual(allowance.member_device_count, 0)
+            self.assertEqual(allowance.family_total_device_count, 10)
+            with self.assertRaises(DeviceLimitExceeded) as caught:
+                DeviceLimitPolicy.assert_can_add_device(allowance)
+            self.assertEqual(caught.exception.reason, "family_total_device_limit_reached")
+            connection.rollback()
 
 
 if __name__ == "__main__":

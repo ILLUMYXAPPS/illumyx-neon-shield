@@ -24,6 +24,7 @@ class AppleNotificationProcessorTests(unittest.TestCase):
         self.verifier.verify_notification.return_value = SimpleNamespace(
             notificationUUID="event-1",
             notificationType="DID_RENEW",
+            signedDate=1893456000000,
             data=SimpleNamespace(signedTransactionInfo="signed.transaction.jws"),
         )
         self.verifier.verify_signed_notification_transaction.return_value = self.purchase
@@ -47,6 +48,7 @@ class AppleNotificationProcessorTests(unittest.TestCase):
         self.assertEqual(kwargs["subject_id"], "account-1")
         self.assertEqual(self.verification.verify_and_persist.call_args.args[0].purchase_token, "signed.transaction.jws")
         self.assertEqual(kwargs["expected_account_binding_id"], self.purchase.account_binding_id)
+        self.assertEqual(kwargs["verified_at"], datetime(2030, 1, 1, tzinfo=timezone.utc))
         self.repository.record_notification.assert_called_once()
         self.assertEqual(self.repository.record_notification.call_args.kwargs["event_id"], "event-1")
 
@@ -54,6 +56,7 @@ class AppleNotificationProcessorTests(unittest.TestCase):
         self.verifier.verify_notification.return_value = SimpleNamespace(
             notificationUUID="event-renewal",
             notificationType="DID_RENEW",
+            signedDate=1893456000000,
             data=SimpleNamespace(
                 signedTransactionInfo="signed.transaction.jws",
                 signedRenewalInfo="signed.renewal.jws",

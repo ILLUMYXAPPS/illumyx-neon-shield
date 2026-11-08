@@ -154,6 +154,35 @@ class StoreSubscriptionRepositoryTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(revoked, 0)
 
+    def test_stale_verified_event_cannot_overwrite_newer_subscription(self):
+        newer = VerifiedStorePurchase(
+            StoreProvider.APPLE, "premium.monthly", "com.illumyx.illumyxapp",
+            "account-binding-1", "transaction-newer", "original-transaction-1",
+            NOW + timedelta(days=60), environment="production",
+        )
+        older = VerifiedStorePurchase(
+            StoreProvider.APPLE, "premium.monthly", "com.illumyx.illumyxapp",
+            "account-binding-1", "transaction-older", "original-transaction-1",
+            NOW + timedelta(days=30), environment="production",
+        )
+        self.repository.save_verified_purchase(
+            subject_id="subject-1", request=self.request, purchase=newer,
+            package=Package.PREMIUM, verified_at=NOW + timedelta(hours=2),
+        )
+        applied = self.repository.save_verified_purchase(
+            subject_id="subject-1", request=self.request, purchase=older,
+            package=Package.PREMIUM, verified_at=NOW + timedelta(hours=1),
+        )
+        self.assertFalse(applied)
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT transaction_id,expires_at,verified_at FROM verified_subscriptions "
+                "WHERE provider='apple' AND original_transaction_id='original-transaction-1'"
+            ).fetchone()
+        self.assertEqual(row[0], "transaction-newer")
+        self.assertEqual(row[1], (NOW + timedelta(days=60)).isoformat())
+        self.assertEqual(row[2], (NOW + timedelta(hours=2)).isoformat())
+
     def test_notification_is_idempotent_and_finalized_once(self):
         args = dict(provider=StoreProvider.GOOGLE_PLAY, event_id="event-1",
                     event_type="subscription.updated", payload=b"authenticated-payload", received_at=NOW)
