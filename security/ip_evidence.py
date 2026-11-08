@@ -82,6 +82,73 @@ def resolve_client_ip(
 
 
 class EvidenceSink(Protocol):
+    def append(self, record: Mapping[str, Any]) -> str: ...
+
+
+class JsonlEvidenceSink:
+    """Append-only local JSONL sink with a SHA-256 hash chain.
+
+    A sibling lock file serializes writers across threads and OS processes.
+    For production, use encrypted, access-controlled durable storage and
+    independently anchor the latest hash. Network filesystems must provide
+    reliable advisory file-lock semantics before being used with this sink.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+        self._lock_path = self.path.with_name(self.path.name + ".lock")
+        with self._lock, self._process_lock():
+            self._previous_hash = self._load_last_hash()
+
+    @contextmanager
+    def _process_lock(self):
+        """Lock a sibling lock file across threads and OS processes."""
+        with self._lock_path.open("a+b") as lock_stream:
+            if os.name == "nt":
+                import msvcrt
+
+                lock_stream.seek(0, os.SEEK_END)
+                if lock_stream.tell() == 0:
+                    lock_stream.write(b"\\0")
+                    lock_stream.flush()
+                lock_stream.seek(0)
+                msvcrt.locking(lock_stream.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    yield
+                finally:
+                    lock_stream.seek(0)
+                    msvcrt.locking(lock_stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
+
+    def _load_last_hash(self) -> str:
+        if not self.path.exists():
+            return "0" * 64
+        previous = "0" * 64
+        with self.path.open("r", encoding="utf-8") as stream:
+            for line in stream:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                if record.get("previous_hash") != previous:
+                    raise ValueError("Evidence chain is broken; refusing to append")
+                supplied = record.get("record_hash")
+                payload = {key: value for key, value in record.items() if key != "record_hash"}
+                canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                expected = hashlib.sha256(canonical).hexdigest()
+                if supplied != expected:
+                    raise ValueError("Evidence record hash is invalid; refusing to append")
+                previous = supplied
+        return previous
+
     def append(self, record: Mapping[str, Any]) -> str:
         with self._lock, self._process_lock():
             # Another process may have appended since this instance was created.
