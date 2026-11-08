@@ -18,6 +18,34 @@ _REQUEST_BODY_DEADLINE_SECONDS = 10
 class RequestBodyTimeout(ValueError):
     """Raised when a client exceeds the total request-body deadline."""
 
+_MAX_IDENTITY_LENGTH = 320
+_MAX_CREDENTIAL_LENGTH = 4_096
+_MAX_DEVICE_ID_LENGTH = 512
+_MAX_PHONE_IDENTITY_LENGTH = 64
+
+
+def _sign_in_request(data: dict) -> SignInRequest:
+    """Validate untrusted sign-in fields without coercing arbitrary values."""
+    identity = data.get("identity")
+    credential = data.get("credential")
+    device_id = data.get("device_id")
+    phone_identity = data.get("phone_identity")
+
+    if not isinstance(identity, str) or not identity.strip() or len(identity) > _MAX_IDENTITY_LENGTH:
+        raise ValueError("invalid identity")
+    if not isinstance(credential, str) or not credential or len(credential) > _MAX_CREDENTIAL_LENGTH:
+        raise ValueError("invalid credential")
+    if not isinstance(device_id, str) or not device_id or len(device_id) > _MAX_DEVICE_ID_LENGTH:
+        raise ValueError("invalid device_id")
+    if phone_identity is not None and (
+        not isinstance(phone_identity, str)
+        or not phone_identity.strip()
+        or len(phone_identity) > _MAX_PHONE_IDENTITY_LENGTH
+    ):
+        raise ValueError("invalid phone_identity")
+
+    return SignInRequest(identity, credential, device_id, phone_identity)
+
 
 def _session_json(session):
     # Never return an internal/raw device identifier from an auth response.
@@ -31,7 +59,7 @@ def _session_json(session):
 
 def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "NeonShieldAuth/1.0"
+        server_version = "NeonShieldAuth"
 
         def setup(self) -> None:
             super().setup()
@@ -47,6 +75,7 @@ def make_handler(service):
                 self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
             if self.close_connection:
                 self.send_header("Connection", "close")
             self.end_headers()
@@ -113,17 +142,16 @@ def make_handler(service):
             try:
                 data = self._body()
                 if self.path == "/v1/auth/sign-in":
-                    session = service.sign_in(
-                        SignInRequest(
-                            str(data.get("identity", "")),
-                            str(data.get("credential", "")),
-                            str(data.get("device_id", "")),
-                            str(data["phone_identity"])
-                            if data.get("phone_identity") is not None
-                            else None,
-                        )
-                    )
+                    session = service.sign_in(_sign_in_request(data))
                     self._json(200, {"session": _session_json(session)})
+                    return
+
+                if self.path not in {
+                    "/v1/auth/refresh",
+                    "/v1/auth/logout",
+                    "/v1/auth/trusted-device",
+                }:
+                    self._json(404, {"error": "not_found"})
                     return
 
                 session = self._session()
