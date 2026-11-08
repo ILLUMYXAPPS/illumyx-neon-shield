@@ -8,7 +8,7 @@ import unittest
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 
-from backend.http_api import make_handler
+from backend.http_api import _sign_in_request, make_handler
 
 
 class HttpRequestBodyParsingTests(unittest.TestCase):
@@ -163,6 +163,63 @@ class HttpRequestBodyParsingTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 server_thread.join(timeout=2)
+
+
+
+class HttpSignInPayloadValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.valid = {
+            "identity": "user@example.test",
+            "credential": "correct-horse",
+            "device_id": "device-1",
+        }
+
+    def test_valid_sign_in_fields_are_preserved(self):
+        request = _sign_in_request({
+            **self.valid,
+            "phone_identity": "+61400000000",
+        })
+        self.assertEqual(request.identity, "user@example.test")
+        self.assertEqual(request.credential, "correct-horse")
+        self.assertEqual(request.device_id, "device-1")
+        self.assertEqual(request.phone_identity, "+61400000000")
+
+    def test_non_string_sign_in_fields_are_rejected_without_coercion(self):
+        invalid = (
+            ("identity", 123),
+            ("identity", {"value": "user"}),
+            ("credential", ["password"]),
+            ("credential", None),
+            ("device_id", True),
+            ("phone_identity", 123),
+        )
+        for field, value in invalid:
+            with self.subTest(field=field, value=value):
+                payload = dict(self.valid)
+                payload[field] = value
+                with self.assertRaises(ValueError):
+                    _sign_in_request(payload)
+
+    def test_empty_and_overlong_sign_in_fields_are_rejected(self):
+        invalid_payloads = (
+            {**self.valid, "identity": " "},
+            {**self.valid, "identity": "i" * 321},
+            {**self.valid, "credential": ""},
+            {**self.valid, "credential": "c" * 4097},
+            {**self.valid, "device_id": ""},
+            {**self.valid, "device_id": "d" * 513},
+            {**self.valid, "phone_identity": " "},
+            {**self.valid, "phone_identity": "p" * 65},
+        )
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    _sign_in_request(payload)
+
+    def test_optional_phone_identity_may_be_absent(self):
+        request = _sign_in_request(self.valid)
+        self.assertIsNone(request.phone_identity)
+
 
 
 if __name__ == "__main__":
