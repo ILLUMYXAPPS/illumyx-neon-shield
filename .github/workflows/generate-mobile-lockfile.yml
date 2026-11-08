@@ -6,7 +6,7 @@ on:
       - feature/family-store-transactional-pairing-integration
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: family-branch-flutter-lockfile
@@ -14,36 +14,25 @@ concurrency:
 
 jobs:
   generate-lockfile:
-    name: Resolve and commit mobile/pubspec.lock
+    name: Resolve and export mobile/pubspec.lock
     runs-on: ubuntu-latest
     steps:
       - name: Check out PR branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ github.ref_name }}
-          persist-credentials: true
-
       - name: Install Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           cache: true
-
       - name: Resolve dependencies and generate lockfile
         working-directory: mobile
         run: flutter pub get
-
-      - name: Commit generated lockfile when changed
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -s mobile/pubspec.lock
-          git add mobile/pubspec.lock
-          if git diff --cached --quiet; then
-            echo "Flutter lockfile is already current."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Add Flutter dependency lockfile"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+      - name: Verify generated lockfile
+        run: test -s mobile/pubspec.lock
+      - name: Upload generated lockfile
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: illumyx-mobile-pubspec-lock
+          path: mobile/pubspec.lock
+          if-no-files-found: error
+          retention-days: 7
