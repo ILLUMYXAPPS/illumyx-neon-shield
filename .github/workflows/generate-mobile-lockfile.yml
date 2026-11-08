@@ -6,7 +6,7 @@ on:
       - feature/family-store-transactional-pairing-integration
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: family-branch-flutter-lockfile
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   generate-lockfile:
-    name: Resolve and export mobile/pubspec.lock
+    name: Resolve and save mobile/pubspec.lock
     runs-on: ubuntu-latest
     steps:
       - name: Check out PR branch
@@ -27,12 +27,17 @@ jobs:
       - name: Resolve dependencies and generate lockfile
         working-directory: mobile
         run: flutter pub get
-      - name: Verify generated lockfile
-        run: test -s mobile/pubspec.lock
-      - name: Upload generated lockfile
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: illumyx-mobile-pubspec-lock
-          path: mobile/pubspec.lock
-          if-no-files-found: error
-          retention-days: 7
+      - name: Save generated lockfile through GitHub Contents API
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s mobile/pubspec.lock
+          CONTENT="$(base64 -w 0 mobile/pubspec.lock)"
+          FILE_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/contents/mobile/pubspec.lock?ref=${GITHUB_REF_NAME}" --jq .sha)"
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/mobile/pubspec.lock" \
+            -f message="Add Flutter dependency lockfile" \
+            -f content="$CONTENT" \
+            -f sha="$FILE_SHA" \
+            -f branch="$GITHUB_REF_NAME"
