@@ -22,7 +22,7 @@ class EnvironmentSecretProvider(SecretProvider):
 
     def get_required(self, name: str) -> str:
         value = self._env.get(name, "")
-        if not value:
+        if not isinstance(value, str) or not value.strip():
             raise RuntimeError(f"missing required deployment secret: {name}")
         return value
 
@@ -35,6 +35,6 @@ class MappingSecretProvider(SecretProvider):
 
     def get_required(self, name: str) -> str:
         value = self._values.get(name, "")
-        if not value:
+        if not isinstance(value, str) or not value.strip():
             raise RuntimeError(f"missing required deployment secret: {name}")
         return value

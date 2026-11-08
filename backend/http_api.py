@@ -2,17 +2,56 @@
 from __future__ import annotations
 
 import json
+import socket
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from auth_server import AuthenticationError
 from auth_server_contract import AuthFailure, SignInRequest
 
 
+_MAX_BODY_BYTES = 32_768
+_REQUEST_TIMEOUT_SECONDS = 5
+_REQUEST_BODY_DEADLINE_SECONDS = 10
+
+
+class RequestBodyTimeout(ValueError):
+    """Raised when a client exceeds the total request-body deadline."""
+
+_MAX_IDENTITY_LENGTH = 320
+_MAX_CREDENTIAL_LENGTH = 4_096
+_MAX_DEVICE_ID_LENGTH = 512
+_MAX_PHONE_IDENTITY_LENGTH = 64
+
+
+def _sign_in_request(data: dict) -> SignInRequest:
+    """Validate untrusted sign-in fields without coercing arbitrary values."""
+    identity = data.get("identity")
+    credential = data.get("credential")
+    device_id = data.get("device_id")
+    phone_identity = data.get("phone_identity")
+
+    if not isinstance(identity, str) or not identity.strip() or len(identity) > _MAX_IDENTITY_LENGTH:
+        raise ValueError("invalid identity")
+    if not isinstance(credential, str) or not credential or len(credential) > _MAX_CREDENTIAL_LENGTH:
+        raise ValueError("invalid credential")
+    if not isinstance(device_id, str) or not device_id or len(device_id) > _MAX_DEVICE_ID_LENGTH:
+        raise ValueError("invalid device_id")
+    if phone_identity is not None and (
+        not isinstance(phone_identity, str)
+        or not phone_identity.strip()
+        or len(phone_identity) > _MAX_PHONE_IDENTITY_LENGTH
+    ):
+        raise ValueError("invalid phone_identity")
+
+    return SignInRequest(identity, credential, device_id, phone_identity)
+
+
 def _session_json(session):
+    # Never return an internal/raw device identifier from an auth response.
     return {
         "session_id": session.session_id,
         "subject_id": session.subject_id,
-        "device_id": session.device_id,
         "issued_at": session.issued_at.isoformat(),
         "expires_at": session.expires_at.isoformat(),
     }
@@ -20,7 +59,13 @@ def _session_json(session):
 
 def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "NeonShieldAuth/1.0"
+        server_version = "NeonShieldAuth"
+
+        def setup(self) -> None:
+            super().setup()
+            # Bound idle socket reads. The deployment proxy must also enforce
+            # an overall request deadline to stop slow-trickle body attacks.
+            self.connection.settimeout(_REQUEST_TIMEOUT_SECONDS)
 
         def _json(self, status: int, payload: dict | None = None) -> None:
             body = b"" if status == 204 else json.dumps(payload or {}, separators=(",", ":")).encode()
@@ -30,15 +75,50 @@ def make_handler(service):
                 self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            if self.close_connection:
+                self.send_header("Connection", "close")
             self.end_headers()
             if body:
                 self.wfile.write(body)
 
         def _body(self) -> dict:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length > 32_768:
+            length_values = self.headers.get_all("Content-Length", [])
+            if len(length_values) != 1:
+                raise ValueError("exactly one Content-Length required")
+            if self.headers.get("Transfer-Encoding") is not None:
+                raise ValueError("Transfer-Encoding is not supported")
+            raw_length = length_values[0]
+            if not raw_length.isascii() or not raw_length.isdecimal():
+                raise ValueError("valid Content-Length required")
+            length = int(raw_length, 10)
+            if length > _MAX_BODY_BYTES:
                 raise ValueError("request too large")
-            value = json.loads(self.rfile.read(length) or b"{}")
+            content_type = self.headers.get("Content-Type", "")
+            media_type = content_type.split(";", 1)[0].strip().lower()
+            if media_type != "application/json":
+                raise ValueError("application/json required")
+            deadline = time.monotonic() + _REQUEST_BODY_DEADLINE_SECONDS
+            body = bytearray()
+            try:
+                while len(body) < length:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise RequestBodyTimeout("request body deadline exceeded")
+                    self.connection.settimeout(min(_REQUEST_TIMEOUT_SECONDS, remaining))
+                    # read1 performs at most one underlying read, allowing the
+                    # absolute deadline to be re-evaluated between slow chunks.
+                    chunk = self.rfile.read1(min(4096, length - len(body)))
+                    if not chunk:
+                        break
+                    body.extend(chunk)
+            except (OSError, socket.timeout) as exc:
+                raise RequestBodyTimeout("request body read timed out") from exc
+            finally:
+                self.connection.settimeout(_REQUEST_TIMEOUT_SECONDS)
+            if len(body) != length:
+                raise ValueError("incomplete request body")
+            value = json.loads(bytes(body) if body else b"{}")
             if not isinstance(value, dict):
                 raise ValueError("JSON object required")
             return value
@@ -62,17 +142,16 @@ def make_handler(service):
             try:
                 data = self._body()
                 if self.path == "/v1/auth/sign-in":
-                    session = service.sign_in(
-                        SignInRequest(
-                            str(data.get("identity", "")),
-                            str(data.get("credential", "")),
-                            str(data.get("device_id", "")),
-                            str(data["phone_identity"])
-                            if data.get("phone_identity") is not None
-                            else None,
-                        )
-                    )
+                    session = service.sign_in(_sign_in_request(data))
                     self._json(200, {"session": _session_json(session)})
+                    return
+
+                if self.path not in {
+                    "/v1/auth/refresh",
+                    "/v1/auth/logout",
+                    "/v1/auth/trusted-device",
+                }:
+                    self._json(404, {"error": "not_found"})
                     return
 
                 session = self._session()
@@ -89,7 +168,11 @@ def make_handler(service):
                 self._json(404, {"error": "not_found"})
             except AuthenticationError as exc:
                 self._json(401, {"error": exc.failure.value})
-            except (ValueError, json.JSONDecodeError):
+            except RequestBodyTimeout:
+                self.close_connection = True
+                self._json(408, {"error": "request_timeout"})
+            except (ValueError, json.JSONDecodeError, socket.timeout, OSError):
+                self.close_connection = True
                 self._json(400, {"error": "invalid_request"})
             except Exception:
                 self._json(503, {"error": "unavailable"})
