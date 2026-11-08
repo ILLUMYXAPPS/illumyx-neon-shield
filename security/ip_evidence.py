@@ -8,7 +8,9 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import os
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Protocol
@@ -80,54 +82,19 @@ def resolve_client_ip(
 
 
 class EvidenceSink(Protocol):
-    def append(self, record: Mapping[str, Any]) -> str: ...
-
-
-class JsonlEvidenceSink:
-    """Append-only local JSONL sink with a SHA-256 hash chain.
-
-    For production, place this file on encrypted, access-controlled durable
-    storage and periodically anchor the latest hash in an independent system.
-    A hash chain is tamper-evident only relative to a trusted saved hash.
-    """
-
-    def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
-        self._previous_hash = self._load_last_hash()
-
-    def _load_last_hash(self) -> str:
-        if not self.path.exists():
-            return "0" * 64
-        previous = "0" * 64
-        with self.path.open("r", encoding="utf-8") as stream:
-            for line in stream:
-                if not line.strip():
-                    continue
-                record = json.loads(line)
-                if record.get("previous_hash") != previous:
-                    raise ValueError("Evidence chain is broken; refusing to append")
-                supplied = record.get("record_hash")
-                payload = {key: value for key, value in record.items() if key != "record_hash"}
-                canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-                expected = hashlib.sha256(canonical).hexdigest()
-                if supplied != expected:
-                    raise ValueError("Evidence record hash is invalid; refusing to append")
-                previous = supplied
-        return previous
-
     def append(self, record: Mapping[str, Any]) -> str:
-        with self._lock:
+        with self._lock, self._process_lock():
+            # Another process may have appended since this instance was created.
+            # Refresh and validate the chain head only after acquiring the lock.
+            self._previous_hash = self._load_last_hash()
             payload = dict(record)
             payload["previous_hash"] = self._previous_hash
             canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
             record_hash = hashlib.sha256(canonical).hexdigest()
             payload["record_hash"] = record_hash
             with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(payload, sort_keys=True) + "\n")
+                stream.write(json.dumps(payload, sort_keys=True) + "\\n")
                 stream.flush()
-                import os
                 os.fsync(stream.fileno())
             self._previous_hash = record_hash
             return record_hash
