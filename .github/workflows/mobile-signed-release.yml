@@ -60,8 +60,10 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > mobile/android/app/neon-shield-upload.jks
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > mobile/android/app/neon-shield-upload.jks
           test -s mobile/android/app/neon-shield-upload.jks
+          KEYSTORE_ENTRY=$(keytool -list -v -keystore mobile/android/app/neon-shield-upload.jks -storepass:env ANDROID_KEYSTORE_PASSWORD -alias "$ANDROID_KEY_ALIAS" 2>/dev/null)
+          printf '%s\n' "$KEYSTORE_ENTRY" | grep -q 'Entry type: PrivateKeyEntry'
           cat > mobile/android/key.properties <<EOF
           storePassword=$ANDROID_KEYSTORE_PASSWORD
           keyPassword=$ANDROID_KEY_PASSWORD
