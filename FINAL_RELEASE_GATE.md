@@ -24,13 +24,13 @@ A gate is marked complete only when the required evidence exists. Failed checks 
 | Monitoring and alerting | Authentication, abuse, service, database and audit-integrity alerts verified | ⬜ Not deployed |
 | Real-device smoke test | Supported iPhone/iPad test plan executed on available release builds | ⬜ Pending device execution |
 | Release signing | Android/iOS signing validation and store-upload readiness | 🟡 Pipeline hardened, final signing evidence pending |
-| Independent security review | Independent scope, findings, remediation and retest evidence | 🟢 Identity/authentication review completed in PR #69; additional application review recorded after PR #70 |
+| Independent security review | Independent scope, findings, remediation and retest evidence | 🟡 Evidence reconciliation required: PR #69 and PR #70 contain security changes, but the current GitHub review records do not show submitted independent approvals; do not mark this gate complete until verifiable reviewer evidence is attached |
 | Store/release readiness | Store metadata, privacy/support material and production configuration verified | ⬜ Pending final release preparation |
 
 ## Application-level review notes
 
-- PR #69 addressed the identified high-severity refresh-token concurrency boundary with atomic session rotation.
-- PR #70 made managed-database row locking the default for concurrency-sensitive audit/session operations.
+- PR #69 contains the atomic session-rotation change for the identified refresh-token concurrency boundary. Preserve the implementation and test evidence, but reconcile independent reviewer evidence before describing the change as independently reviewed.
+- PR #70 contains the managed-database row-locking change for concurrency-sensitive audit/session operations. Preserve the implementation and test evidence, but reconcile independent reviewer evidence before describing the change as independently reviewed.
 - Focused review found no implemented password-reset, recovery-token, OTP or identity-verification code path. These remain integration/deployment gates and must not be represented as completed until a real implementation is independently reviewed.
 - The current production secret contract requires `NEON_IDP_CLIENT_SECRET` and `NEON_DB_PEPPER` through the injected secret provider. `NEON_SESSION_SECRET` is intentionally excluded because the current session design uses opaque random server-side tokens and has no separate session-signing or encryption consumer. Do not provision it unless a concrete, tested cryptographic use is introduced and reviewed.
 - Production composition fails closed when required secret, managed persistence, security-event or alert dependencies are absent.
