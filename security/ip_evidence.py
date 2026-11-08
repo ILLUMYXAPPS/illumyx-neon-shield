@@ -111,7 +111,7 @@ class JsonlEvidenceSink:
 
                 lock_stream.seek(0, os.SEEK_END)
                 if lock_stream.tell() == 0:
-                    lock_stream.write(b"\\0")
+                    lock_stream.write(b"\0")
                     lock_stream.flush()
                 lock_stream.seek(0)
                 msvcrt.locking(lock_stream.fileno(), msvcrt.LK_LOCK, 1)
@@ -160,7 +160,7 @@ class JsonlEvidenceSink:
             record_hash = hashlib.sha256(canonical).hexdigest()
             payload["record_hash"] = record_hash
             with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(payload, sort_keys=True) + "\\n")
+                stream.write(json.dumps(payload, sort_keys=True) + "\n")
                 stream.flush()
                 os.fsync(stream.fileno())
             self._previous_hash = record_hash
