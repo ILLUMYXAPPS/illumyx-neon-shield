@@ -1,4 +1,5 @@
 import json
+import multiprocessing
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,12 @@ from security.ip_evidence import (
     NeonShieldEvidenceMiddleware,
     resolve_client_ip,
 )
+
+
+def _append_evidence_records(path: str, count: int) -> None:
+    sink = JsonlEvidenceSink(path)
+    for index in range(count):
+        sink.append({"worker_record": index})
 
 
 class ResolveClientIpTests(unittest.TestCase):
@@ -119,6 +126,35 @@ class RequestEvidenceRecorderTests(unittest.TestCase):
                 status_code=200,
             ))
             self.assertFalse(path.exists())
+
+    def test_serializes_concurrent_process_writes_into_one_valid_chain(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "events.jsonl")
+            process_count = 4
+            records_per_process = 5
+            context = multiprocessing.get_context("spawn")
+            processes = [
+                context.Process(
+                    target=_append_evidence_records,
+                    args=(path, records_per_process),
+                )
+                for _ in range(process_count)
+            ]
+            for process in processes:
+                process.start()
+            for process in processes:
+                process.join(timeout=20)
+            for process in processes:
+                if process.is_alive():
+                    process.terminate()
+                    process.join()
+                    self.fail("Evidence writer process did not finish")
+                self.assertEqual(process.exitcode, 0)
+
+            lines = Path(path).read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), process_count * records_per_process)
+            # Reopening verifies every previous_hash and record_hash link.
+            JsonlEvidenceSink(path)
 
     def test_detects_tampering_before_appending(self):
         with tempfile.TemporaryDirectory() as directory:
