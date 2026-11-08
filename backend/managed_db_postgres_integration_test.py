@@ -41,15 +41,45 @@ class ManagedPostgresIntegrationTests(unittest.TestCase):
             return psycopg.connect(self.dsn, options=f"-c search_path={self.schema}")
 
         self.connect = connect
-        self.store = ManagedDbAuthStore(connect, pepper="postgres-integration-test-pepper")
-        self.store.migrate()
+        # Apply the production migration sequence to a genuinely fresh schema
+        # before the managed-store compatibility bootstrap can create tables.
         MigrationRunner(
             connect, PRODUCTION_MIGRATIONS, placeholder="%s"
         ).apply_pending()
+        self.store = ManagedDbAuthStore(connect, pepper="postgres-integration-test-pepper")
+        self.store.migrate()
 
     def tearDown(self) -> None:
         with psycopg.connect(self.dsn) as connection:
             connection.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
+
+    def test_production_migration_creates_family_invitation_foreign_keys(self) -> None:
+        with self.connect() as connection:
+            constraints = connection.execute(
+                "SELECT pg_get_constraintdef(oid) "
+                "FROM pg_constraint "
+                "WHERE conrelid = 'family_invitations'::regclass AND contype = 'f'"
+            ).fetchall()
+
+        definitions = {row[0].lower() for row in constraints}
+        self.assertTrue(
+            any(
+                "foreign key (owner_subject_id)" in definition
+                and "references users(subject_id)" in definition
+                and "on delete cascade" in definition
+                for definition in definitions
+            ),
+            f"owner_subject_id foreign key missing from {definitions!r}",
+        )
+        self.assertTrue(
+            any(
+                "foreign key (accepted_by)" in definition
+                and "references users(subject_id)" in definition
+                and "on delete set null" in definition
+                for definition in definitions
+            ),
+            f"accepted_by foreign key missing from {definitions!r}",
+        )
 
     def test_concurrent_audit_writes_form_one_unbroken_chain(self) -> None:
         event_count = 12
