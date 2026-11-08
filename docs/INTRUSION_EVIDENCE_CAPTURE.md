@@ -22,7 +22,7 @@ An IP address is an investigative lead, not proof of a person's identity. NAT, c
 
 ## Evidence integrity and storage
 
-The included JSONL sink writes append-only records with a SHA-256 hash chain and fsync. It verifies the existing chain before accepting new records. This is tamper-evident relative to a separately trusted/anchored chain head; it is not tamper-proof if an attacker can rewrite the entire file and its chain.
+The included JSONL sink writes append-only records with a SHA-256 hash chain and fsync. It verifies the existing chain before accepting new records. This is tamper-evident relative to a separately trusted/anchored chain head; it is not tamper-proof if an attacker can rewrite the entire file and its chain. A sibling lock file serializes writes across threads and OS processes, and each append refreshes and validates the chain head while holding that lock. The lock relies on the underlying filesystem's advisory-lock semantics; verify those semantics before using a network filesystem or shared volume. The local JSONL sink is not a substitute for a managed append-only production log.
 
 Before production use:
 1. Configure encrypted, access-controlled durable storage or a managed append-only log service.
